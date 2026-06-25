@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project data and generated artifacts
+data/
+models/checkpoints/
+models/exported/
+outputs/
+*.mha
+*.nii
+*.nii.gz
+*.nrrd
+*.dcm
+*.pt
+*.pth
+*.ckpt
+
+# Environment files
+.env
+.env.local
