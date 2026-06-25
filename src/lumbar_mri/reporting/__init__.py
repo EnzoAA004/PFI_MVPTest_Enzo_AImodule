@@ -1,0 +1,1 @@
+"""Exportación de resultados estructurados."""
