@@ -1,49 +1,114 @@
-# Arquitectura inicial
+# Arquitectura técnica del producto
 
-## Flujo general
+## Decisión general
+
+La arquitectura del producto será híbrida. El desarrollo inicial del motor de inteligencia artificial se realizará en Python y Google Colab, mientras que la capa de producto final se integrará con un backend principal en Spring Boot.
+
+## Capas principales
+
+### 1. Backend principal
+
+Tecnología prevista: Spring Boot / Java.
+
+Responsabilidades:
+
+- APIs del producto.
+- Gestión de casos.
+- Estados de revisión.
+- Persistencia.
+- Trazabilidad.
+- Salida estructurada editable.
+- Orquestación del motor Python.
+- Usuarios y permisos si corresponde.
+
+No se usará FastAPI como backend principal porque el equipo prefiere y domina Spring Boot.
+
+### 2. Motor de IA y procesamiento
+
+Tecnología prevista: Python, inicialmente en Google Colab.
+
+Responsabilidades:
+
+- Lectura de imágenes médicas.
+- Preprocesamiento.
+- Segmentación.
+- Métricas.
+- Mediciones geométricas.
+- Exportación de resultados técnicos en CSV/JSON.
+
+La integración futura con Spring Boot podrá resolverse mediante archivos, JSON, endpoint interno o worker Python. Al inicio se prioriza no sobrediseñar microservicios.
+
+### 3. Frontend futuro
+
+Tecnología prevista: React.
+
+Responsabilidades:
+
+- Visualizar imagen.
+- Visualizar máscaras o contornos.
+- Mostrar mediciones.
+- Mostrar estados de revisión.
+- Permitir edición de salida estructurada.
+
+Para visualización médica se puede tomar como referencia OHIF / Cornerstone3D, pero no se desarrollará un visor DICOM completo desde cero en la primera etapa.
+
+### 4. Persistencia futura
+
+Tecnología prevista: PostgreSQL + almacenamiento de archivos.
+
+Responsabilidades:
+
+- Casos.
+- Resultados.
+- Estados de revisión.
+- Trazabilidad.
+- Metadatos.
+- Rutas de imágenes, máscaras, figuras y salidas exportables.
+
+## Flujo técnico inicial en Colab
 
 ```text
-RM lumbar sagital
+Dataset público / Drive
     ↓
-Carga y validación
+Lectura de imagen médica
+    ↓
+Inspección de metadatos
     ↓
 Preprocesamiento
     ↓
-Modelo de segmentación
-    ↓
-Postprocesamiento
+Segmentación sagital
     ↓
 Métricas y mediciones
     ↓
-Visualización
+Visualización y evidencia
     ↓
-Salida estructurada editable
+CSV / JSON exportable
+    ↓
+Consumo futuro por Spring Boot
 ```
 
-## Capas del proyecto
+## Flujo funcional del producto
 
-### 1. Capa experimental
+```text
+Carga de estudio
+    ↓
+Segmentación automática
+    ↓
+Visualización imagen + máscara
+    ↓
+Mediciones geométricas trazables
+    ↓
+Revisión profesional
+    ↓
+Salida estructurada editable
+    ↓
+Persistencia y auditoría
+```
 
-Ubicada en `notebooks/`. Sirve para ejecutar el proyecto en Colab, probar modelos, visualizar resultados y documentar experimentos.
+## Plano sagital y módulo axial
 
-### 2. Capa de código reutilizable
-
-Ubicada en `src/lumbar_mri/`. Contiene funciones, modelos y utilidades importables desde notebooks, scripts y apps.
-
-### 3. Capa de producto
-
-Ubicada en `app/`. Inicialmente se implementará con Streamlit como demo simple.
-
-## Módulos actuales
-
-- `config.py`: rutas y configuración general.
-- `data/`: carga y preprocesamiento.
-- `models/`: modelos de segmentación.
-- `training/`: métricas y entrenamiento futuro.
-- `measurements/`: mediciones geométricas desde máscaras.
-- `visualization/`: overlays y gráficos.
-- `reporting/`: exportación estructurada.
+El núcleo inicial del MVP sigue siendo sagital por disponibilidad de dataset y alcance académico. El plano axial se considera un módulo complementario importante, derivado del user research, pero debe evaluarse mediante un spike técnico antes de incorporarlo al MVP ampliado.
 
 ## Decisión clave
 
-El notebook de Colab no debe contener toda la lógica del sistema. Debe importar funciones desde `src/lumbar_mri/` para mantener trazabilidad, reutilización y limpieza del código.
+Los notebooks de Colab deben construir evidencia técnica verificable, pero no deben mezclar lógica de producto de Spring Boot. El motor Python debe exportar resultados claros y trazables para que luego puedan ser consumidos por el backend.
