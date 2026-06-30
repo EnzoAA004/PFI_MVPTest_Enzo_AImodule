@@ -1,0 +1,26 @@
+ID,Area,Task,Status,Priority,Type,Context,Acceptance Criteria,Dependency,Notes
+DONE-01,Dataset SPIDER,Exploración inicial SPIDER,Hecho,Alta,Dataset,"SPIDER explorado con shapes, labels y orientación sagital",Inventario y visualización documentados,,Consolidado
+DONE-02,Sagital,Preprocesamiento SPIDER,Hecho,Alta,Preprocesamiento,406 candidatos útiles excluyendo t2_SPACE,Datos listos para entrenamiento sagital,DONE-01,Consolidado
+DONE-03,Sagital,Baseline binario mejorado,Hecho,Alta,Modelo,Val Dice 0.8875; Holdout Dice 0.8816,Modelo binario entrenado y evaluado,DONE-02,Consolidado
+DONE-04,Sagital,Modelo multiclase agrupado,Hecho,Alta,Modelo,Val Dice macro no-bg 0.8392; Holdout Dice 0.8311,Modelo sagital multiclase validado,DONE-02,Consolidado
+DONE-05,Axial,Inventario Al-Kafri/Sudirman,Hecho,Alta,Dataset,17.496 DICOM válidos; 8.203 candidatos axiales,Dataset inventariado,,Consolidado
+DONE-06,Axial,Pairing oficial HEADER_NONE,Hecho,Alta,Curación,1.201 candidatos oficiales filtrados,Pairing reconstruido con Slices Numbers + subfolders,DONE-05,Consolidado
+DONE-07,Axial,Identificación de labels finales,Hecho,Alta,Curación,05_Final_Ground_Truth_Data/Label_Images/L1_XXXX_DY.png,Labels finales parseados por caso/disco,DONE-06,Consolidado
+DONE-08,Axial,Subset T2 curado,Hecho,Alta,Curación,610 pares T2 curados,CSV de split y sanity checks generado,DONE-07,Consolidado
+DONE-09,Axial,Baseline E9 axial T2,Hecho,Alta,Modelo,Test Dice no-bg 0.6401; excl raw_0 aprox 0.80,Baseline completado,DONE-08,Consolidado
+DONE-10,Axial,Entrenamiento final limpio E10,Hecho,Alta,Modelo,Test Dice no-bg 0.6587; Test Dice excl raw_0 0.8167,Modelo axial T2 final entrenado,DONE-09,Consolidado
+TODO-01,Axial,E11 mapeo de clases axiales,Por hacer,Crítica,Análisis,"Identificar raw_50, raw_100, raw_150, raw_200 y raw_0",Tabla valor raw → clase → nombre anatómico → uso,DONE-10,Próximo paso
+TODO-02,Axial,Decidir tratamiento de raw_0,Por hacer,Crítica,Análisis,raw_0 tiene Dice bajo y puede distorsionar macro,"Decisión documentada: excluir, fusionar, mantener o reponderar",TODO-01,Próximo paso
+TODO-03,Sagital,E12 entrenamiento sagital final limpio,Por hacer,Alta,Modelo,Replicar estilo E10 para SPIDER multiclase,Checkpoint final + reportes comparables,DONE-04,Siguiente bloque
+TODO-04,Multiplanar,E13 pipeline común de inferencia,Por hacer,Alta,Pipeline,"Funciones infer_sagittal, infer_axial_t2, overlay, quality flags",API común para ambos modelos,"TODO-01,TODO-03",Siguiente bloque
+TODO-05,Agente IA,E14 orquestador IA en Colab,Por hacer,Alta,Agente,"Detectar plano, elegir modelo, ejecutar inferencia y generar reporte",Prototipo de agente funcional en notebook,TODO-04,Siguiente bloque
+TODO-06,3D,E15 spike de reconstrucción 3D,Por hacer,Media,3D,Leer geometría DICOM y proyectar máscaras a coordenadas físicas,Volumen/malla preliminar sobre un caso compatible,TODO-04,Investigación
+TODO-07,MVP,Integración backend Python service,Por hacer,Alta,Producto,Extraer código de notebooks a módulos/servicio,Endpoint de inferencia para sagital y axial,TODO-04,Producto
+TODO-08,MVP,UI de overlays y revisión profesional,Por hacer,Media,Producto,"Permitir ver, aceptar/rechazar y corregir máscaras",Flujo human-in-the-loop visible,TODO-07,Producto
+BLK-01,3D,Caso con sagital + axial del mismo paciente,Bloqueado,Crítica,Datos,SPIDER y Al-Kafri son datasets/pacientes distintos,Conseguir o usar estudio DICOM con ambas series,,Bloqueo para 3D real
+BLK-02,Clases,Mapeo anatómico oficial de labels Al-Kafri,Bloqueado,Alta,Documentación,Hace falta corroborar con MATLAB/docs/paper o experto,Nombre anatómico validado para cada clase,TODO-01,Puede desbloquearse con revisión documental
+FUT-01,Axial,Probar entrenamiento axial excluyendo raw_0,Backlog,Media,Mejora,Podría mejorar métricas y simplificar output,Comparativa E10 vs variante sin raw_0,TODO-02,Mejora
+FUT-02,Axial,Augmentations y pérdidas alternativas,Backlog,Media,Mejora,"Dice+Focal, elastic/light intensity transforms",Evaluar impacto en test,DONE-10,Mejora
+FUT-03,Axial,Modelo 2.5D con cortes vecinos,Backlog,Media,Investigación,Usar slices vecinos como canales,Comparativa con 2D,TODO-06,Avanzado
+FUT-04,Sagital,Comparar arquitectura final sagital,Backlog,Baja,Mejora,Attention U-Net / U-Net++ si hay tiempo,Solo si mejora sobre baseline actual,TODO-03,Opcional
+FUT-05,Validación,Validación profesional de overlays,Backlog,Alta,Validación,Mostrar overlays sagitales/axiales a especialista,Feedback cualitativo documentado,TODO-04,User research
