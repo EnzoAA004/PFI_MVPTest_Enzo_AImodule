@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-docker build -t pfi-ai-module -f ai_service/Dockerfile .
+docker build -t pfi-ai-module -f Dockerfile .
 
 cat <<'MSG'
 Docker image built as pfi-ai-module.

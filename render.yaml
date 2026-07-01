@@ -3,7 +3,7 @@ services:
     name: pfi-ai-module
     runtime: docker
     plan: free
-    dockerfilePath: ./ai_service/Dockerfile
+    dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /health
     autoDeploy: true

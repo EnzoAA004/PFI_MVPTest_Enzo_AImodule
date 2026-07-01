@@ -10,7 +10,7 @@ El servicio es asistivo: no emite diagnostico clinico, no recomienda tratamiento
 
 ## Dockerfile
 
-El Dockerfile en `ai_service/Dockerfile`:
+El Dockerfile principal para cloud esta en `./Dockerfile`:
 
 - usa `python:3.11-slim`;
 - instala `ai_service/requirements-ai-service.txt`;
@@ -45,9 +45,8 @@ En produccion, `PFI_MODEL_DIR` debe apuntar a `models/final` o a un volumen/buck
 Desde la raiz del repositorio:
 
 ```bash
-cd ai_service
-docker build -t pfi-ai-module .
-docker run --rm -p 8000:8000 --env-file ../.env.example pfi-ai-module
+docker build -t pfi-ai-module -f Dockerfile .
+docker run --rm -p 8000:8000 --env-file .env.example pfi-ai-module
 ```
 
 En otra terminal:
@@ -70,7 +69,7 @@ curl -X POST http://localhost:8000/pipeline/run \
 La forma recomendada es usar `render.yaml` desde la raiz del repositorio. Render detecta el servicio Docker con:
 
 ```yaml
-dockerfilePath: ./ai_service/Dockerfile
+dockerfilePath: ./Dockerfile
 dockerContext: .
 healthCheckPath: /health
 ```
@@ -79,7 +78,7 @@ Pasos:
 
 1. Subir el repo a GitHub.
 2. En Render, crear un nuevo Blueprint desde el repo o un Docker Web Service usando `render.yaml`.
-3. Confirmar que el Dockerfile sea `./ai_service/Dockerfile` y el contexto sea `.`.
+3. Confirmar que el Dockerfile sea `./Dockerfile` y el contexto sea `.`.
 4. Definir o revisar variables de entorno:
    - `PORT`
    - `PFI_MODEL_DIR`
@@ -97,7 +96,7 @@ La imagen crea la ruta `models/final` dentro del contenedor mediante un placehol
 ## Railway Docker
 
 1. Crear un nuevo servicio desde el repositorio.
-2. Usar despliegue Docker con contexto `ai_service` o configurar la ruta del Dockerfile.
+2. Usar despliegue Docker con contexto `.` y Dockerfile `./Dockerfile`.
 3. Cargar las variables de entorno necesarias.
 4. Conectar almacenamiento externo para modelos, outputs y reportes.
 5. Probar `/health`, `/models` y `/pipeline/run` con payload demo.
