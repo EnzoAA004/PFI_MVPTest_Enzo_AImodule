@@ -1,0 +1,28 @@
+{
+  "sagittal_spider": {
+    "plane": "sagittal",
+    "num_classes": 4,
+    "class_names": {
+      "0": "background",
+      "1": "vertebra_group",
+      "2": "canal",
+      "3": "disc_group"
+    },
+    "human_review_required": true,
+    "not_clinical_diagnosis": true
+  },
+  "axial_t2_alkafri": {
+    "plane": "axial",
+    "num_classes": 6,
+    "class_names": {
+      "0": "background_250",
+      "1": "raw_0",
+      "2": "raw_50",
+      "3": "raw_100",
+      "4": "raw_150",
+      "5": "raw_200"
+    },
+    "human_review_required": true,
+    "not_clinical_diagnosis": true
+  }
+}

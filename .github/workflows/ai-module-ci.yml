@@ -1,0 +1,27 @@
+name: AI Module CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ai-module:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install AI service dependencies
+        run: pip install -r ai_service/requirements-ai-service.txt
+
+      - name: Compile AI service
+        run: python -m compileall ai_service/pfi_ai_service
+
+      - name: Smoke API contract
+        run: python scripts/smoke_api_contract.py

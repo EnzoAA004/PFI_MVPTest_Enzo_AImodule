@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import json
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,9 @@ from fastapi import FastAPI, HTTPException
 
 from .settings import get_settings, MODEL_REGISTRY
 from .agent import build_agent_decisions, summarize_agent_decisions
+from .agent_policy import regression_test_report
+from .inference import run_axial_inference, run_sagittal_inference
+from .pipeline import PipelineRunRequest, run_pipeline
 from .reporting import build_markdown_summary
 
 app = FastAPI(title="PFI AI Service", version="0.1.0")
@@ -79,6 +83,25 @@ def models():
     })
 
 
+@app.post("/inference/sagittal")
+def inference_sagittal(request: PipelineRunRequest):
+    if request.plane != "sagittal":
+        request = request.copy(update={"plane": "sagittal"})
+    return clean_for_json(run_sagittal_inference(request))
+
+
+@app.post("/inference/axial")
+def inference_axial(request: PipelineRunRequest):
+    if request.plane != "axial":
+        request = request.copy(update={"plane": "axial"})
+    return clean_for_json(run_axial_inference(request))
+
+
+@app.post("/pipeline/run")
+def pipeline_run(request: PipelineRunRequest):
+    return clean_for_json(run_pipeline(request))
+
+
 @app.get("/agent/worklist")
 def agent_worklist():
     settings = get_settings()
@@ -117,3 +140,18 @@ def agent_report():
         "markdown": build_markdown_summary(summary),
         "items": decisions.to_dict(orient="records"),
     })
+
+
+@app.get("/agent/report/{run_id}")
+def agent_report_by_run(run_id: str):
+    settings = get_settings()
+    report_path = settings.output_dir / "agent_reports" / f"{run_id}.json"
+    if not report_path.exists():
+        raise HTTPException(status_code=404, detail=f"No existe reporte para run_id={run_id}")
+
+    return clean_for_json(json.loads(report_path.read_text(encoding="utf-8")))
+
+
+@app.get("/agent/regression-test")
+def agent_regression_test():
+    return clean_for_json(regression_test_report())

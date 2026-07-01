@@ -75,39 +75,35 @@ Respuesta actual:
 }
 ```
 
-## Endpoints solicitados pendientes
-
-Los siguientes endpoints no existen actualmente en `ai_service/pfi_ai_service/api.py`. No deben documentarse como disponibles hasta implementarlos.
-
 ### POST /inference/sagittal
 
-Estado: pendiente.
+Estado: implementado como contrato tecnico.
 
-Propuesta: recibir una referencia controlada a imagen/serie sagital, ejecutar preprocesamiento e inferencia con el modelo sagital configurado, devolver mascaras/overlays/mediciones como artefactos tecnicos y `human_review_required=true`.
+Recibe payload compatible con camelCase o snake_case. Ejecuta el pipeline tecnico en modo sagital y devuelve respuesta estructurada para backend. La inferencia real queda pendiente de conectar con modelos/pesos externos.
 
 ### POST /inference/axial
 
-Estado: pendiente.
+Estado: implementado como contrato tecnico.
 
-Propuesta: recibir una referencia controlada a imagen/serie axial, ejecutar inferencia axial si el modulo complementario esta habilitado, devolver artefactos tecnicos y `human_review_required=true`.
+Recibe payload compatible con camelCase o snake_case. Ejecuta el pipeline tecnico en modo axial y devuelve respuesta estructurada para backend. El plano axial se mantiene como modulo complementario.
 
 ### POST /pipeline/run
 
-Estado: pendiente.
+Estado: implementado como contrato tecnico.
 
-Propuesta: orquestar un pipeline reproducible para un caso de trabajo, registrando entradas, version de modelo, outputs y limitaciones.
+Orquesta una corrida tecnica reproducible para un caso. Actualmente devuelve una respuesta smoke/contrato sin procesar imagenes medicas ni cargar modelos pesados.
 
 ### GET /agent/report/{run_id}
 
-Estado: pendiente.
+Estado: implementado.
 
-Propuesta: recuperar un reporte especifico por `run_id` en lugar de leer siempre el reporte global actual.
+Recupera un reporte JSON por `run_id` desde `PFI_OUTPUT_DIR/agent_reports/{run_id}.json`. Si no existe, responde `404`.
 
 ### GET /agent/regression-test
 
-Estado: pendiente.
+Estado: implementado.
 
-Propuesta: ejecutar o consultar una prueba de regresion tecnica con datos sinteticos o fixtures no sensibles. No debe requerir datasets privados ni imagenes medicas pesadas.
+Devuelve un chequeo tecnico liviano de politica asistiva, sin modelos pesados ni imagenes medicas.
 
 ## Consideraciones metodologicas
 

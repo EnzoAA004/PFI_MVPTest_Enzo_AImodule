@@ -92,16 +92,13 @@ Implementados actualmente en `ai_service/pfi_ai_service/api.py`:
 
 - `GET /health`: estado del servicio y bandera `human_review_required`.
 - `GET /models`: registro tecnico de modelos configurado en codigo y rutas esperadas.
+- `POST /inference/sagittal`: contrato tecnico para pipeline sagital.
+- `POST /inference/axial`: contrato tecnico para pipeline axial complementario.
+- `POST /pipeline/run`: contrato principal consumible por backend.
 - `GET /agent/worklist`: lee la worklist tecnica del agente IA desde `PFI_ROOT/results/E14_ai_agent_orchestrator`.
 - `GET /agent/report`: genera resumen tecnico del agente IA a partir de la worklist y metricas disponibles.
-
-Pendientes o no implementados en el API actual:
-
-- `POST /inference/sagittal`
-- `POST /inference/axial`
-- `POST /pipeline/run`
-- `GET /agent/report/{run_id}`
-- `GET /agent/regression-test`
+- `GET /agent/report/{run_id}`: recupera reporte tecnico materializado por corrida.
+- `GET /agent/regression-test`: smoke tecnico de politica asistiva.
 
 Ver `docs/AI_MODULE_API_CONTRACT.md` para el contrato detallado.
 

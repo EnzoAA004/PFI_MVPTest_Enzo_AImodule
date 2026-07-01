@@ -1,0 +1,13 @@
+{
+  "dataset_policy": {
+    "store_full_datasets_in_repo": false,
+    "store_private_medical_images_in_repo": false,
+    "external_data_root_env": "PFI_ROOT"
+  },
+  "human_review_required": true,
+  "not_clinical_diagnosis": true,
+  "notes": [
+    "Config placeholder for reproducible academic runs.",
+    "Do not include patient-identifiable or heavy medical imaging data in Git."
+  ]
+}

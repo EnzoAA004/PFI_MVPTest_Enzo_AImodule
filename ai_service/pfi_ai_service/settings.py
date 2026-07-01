@@ -18,6 +18,7 @@ class ServiceSettings:
     results_root: Path
     figures_root: Path
     docs_root: Path
+    output_dir: Path
 
     sagittal_model_path: Path
     axial_model_path: Path
@@ -28,6 +29,7 @@ class ServiceSettings:
 
 def get_settings() -> ServiceSettings:
     pfi_root = Path(os.getenv("PFI_ROOT", "/content/drive/MyDrive/PFI_MVP"))
+    output_dir = Path(os.getenv("PFI_OUTPUT_DIR", "outputs"))
 
     models_root = pfi_root / "models"
     results_root = pfi_root / "results"
@@ -40,6 +42,7 @@ def get_settings() -> ServiceSettings:
         results_root=results_root,
         figures_root=figures_root,
         docs_root=docs_root,
+        output_dir=output_dir,
         sagittal_model_path=models_root / "E12_sagittal_multiclass_final_best.pt",
         axial_model_path=models_root / "E10_axial_t2_final_training_clean_best.pt",
         e13_results_root=results_root / "E13_multiplanar_inference_pipeline",
