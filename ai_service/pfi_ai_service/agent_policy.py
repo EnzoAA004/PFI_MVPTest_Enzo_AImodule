@@ -23,6 +23,9 @@ def build_agent_decision(
     if any("missing" in reason or "unknown" in reason for reason in reasons):
         priority = "high"
 
+    frontend_priority = "alta" if priority == "high" else "media"
+    frontend_status = "requiere_revision"
+
     return {
         "agent_status": status,
         "review_priority": priority,
@@ -32,6 +35,12 @@ def build_agent_decision(
         "model_key": model_key,
         "human_review_required": HUMAN_REVIEW_REQUIRED,
         "not_clinical_diagnosis": NOT_CLINICAL_DIAGNOSIS,
+        "status": frontend_status,
+        "priority": frontend_priority,
+        "flags": reasons,
+        "reasons": reasons,
+        "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
+        "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
     }
 
 
