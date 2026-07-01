@@ -14,6 +14,7 @@ from .agent_policy import regression_test_report
 from .inference import run_axial_inference, run_sagittal_inference
 from .pipeline import PipelineRunRequest, run_pipeline
 from .reporting import build_markdown_summary
+from .study_contract import demo_study_review_contract
 
 app = FastAPI(title="PFI AI Service", version="0.1.0")
 
@@ -100,6 +101,11 @@ def inference_axial(request: PipelineRunRequest):
 @app.post("/pipeline/run")
 def pipeline_run(request: PipelineRunRequest):
     return clean_for_json(run_pipeline(request))
+
+
+@app.get("/study/demo-review")
+def study_demo_review():
+    return clean_for_json(demo_study_review_contract())
 
 
 @app.get("/agent/worklist")
