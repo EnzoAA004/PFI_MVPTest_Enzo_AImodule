@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/../ai_service"
+cd "$(dirname "$0")/.."
 
-docker build -t pfi-ai-module .
+docker build -t pfi-ai-module -f ai_service/Dockerfile .
 
 cat <<'MSG'
 Docker image built as pfi-ai-module.
@@ -19,4 +19,4 @@ The container will start in this terminal. In another terminal, test:
 This smoke does not require heavy models, datasets, or real medical images.
 MSG
 
-docker run --rm -p "${PORT:-8000}:8000" --env-file ../.env.example pfi-ai-module
+docker run --rm -p "${PORT:-8000}:8000" --env-file .env.example pfi-ai-module

@@ -6,10 +6,12 @@ ENV PORT=8000
 
 WORKDIR /app
 
-COPY requirements-ai-service.txt .
+COPY ai_service/requirements-ai-service.txt .
 RUN pip install --no-cache-dir -r requirements-ai-service.txt
 
-COPY pfi_ai_service ./pfi_ai_service
+COPY ai_service/pfi_ai_service ./pfi_ai_service
+COPY config ./config
+COPY models/final ./models/final
 
 EXPOSE 8000
 

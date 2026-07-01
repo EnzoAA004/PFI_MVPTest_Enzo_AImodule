@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: pfi-ai-module
+    runtime: docker
+    plan: free
+    dockerfilePath: ./ai_service/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: PFI_MODEL_DIR
+        value: models/final
+      - key: PFI_MODEL_REGISTRY
+        value: config/model_registry_final.json
+      - key: PFI_DATA_FREEZE_CONFIG
+        value: config/data_freeze_config.json
+      - key: PFI_OUTPUT_DIR
+        value: outputs
+      - key: PFI_ROOT
+        value: /app

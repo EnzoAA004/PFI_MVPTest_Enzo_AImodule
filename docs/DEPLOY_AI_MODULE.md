@@ -67,20 +67,32 @@ curl -X POST http://localhost:8000/pipeline/run \
 
 ## Render Docker Web Service
 
-1. Crear un nuevo Web Service desde el repositorio.
-2. Seleccionar entorno Docker.
-3. Configurar root/contexto `ai_service` o indicar `ai_service/Dockerfile`, segun la configuracion de Render.
-4. Definir variables de entorno:
+La forma recomendada es usar `render.yaml` desde la raiz del repositorio. Render detecta el servicio Docker con:
+
+```yaml
+dockerfilePath: ./ai_service/Dockerfile
+dockerContext: .
+healthCheckPath: /health
+```
+
+Pasos:
+
+1. Subir el repo a GitHub.
+2. En Render, crear un nuevo Blueprint desde el repo o un Docker Web Service usando `render.yaml`.
+3. Confirmar que el Dockerfile sea `./ai_service/Dockerfile` y el contexto sea `.`.
+4. Definir o revisar variables de entorno:
    - `PORT`
    - `PFI_MODEL_DIR`
    - `PFI_ROOT`
    - `PFI_MODEL_REGISTRY`
    - `PFI_DATA_FREEZE_CONFIG`
    - `PFI_OUTPUT_DIR`
-5. Configurar almacenamiento externo para modelos/resultados, o un mecanismo de descarga controlado al arranque si el proyecto lo autoriza.
-6. Usar `/health` como health check.
+5. Usar `/health` como health check.
+6. Probar `/models` y `/pipeline/run` con payload demo.
 
 Render inyecta `PORT`; la imagen respeta ese valor.
+
+La imagen crea la ruta `models/final` dentro del contenedor mediante un placeholder. Si los pesos finales no estan versionados, el servicio igual despliega y responde el contrato/smoke, pero la inferencia real debe resolverse con Git LFS, disco/volumen, descarga controlada o almacenamiento externo autorizado.
 
 ## Railway Docker
 
