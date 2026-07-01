@@ -7,6 +7,7 @@ from typing import Any, Dict, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS, build_agent_decision
+from .reporting import write_json
 from .settings import MODEL_REGISTRY, get_settings
 
 
@@ -87,10 +88,12 @@ def run_pipeline(request: PipelineRunRequest) -> Dict[str, Any]:
         flags=flags or ["contract_smoke_pipeline_requires_review"],
     )
 
-    return _as_backend_response(
+    response = _as_backend_response(
         run_id=run_id,
         request=request,
         measurements=measurements,
         overlay_path=overlay_path,
         agent_decision=agent_decision,
     )
+    write_json(get_settings().output_dir / "agent_reports" / f"{run_id}.json", response)
+    return response
