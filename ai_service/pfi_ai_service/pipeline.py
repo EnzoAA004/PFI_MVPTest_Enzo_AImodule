@@ -4,22 +4,20 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS, build_agent_decision
 from .settings import MODEL_REGISTRY, get_settings
 
 
 class PipelineRunRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, validate_by_name=True)
+
     case_id: str = Field(..., alias="caseId")
     plane: Literal["sagittal", "axial"]
     model_key: str = Field(..., alias="modelKey")
     input_path: str = Field(..., alias="inputPath")
     metadata: Dict[str, Any] = Field(default_factory=dict)
-
-    class Config:
-        allow_population_by_field_name = True
-        populate_by_name = True
 
 
 def _run_id_for(request: PipelineRunRequest) -> str:

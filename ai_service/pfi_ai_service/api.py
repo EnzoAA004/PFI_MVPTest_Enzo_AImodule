@@ -86,14 +86,14 @@ def models():
 @app.post("/inference/sagittal")
 def inference_sagittal(request: PipelineRunRequest):
     if request.plane != "sagittal":
-        request = request.copy(update={"plane": "sagittal"})
+        request = request.model_copy(update={"plane": "sagittal"})
     return clean_for_json(run_sagittal_inference(request))
 
 
 @app.post("/inference/axial")
 def inference_axial(request: PipelineRunRequest):
     if request.plane != "axial":
-        request = request.copy(update={"plane": "axial"})
+        request = request.model_copy(update={"plane": "axial"})
     return clean_for_json(run_axial_inference(request))
 
 
