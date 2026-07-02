@@ -18,7 +18,7 @@ from .error_handlers import register_error_handlers
 from .inference import run_axial_inference, run_sagittal_inference
 from .model_artifacts import artifact_summary, registry_with_artifact_status
 from .pipeline import PipelineRunRequest, run_pipeline
-from .report_summary import summarize_agent_report
+from .report_summary import recent_agent_report_summaries, summarize_agent_report
 from .reporting import build_markdown_summary
 from .study_contract import demo_study_review_contract
 
@@ -262,6 +262,12 @@ def agent_report():
         "markdown": build_markdown_summary(summary),
         "items": decisions.to_dict(orient="records"),
     })
+
+
+@app.get("/agent/reports")
+def agent_reports(limit: int = 20):
+    settings = get_settings()
+    return clean_for_json(recent_agent_report_summaries(settings.output_dir / "agent_reports", limit))
 
 
 @app.get("/agent/report/{run_id}/summary")
