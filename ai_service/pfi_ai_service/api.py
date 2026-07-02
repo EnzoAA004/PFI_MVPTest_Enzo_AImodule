@@ -101,6 +101,21 @@ def contract_summary() -> dict[str, Any]:
     }
 
 
+def request_trace_id(http_request: Request) -> str:
+    value = getattr(http_request.state, "trace_id", None)
+    if isinstance(value, str) and value.strip():
+        return value
+    return resolve_trace_id(http_request.headers.get(TRACE_ID_HEADER))
+
+
+def with_trace_metadata(request: PipelineRunRequest, trace_id: str) -> PipelineRunRequest:
+    metadata = dict(request.metadata or {})
+    metadata.setdefault("traceId", trace_id)
+    metadata.setdefault("aiTraceId", trace_id)
+    metadata.setdefault("correlationId", trace_id)
+    return request.model_copy(update={"metadata": metadata})
+
+
 @app.get("/health")
 def health():
     settings = get_settings()
@@ -190,8 +205,9 @@ def inference_axial(request: PipelineRunRequest):
 
 
 @app.post("/pipeline/run")
-def pipeline_run(request: PipelineRunRequest):
-    return clean_for_json(run_pipeline(request))
+def pipeline_run(request: PipelineRunRequest, http_request: Request):
+    traced_request = with_trace_metadata(request, request_trace_id(http_request))
+    return clean_for_json(run_pipeline(traced_request))
 
 
 @app.get("/study/demo-review")
