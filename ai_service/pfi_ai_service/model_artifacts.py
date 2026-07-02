@@ -108,3 +108,53 @@ def artifact_summary() -> Dict[str, Any]:
         "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
         "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
     }
+
+
+def verify_model_artifacts() -> Dict[str, Any]:
+    models = registry_with_artifact_status()
+    missing = []
+    unverified = []
+    verified = []
+    for model_key, status in models.items():
+        artifact = status.get("artifact", {})
+        exists = bool(artifact.get("exists"))
+        sha256 = artifact.get("sha256")
+        integrity = artifact.get("integrityStatus")
+        model_result = {
+            "modelKey": model_key,
+            "plane": status.get("plane"),
+            "version": status.get("version"),
+            "path": artifact.get("path"),
+            "exists": exists,
+            "hashAlgorithm": artifact.get("hashAlgorithm", "sha256"),
+            "sha256": sha256,
+            "integrityStatus": integrity,
+            "readiness": status.get("readiness"),
+            "availableForRealInference": bool(status.get("availableForRealInference")),
+            "verified": exists and bool(sha256) and integrity == "hashed",
+        }
+        if not exists:
+            missing.append(model_result)
+        elif not model_result["verified"]:
+            unverified.append(model_result)
+        else:
+            verified.append(model_result)
+
+    summary = artifact_summary()
+    valid = not missing and not unverified and bool(models)
+    return {
+        "status": "verified" if valid else "degraded_contract_mode",
+        "valid": valid,
+        "readyForRealInference": summary["readyForRealInference"],
+        "defaultInferenceMode": summary["defaultInferenceMode"],
+        "modelsRegistered": summary["modelsRegistered"],
+        "artifactsAvailable": summary["artifactsAvailable"],
+        "artifactsMissing": summary["artifactsMissing"],
+        "artifactsHashed": summary["artifactsHashed"],
+        "hashAlgorithm": "sha256",
+        "verifiedModels": verified,
+        "missingArtifacts": missing,
+        "unverifiedArtifacts": unverified,
+        "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
+        "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
+    }
