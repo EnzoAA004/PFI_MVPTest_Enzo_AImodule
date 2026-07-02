@@ -48,6 +48,14 @@ def _effective_inference_mode(request: PipelineRunRequest) -> str:
     return "contract" if requested == "real" else requested
 
 
+def _trace_id(request: PipelineRunRequest) -> str | None:
+    value = request.metadata.get("traceId") or request.metadata.get("correlationId") or request.metadata.get("backendTraceId")
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
 def _contour(series_id: str, slice_index: int, points: list[tuple[float, float]]) -> Dict[str, Any]:
     return {
         "seriesId": series_id,
@@ -190,9 +198,11 @@ def _as_backend_response(
     measurements = _measurements_payload(masks, landmarks)
     ai_output = _ai_output_payload(agent_decision, inference_mode, requested_mode, artifact)
     quality = contract_quality_summary(masks, landmarks, measurements["values"])
+    trace_id = _trace_id(request)
     response = {
         "run_id": run_id,
         "runId": run_id,
+        "traceId": trace_id,
         "case_id": request.case_id,
         "caseId": request.case_id,
         "studyId": f"STUDY-{request.case_id.replace('CASE-', '')}",
@@ -225,6 +235,7 @@ def _as_backend_response(
         "modelArtifact": artifact,
         "metadata": {
             **request.metadata,
+            "traceId": trace_id,
             "contractMode": "visual_review_v1",
             "inferenceMode": inference_mode,
             "requestedInferenceMode": requested_mode,
