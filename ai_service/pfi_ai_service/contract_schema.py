@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any, Dict
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS
 
 
+def _schema_hash(schema: Dict[str, Any]) -> str:
+    canonical = json.dumps(schema, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def pipeline_contract_schema() -> Dict[str, Any]:
-    return {
+    schema: Dict[str, Any] = {
         "schemaVersion": "visual-review-contract-v1",
         "status": "stable",
         "purpose": "Describe la estructura esperada de /pipeline/run para frontend, backend y defensa academica.",
+        "generatedBy": "pfi-ai-module.contract_schema",
         "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
         "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
         "rootFields": {
@@ -102,3 +110,5 @@ def pipeline_contract_schema() -> Dict[str, Any]:
             "Las salidas contract/mock/real conservan la misma forma para frontend y backend.",
         ],
     }
+    schema["schemaHash"] = _schema_hash(schema)
+    return schema
