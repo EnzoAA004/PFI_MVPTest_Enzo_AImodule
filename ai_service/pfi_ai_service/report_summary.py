@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict
 
 
@@ -41,6 +44,46 @@ def summarize_agent_report(report: Dict[str, Any]) -> Dict[str, Any]:
         "diagnosisGenerated": bool(metadata.get("diagnosisGenerated", False)),
         "deidentified": bool(metadata.get("deidentified", True)),
         "source": metadata.get("source"),
+    }
+
+
+def recent_agent_report_summaries(reports_dir: Path, limit: int = 20) -> Dict[str, Any]:
+    safe_limit = max(1, min(int(limit or 20), 100))
+    if not reports_dir.exists():
+        return {
+            "status": "ok",
+            "count": 0,
+            "limit": safe_limit,
+            "items": [],
+            "humanReviewRequired": True,
+            "notClinicalDiagnosis": True,
+        }
+
+    report_files = sorted(
+        [path for path in reports_dir.glob("*.json") if path.is_file()],
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )[:safe_limit]
+    items = []
+    skipped = 0
+    for path in report_files:
+        try:
+            report = json.loads(path.read_text(encoding="utf-8"))
+            summary = summarize_agent_report(report)
+            summary["reportFile"] = path.name
+            summary["reportModifiedAt"] = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+            items.append(summary)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            skipped += 1
+
+    return {
+        "status": "ok",
+        "count": len(items),
+        "skipped": skipped,
+        "limit": safe_limit,
+        "items": items,
+        "humanReviewRequired": True,
+        "notClinicalDiagnosis": True,
     }
 
 
