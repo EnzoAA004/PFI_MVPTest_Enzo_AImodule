@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from .settings import get_settings, MODEL_REGISTRY
 from .agent import build_agent_decisions, summarize_agent_decisions
 from .agent_policy import regression_test_report
-from .contract_schema import pipeline_contract_schema
+from .contract_schema import contract_verification, pipeline_contract_schema
 from .inference import run_axial_inference, run_sagittal_inference
 from .model_artifacts import artifact_summary, registry_with_artifact_status
 from .pipeline import PipelineRunRequest, run_pipeline
@@ -143,6 +143,11 @@ def models():
 @app.get("/pipeline/schema")
 def pipeline_schema():
     return clean_for_json(pipeline_contract_schema())
+
+
+@app.get("/pipeline/schema/verify")
+def pipeline_schema_verify():
+    return clean_for_json(contract_verification())
 
 
 @app.post("/inference/sagittal")
