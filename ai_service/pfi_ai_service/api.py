@@ -72,6 +72,25 @@ def health():
     })
 
 
+@app.get("/warmup")
+def warmup():
+    """Endpoint liviano para mantener Render despierto y validar contrato basico.
+
+    No carga modelos pesados ni ejecuta inferencia. Esta pensado para UptimeRobot,
+    el backend y la pantalla de diagnostico del MVP.
+    """
+    settings = get_settings()
+    return clean_for_json({
+        "status": "ok",
+        "service": "pfi-ai-module",
+        "ready": True,
+        "modelsRegistered": len(MODEL_REGISTRY),
+        "outputDir": str(settings.output_dir),
+        "humanReviewRequired": True,
+        "notClinicalDiagnosis": True,
+    })
+
+
 @app.get("/models")
 def models():
     settings = get_settings()
