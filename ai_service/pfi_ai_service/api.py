@@ -16,7 +16,7 @@ from .agent_policy import regression_test_report
 from .contract_schema import contract_verification, pipeline_contract_schema
 from .error_handlers import register_error_handlers
 from .inference import run_axial_inference, run_sagittal_inference
-from .model_artifacts import artifact_summary, registry_with_artifact_status
+from .model_artifacts import artifact_summary, registry_with_artifact_status, verify_model_artifacts
 from .pipeline import PipelineRunRequest, run_pipeline
 from .report_summary import recent_agent_report_summaries, summarize_agent_report
 from .reporting import build_markdown_summary
@@ -187,6 +187,11 @@ def models():
             "notClinicalDiagnosis": True,
         },
     })
+
+
+@app.get("/models/verify")
+def models_verify():
+    return clean_for_json(verify_model_artifacts())
 
 
 @app.get("/pipeline/schema")
