@@ -64,6 +64,18 @@ def clean_for_json(value: Any) -> Any:
     return value
 
 
+def contract_summary() -> dict[str, Any]:
+    schema = pipeline_contract_schema()
+    return {
+        "schemaVersion": schema["schemaVersion"],
+        "schemaHash": schema["schemaHash"],
+        "status": schema["status"],
+        "generatedBy": schema["generatedBy"],
+        "humanReviewRequired": schema["humanReviewRequired"],
+        "notClinicalDiagnosis": schema["notClinicalDiagnosis"],
+    }
+
+
 @app.get("/health")
 def health():
     settings = get_settings()
@@ -75,6 +87,7 @@ def health():
         "modelsRoot": str(settings.models_root),
         "outputDir": str(settings.output_dir),
         "artifactSummary": summary,
+        "contract": contract_summary(),
         "defaultInferenceMode": summary["defaultInferenceMode"],
         "human_review_required": True,
         "humanReviewRequired": True,
@@ -99,6 +112,7 @@ def warmup():
         "modelsRoot": str(settings.models_root),
         "outputDir": str(settings.output_dir),
         "artifactSummary": summary,
+        "contract": contract_summary(),
         "defaultInferenceMode": summary["defaultInferenceMode"],
         "humanReviewRequired": True,
         "notClinicalDiagnosis": True,
