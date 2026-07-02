@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pfi_ai_service.contract_schema import pipeline_contract_schema
+from pfi_ai_service.contract_schema import contract_verification, pipeline_contract_schema
 
 
 def test_pipeline_contract_schema_declares_governance() -> None:
@@ -35,3 +35,15 @@ def test_pipeline_contract_schema_hash_is_stable() -> None:
     assert first["schemaHash"] == second["schemaHash"]
     assert isinstance(first["schemaHash"], str)
     assert len(first["schemaHash"]) == 64
+
+
+def test_pipeline_contract_verification_is_valid() -> None:
+    verification = contract_verification()
+
+    assert verification["valid"] is True
+    assert verification["hashValid"] is True
+    assert verification["governanceValid"] is True
+    assert verification["missingRootFields"] == []
+    assert verification["schemaHash"] == verification["recomputedHash"]
+    assert verification["humanReviewRequired"] is True
+    assert verification["notClinicalDiagnosis"] is True
