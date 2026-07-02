@@ -18,6 +18,7 @@ from .error_handlers import register_error_handlers
 from .inference import run_axial_inference, run_sagittal_inference
 from .model_artifacts import artifact_summary, registry_with_artifact_status
 from .pipeline import PipelineRunRequest, run_pipeline
+from .report_summary import summarize_agent_report
 from .reporting import build_markdown_summary
 from .study_contract import demo_study_review_contract
 
@@ -114,6 +115,14 @@ def with_trace_metadata(request: PipelineRunRequest, trace_id: str) -> PipelineR
     metadata.setdefault("aiTraceId", trace_id)
     metadata.setdefault("correlationId", trace_id)
     return request.model_copy(update={"metadata": metadata})
+
+
+def read_agent_report(run_id: str) -> dict[str, Any]:
+    settings = get_settings()
+    report_path = settings.output_dir / "agent_reports" / f"{run_id}.json"
+    if not report_path.exists():
+        raise HTTPException(status_code=404, detail=f"No existe reporte para run_id={run_id}")
+    return json.loads(report_path.read_text(encoding="utf-8"))
 
 
 @app.get("/health")
@@ -255,14 +264,14 @@ def agent_report():
     })
 
 
+@app.get("/agent/report/{run_id}/summary")
+def agent_report_summary(run_id: str):
+    return clean_for_json(summarize_agent_report(read_agent_report(run_id)))
+
+
 @app.get("/agent/report/{run_id}")
 def agent_report_by_run(run_id: str):
-    settings = get_settings()
-    report_path = settings.output_dir / "agent_reports" / f"{run_id}.json"
-    if not report_path.exists():
-        raise HTTPException(status_code=404, detail=f"No existe reporte para run_id={run_id}")
-
-    return clean_for_json(json.loads(report_path.read_text(encoding="utf-8")))
+    return clean_for_json(read_agent_report(run_id))
 
 
 @app.get("/agent/regression-test")
