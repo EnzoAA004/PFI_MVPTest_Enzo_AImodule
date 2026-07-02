@@ -4,6 +4,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from .pipeline import PipelineRunRequest, run_pipeline
+
 
 class Point(BaseModel):
     x: float
@@ -94,32 +96,38 @@ class StudyReviewResponse(BaseModel):
 
 
 def demo_study_review_contract() -> Dict[str, Any]:
-    response = StudyReviewResponse(
-        studyId="STUDY-DEMO-0142",
+    """Devuelve el mismo contrato visual que /pipeline/run para evitar drift entre demo y pipeline."""
+    pipeline_response = run_pipeline(PipelineRunRequest(
         caseId="CASE-DEMO-0142",
-        patientId="PAT-0087",
-        studyDate="2026-07-01",
-        modality="MRI",
-        bodyRegion="Lumbar Spine",
-        reviewStatus="pendiente",
+        plane="sagittal",
         modelKey="sagittal_spider",
-        modelVersion="contract-v1",
-        aiOutput=AiOutputState(
-            status="ai_output_pending",
-            label="AI output pending / real inference pending",
-            description="Prepared contract for overlayUrl, maskContours, landmarks and measurements.values.",
-            realInferenceAvailable=False,
-        ),
-        series=[
-            StudySeries(id="series-sag-t2", name="Sagittal T2", plane="sagittal", sequence="T2", sliceCount=96, selectedSlice=58),
-            StudySeries(id="series-ax-t2", name="Axial T2 L4-L5", plane="axial", sequence="T2", sliceCount=48, selectedSlice=24),
-        ],
-        masks=[],
-        landmarks=[],
-        measurements=[
-            StudyMeasurement(id="disc-height-l45", label="Disc Height", level="L4-L5", value=13.8, aiValue=13.8, unit="mm", confidence=0.82, linkedLandmarks=[]),
-            StudyMeasurement(id="canal-diameter-l45", label="Central Canal Diameter", level="L4-L5", value=14.2, aiValue=14.2, unit="mm", confidence=0.76, linkedLandmarks=[]),
-        ],
-        metadata={"source": "ai-module-study-contract", "deidentified": True},
+        inputPath="demo/CASE-DEMO-0142",
+        metadata={
+            "patientId": "PAT-0087",
+            "studyDate": "2026-07-01",
+            "source": "ai-module-study-contract",
+            "inferenceMode": "contract",
+        },
+    ))
+    response = StudyReviewResponse(
+        studyId=pipeline_response["studyId"],
+        caseId=pipeline_response["caseId"],
+        patientId=pipeline_response["patientId"],
+        studyDate=pipeline_response["studyDate"],
+        modality=pipeline_response["modality"],
+        bodyRegion=pipeline_response["bodyRegion"],
+        reviewStatus=pipeline_response["reviewStatus"],
+        modelKey=pipeline_response["modelKey"],
+        modelVersion=pipeline_response["modelVersion"],
+        aiOutput=pipeline_response["aiOutput"],
+        series=pipeline_response["series"],
+        masks=pipeline_response["masks"],
+        landmarks=pipeline_response["landmarks"],
+        measurements=pipeline_response["measurementValues"],
+        metadata={
+            **pipeline_response["metadata"],
+            "source": "ai-module-study-contract",
+            "sameContractAsPipelineRun": True,
+        },
     )
     return response.model_dump(by_alias=True)
