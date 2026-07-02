@@ -14,6 +14,7 @@ from .settings import get_settings, MODEL_REGISTRY
 from .agent import build_agent_decisions, summarize_agent_decisions
 from .agent_policy import regression_test_report
 from .contract_schema import contract_verification, pipeline_contract_schema
+from .error_handlers import register_error_handlers
 from .inference import run_axial_inference, run_sagittal_inference
 from .model_artifacts import artifact_summary, registry_with_artifact_status
 from .pipeline import PipelineRunRequest, run_pipeline
@@ -24,6 +25,7 @@ TRACE_ID_HEADER = "X-Trace-Id"
 MAX_TRACE_ID_LENGTH = 96
 
 app = FastAPI(title="PFI AI Service", version="0.1.0")
+register_error_handlers(app)
 
 
 def resolve_trace_id(incoming_trace_id: str | None) -> str:
