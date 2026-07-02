@@ -23,6 +23,9 @@ def test_pipeline_run_returns_visual_review_contract() -> None:
     assert len(response["measurementValues"]) >= 3
     assert response["quality"]["measurementCount"] == len(response["measurementValues"])
     assert response["quality"]["measurementsDerivedFromContours"] is True
+    assert response["modelArtifact"]["key"] == "sagittal_spider"
+    assert response["modelArtifact"]["readiness"] in {"contract_only_missing_artifact", "real_artifact_available"}
+    assert response["metadata"]["modelArtifact"]["extension"] == ".pt"
     assert all("aiValue" in item for item in response["measurementValues"])
     assert all("reviewerValue" in item for item in response["measurementValues"])
 
@@ -38,5 +41,7 @@ def test_real_inference_request_degrades_to_contract_mode() -> None:
 
     assert response["aiOutput"]["requestedInferenceMode"] == "real"
     assert response["aiOutput"]["inferenceMode"] == "contract"
-    assert response["aiOutput"]["realInferenceAvailable"] is False
+    assert response["aiOutput"]["realInferenceAvailable"] == response["modelArtifact"]["availableForRealInference"]
     assert "real_inference_requested_but_contract_mode_used" in response["agentDecision"]["flags"]
+    if not response["modelArtifact"]["availableForRealInference"]:
+        assert "model_artifact_missing_for_real_inference" in response["agentDecision"]["flags"]
