@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import math
 import json
+import re
+import uuid
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 
 from .settings import get_settings, MODEL_REGISTRY
 from .agent import build_agent_decisions, summarize_agent_decisions
@@ -18,7 +20,28 @@ from .pipeline import PipelineRunRequest, run_pipeline
 from .reporting import build_markdown_summary
 from .study_contract import demo_study_review_contract
 
+TRACE_ID_HEADER = "X-Trace-Id"
+MAX_TRACE_ID_LENGTH = 96
+
 app = FastAPI(title="PFI AI Service", version="0.1.0")
+
+
+def resolve_trace_id(incoming_trace_id: str | None) -> str:
+    if not incoming_trace_id or not incoming_trace_id.strip():
+        return f"trace-{uuid.uuid4()}"
+    sanitized = re.sub(r"[^a-zA-Z0-9._:-]", "-", incoming_trace_id.strip())
+    if not sanitized:
+        return f"trace-{uuid.uuid4()}"
+    return sanitized[:MAX_TRACE_ID_LENGTH]
+
+
+@app.middleware("http")
+async def trace_id_middleware(request: Request, call_next):
+    trace_id = resolve_trace_id(request.headers.get(TRACE_ID_HEADER))
+    request.state.trace_id = trace_id
+    response = await call_next(request)
+    response.headers[TRACE_ID_HEADER] = trace_id
+    return response
 
 
 def clean_for_json(value: Any) -> Any:
