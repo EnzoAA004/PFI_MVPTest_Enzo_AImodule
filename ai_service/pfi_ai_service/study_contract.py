@@ -72,9 +72,12 @@ class AiOutputState(BaseModel):
     status: str
     label: str
     description: str
+    inference_mode: Optional[str] = Field(default=None, alias="inferenceMode")
+    requested_inference_mode: Optional[str] = Field(default=None, alias="requestedInferenceMode")
     real_inference_available: bool = Field(default=False, alias="realInferenceAvailable")
     human_review_required: bool = Field(default=True, alias="humanReviewRequired")
     not_clinical_diagnosis: bool = Field(default=True, alias="notClinicalDiagnosis")
+    agent_decision: Dict[str, Any] = Field(default_factory=dict, alias="agentDecision")
 
 
 class StudyReviewResponse(BaseModel):
