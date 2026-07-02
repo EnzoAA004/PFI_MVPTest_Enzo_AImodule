@@ -8,6 +8,7 @@ def test_pipeline_contract_schema_declares_governance() -> None:
 
     assert schema["schemaVersion"] == "visual-review-contract-v1"
     assert schema["status"] == "stable"
+    assert schema["generatedBy"] == "pfi-ai-module.contract_schema"
     assert schema["humanReviewRequired"] is True
     assert schema["notClinicalDiagnosis"] is True
     assert "rootFields" in schema
@@ -25,3 +26,12 @@ def test_pipeline_contract_schema_contains_frontend_keys() -> None:
     guarantees = " ".join(schema["guarantees"])
     assert "humanReviewRequired=true" in guarantees
     assert "notClinicalDiagnosis=true" in guarantees
+
+
+def test_pipeline_contract_schema_hash_is_stable() -> None:
+    first = pipeline_contract_schema()
+    second = pipeline_contract_schema()
+
+    assert first["schemaHash"] == second["schemaHash"]
+    assert isinstance(first["schemaHash"], str)
+    assert len(first["schemaHash"]) == 64
