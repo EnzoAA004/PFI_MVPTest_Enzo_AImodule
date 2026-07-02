@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS, build_agent_decision
 from .contract_geometry import build_landmarks_from_masks, build_measurements_from_contract, contract_quality_summary
+from .model_artifacts import model_status
 from .reporting import write_json
 from .settings import MODEL_REGISTRY, get_settings
 
@@ -157,14 +158,15 @@ def _measurements_payload(masks: list[Dict[str, Any]], landmarks: list[Dict[str,
     }
 
 
-def _ai_output_payload(agent_decision: Dict[str, Any], inference_mode: str, requested_mode: str) -> Dict[str, Any]:
+def _ai_output_payload(agent_decision: Dict[str, Any], inference_mode: str, requested_mode: str, artifact: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "status": "contract_ready",
         "label": "Contrato visual listo",
         "description": "Pipeline preparado con series, masks, landmarks y measurements.values para revision profesional.",
         "inferenceMode": inference_mode,
         "requestedInferenceMode": requested_mode,
-        "realInferenceAvailable": False,
+        "realInferenceAvailable": bool(artifact.get("availableForRealInference", False)),
+        "modelReadiness": artifact.get("readiness"),
         "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
         "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
         "agentDecision": agent_decision,
@@ -180,11 +182,13 @@ def _as_backend_response(
 ) -> Dict[str, Any]:
     requested_mode = _requested_inference_mode(request)
     inference_mode = _effective_inference_mode(request)
+    model_info = dict(MODEL_REGISTRY.get(request.model_key, {}))
+    artifact = model_status(request.model_key, model_info)
     series = _series_payload(request, overlay_path)
     masks = _masks_payload()
     landmarks = _landmarks_payload(masks)
     measurements = _measurements_payload(masks, landmarks)
-    ai_output = _ai_output_payload(agent_decision, inference_mode, requested_mode)
+    ai_output = _ai_output_payload(agent_decision, inference_mode, requested_mode, artifact)
     quality = contract_quality_summary(masks, landmarks, measurements["values"])
     response = {
         "run_id": run_id,
@@ -200,7 +204,7 @@ def _as_backend_response(
         "plane": request.plane,
         "model_key": request.model_key,
         "modelKey": request.model_key,
-        "modelVersion": MODEL_REGISTRY.get(request.model_key, {}).get("version", "contract-v1"),
+        "modelVersion": artifact.get("version", "contract-v1"),
         "input_path": request.input_path,
         "inputPath": request.input_path,
         "series": series,
@@ -218,11 +222,14 @@ def _as_backend_response(
         "not_clinical_diagnosis": NOT_CLINICAL_DIAGNOSIS,
         "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
         "quality": quality,
+        "modelArtifact": artifact,
         "metadata": {
             **request.metadata,
             "contractMode": "visual_review_v1",
             "inferenceMode": inference_mode,
             "requestedInferenceMode": requested_mode,
+            "modelReadiness": artifact.get("readiness"),
+            "modelArtifact": artifact.get("artifact"),
             "quality": quality,
             "deidentified": True,
             "diagnosisGenerated": False,
@@ -234,6 +241,7 @@ def _as_backend_response(
 def run_pipeline(request: PipelineRunRequest) -> Dict[str, Any]:
     flags = []
     model_info = MODEL_REGISTRY.get(request.model_key)
+    artifact = model_status(request.model_key, dict(model_info or {}))
     if model_info is None:
         flags.append(f"unknown_model_key:{request.model_key}")
     elif model_info.get("plane") != request.plane:
@@ -243,6 +251,8 @@ def run_pipeline(request: PipelineRunRequest) -> Dict[str, Any]:
     inference_mode = _effective_inference_mode(request)
     if requested_mode == "real" and inference_mode != "real":
         flags.append("real_inference_requested_but_contract_mode_used")
+    if requested_mode == "real" and not artifact.get("availableForRealInference", False):
+        flags.append("model_artifact_missing_for_real_inference")
 
     run_id = _run_id_for(request)
     overlay_path = _overlay_path_for(run_id)
