@@ -6,10 +6,32 @@ from typing import Any, Dict
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS
 
+REQUIRED_ROOT_FIELDS = [
+    "runId",
+    "caseId",
+    "patientId",
+    "studyDate",
+    "plane",
+    "modelKey",
+    "series",
+    "masks",
+    "landmarks",
+    "measurementValues",
+    "aiOutput",
+    "modelArtifact",
+    "quality",
+    "metadata",
+    "review",
+]
+
 
 def _schema_hash(schema: Dict[str, Any]) -> str:
     canonical = json.dumps(schema, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _hashable_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: value for key, value in schema.items() if key != "schemaHash"}
 
 
 def pipeline_contract_schema() -> Dict[str, Any]:
@@ -112,3 +134,31 @@ def pipeline_contract_schema() -> Dict[str, Any]:
     }
     schema["schemaHash"] = _schema_hash(schema)
     return schema
+
+
+def contract_verification() -> Dict[str, Any]:
+    schema = pipeline_contract_schema()
+    recomputed_hash = _schema_hash(_hashable_schema(schema))
+    root_fields = schema.get("rootFields", {})
+    missing_root_fields = [field for field in REQUIRED_ROOT_FIELDS if field not in root_fields]
+    governance_valid = (
+        schema.get("humanReviewRequired") is True
+        and schema.get("notClinicalDiagnosis") is True
+        and schema.get("aiOutput", {}).get("humanReviewRequired") is True
+        and schema.get("aiOutput", {}).get("notClinicalDiagnosis") is True
+    )
+    hash_valid = schema.get("schemaHash") == recomputed_hash
+    valid = hash_valid and governance_valid and not missing_root_fields
+    return {
+        "schemaVersion": schema["schemaVersion"],
+        "schemaHash": schema["schemaHash"],
+        "recomputedHash": recomputed_hash,
+        "hashValid": hash_valid,
+        "governanceValid": governance_valid,
+        "requiredRootFields": REQUIRED_ROOT_FIELDS,
+        "missingRootFields": missing_root_fields,
+        "valid": valid,
+        "generatedBy": schema["generatedBy"],
+        "humanReviewRequired": schema["humanReviewRequired"],
+        "notClinicalDiagnosis": schema["notClinicalDiagnosis"],
+    }
