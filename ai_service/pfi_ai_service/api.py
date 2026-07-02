@@ -12,6 +12,7 @@ from .settings import get_settings, MODEL_REGISTRY
 from .agent import build_agent_decisions, summarize_agent_decisions
 from .agent_policy import regression_test_report
 from .inference import run_axial_inference, run_sagittal_inference
+from .model_artifacts import artifact_summary, registry_with_artifact_status
 from .pipeline import PipelineRunRequest, run_pipeline
 from .reporting import build_markdown_summary
 from .study_contract import demo_study_review_contract
@@ -65,10 +66,18 @@ def clean_for_json(value: Any) -> Any:
 @app.get("/health")
 def health():
     settings = get_settings()
+    summary = artifact_summary()
     return clean_for_json({
         "status": "ok",
+        "service": "pfi-ai-module",
         "pfi_root": str(settings.pfi_root),
+        "modelsRoot": str(settings.models_root),
+        "outputDir": str(settings.output_dir),
+        "artifactSummary": summary,
+        "defaultInferenceMode": summary["defaultInferenceMode"],
         "human_review_required": True,
+        "humanReviewRequired": True,
+        "notClinicalDiagnosis": True,
     })
 
 
@@ -80,12 +89,16 @@ def warmup():
     el backend y la pantalla de diagnostico del MVP.
     """
     settings = get_settings()
+    summary = artifact_summary()
     return clean_for_json({
         "status": "ok",
         "service": "pfi-ai-module",
         "ready": True,
         "modelsRegistered": len(MODEL_REGISTRY),
+        "modelsRoot": str(settings.models_root),
         "outputDir": str(settings.output_dir),
+        "artifactSummary": summary,
+        "defaultInferenceMode": summary["defaultInferenceMode"],
         "humanReviewRequired": True,
         "notClinicalDiagnosis": True,
     })
@@ -94,11 +107,20 @@ def warmup():
 @app.get("/models")
 def models():
     settings = get_settings()
+    models_with_status = registry_with_artifact_status()
     return clean_for_json({
-        "models": MODEL_REGISTRY,
+        "models": models_with_status,
+        "summary": artifact_summary(),
         "paths": {
+            "modelsRoot": str(settings.models_root),
             "sagittal_model_path": str(settings.sagittal_model_path),
             "axial_model_path": str(settings.axial_model_path),
+        },
+        "contract": {
+            "realInferenceLoadsModels": False,
+            "artifactCheckOnly": True,
+            "humanReviewRequired": True,
+            "notClinicalDiagnosis": True,
         },
     })
 
