@@ -27,6 +27,7 @@ class ServiceSettings:
     axial_model_uri: str | None
     sagittal_manifest_uri: str | None
     axial_manifest_uri: str | None
+    model_download_token: str | None
 
     e13_results_root: Path
     e14_results_root: Path
@@ -59,6 +60,7 @@ def get_settings() -> ServiceSettings:
         axial_model_uri=optional_env("PFI_AXIAL_MODEL_URI"),
         sagittal_manifest_uri=optional_env("PFI_SAGITTAL_MANIFEST_URI"),
         axial_manifest_uri=optional_env("PFI_AXIAL_MANIFEST_URI"),
+        model_download_token=optional_env("PFI_MODEL_DOWNLOAD_TOKEN") or optional_env("HF_TOKEN"),
         e13_results_root=results_root / "E13_multiplanar_inference_pipeline",
         e14_results_root=results_root / "E14_ai_agent_orchestrator",
     )
