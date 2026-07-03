@@ -20,6 +20,7 @@ def build_readiness(output_dir: Path) -> Dict[str, Any]:
     if not contract_valid:
         status = "degraded_contract_invalid"
 
+    completion = mvp_completion(contract_valid, artifacts, reports, ready_for_demo, ready_for_real)
     return {
         "status": status,
         "service": "pfi-ai-module",
@@ -28,6 +29,7 @@ def build_readiness(output_dir: Path) -> Dict[str, Any]:
         "defaultInferenceMode": artifacts.get("defaultInferenceMode", "contract"),
         "recommendedInferenceMode": "real" if ready_for_real else "contract",
         "recommendedAction": recommended_action(contract_valid, artifacts),
+        "mvpCompletion": completion,
         "contract": {
             "valid": contract_valid,
             "schemaVersion": contract.get("schemaVersion"),
@@ -53,6 +55,34 @@ def build_readiness(output_dir: Path) -> Dict[str, Any]:
         "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
         "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
     }
+
+
+def mvp_completion(
+    contract_valid: bool,
+    artifacts: Dict[str, Any],
+    reports: Dict[str, Any],
+    ready_for_demo: bool,
+    ready_for_real: bool,
+) -> Dict[str, Any]:
+    items = [
+        completion_item("technical_contract", contract_valid),
+        completion_item("human_review_governance", True),
+        completion_item("artifact_verification", artifacts.get("status") is not None),
+        completion_item("run_reports", bool(reports.get("count", 0))),
+        completion_item("demo_readiness", ready_for_demo),
+        completion_item("real_inference_readiness", ready_for_real),
+    ]
+    complete = sum(1 for item in items if item["status"] == "complete")
+    return {
+        "completionPercent": round(complete * 100 / len(items)),
+        "completeItems": complete,
+        "totalItems": len(items),
+        "items": items,
+    }
+
+
+def completion_item(key: str, complete: bool) -> Dict[str, Any]:
+    return {"key": key, "status": "complete" if complete else "pending"}
 
 
 def recommended_action(contract_valid: bool, artifacts: Dict[str, Any]) -> str:
