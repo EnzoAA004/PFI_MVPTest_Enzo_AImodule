@@ -7,12 +7,14 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from .multiplanar_routes import register_multiplanar_routes
+from .real_inference_routes import register_real_inference_routes
 
 TRACE_ID_HEADER = "X-Trace-Id"
 
 
 def register_error_handlers(app: FastAPI) -> None:
     register_multiplanar_routes(app)
+    register_real_inference_routes(app)
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
