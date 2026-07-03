@@ -1,0 +1,19 @@
+{
+  "modelKey": "sagittal_spider",
+  "version": "real-baseline-v1",
+  "artifactFile": "sagittal_spider_multiclass_final_best.pt",
+  "dataset": "spider_sagittal",
+  "task": "lumbar_mri_multiclass_segmentation",
+  "inputPlane": "sagittal",
+  "classes": ["background", "vertebra_group", "canal", "disc_group"],
+  "metrics": {
+    "dice": 0.8311,
+    "iou": 0.7309,
+    "scope": "holdout_test_macro_no_background"
+  },
+  "trainingStatus": "baseline_evaluated",
+  "targetSize": [256, 256],
+  "baseChannels": 16,
+  "humanReviewRequired": true,
+  "notClinicalDiagnosis": true
+}
