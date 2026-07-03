@@ -15,6 +15,8 @@ from .agent import build_agent_decisions, summarize_agent_decisions
 from .agent_policy import regression_test_report
 from .contract_schema import contract_verification, pipeline_contract_schema
 from .error_handlers import register_error_handlers
+from .evaluation_summary import evaluation_summary as build_evaluation_summary
+from .evidence_summary import evidence_summary as build_evidence_summary
 from .inference import run_axial_inference, run_sagittal_inference
 from .model_artifacts import artifact_summary, registry_with_artifact_status, verify_model_artifacts
 from .pipeline import PipelineRunRequest, run_pipeline
@@ -199,6 +201,18 @@ def models():
 @app.get("/models/verify")
 def models_verify():
     return clean_for_json(verify_model_artifacts())
+
+
+@app.get("/evaluation/summary")
+def evaluation_summary():
+    settings = get_settings()
+    return clean_for_json(build_evaluation_summary(settings.output_dir))
+
+
+@app.get("/evaluation/evidence")
+def evaluation_evidence():
+    settings = get_settings()
+    return clean_for_json(build_evidence_summary(settings.output_dir))
 
 
 @app.get("/pipeline/schema")
