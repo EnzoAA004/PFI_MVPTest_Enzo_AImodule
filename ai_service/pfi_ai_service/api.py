@@ -19,6 +19,7 @@ from .evaluation_summary import evaluation_summary as build_evaluation_summary
 from .evidence_summary import evidence_summary as build_evidence_summary
 from .inference import run_axial_inference, run_sagittal_inference
 from .model_artifacts import artifact_summary, registry_with_artifact_status, verify_model_artifacts
+from .model_materializer import sync_model_artifacts
 from .multiplanar_contract import multiplanar_workspace_contract
 from .pipeline import PipelineRunRequest, run_pipeline
 from .readiness import build_readiness
@@ -202,6 +203,11 @@ def models():
 @app.get("/models/verify")
 def models_verify():
     return clean_for_json(verify_model_artifacts())
+
+
+@app.post("/models/sync")
+def models_sync(force: bool = False):
+    return clean_for_json(sync_model_artifacts(force=force))
 
 
 @app.get("/evaluation/summary")
