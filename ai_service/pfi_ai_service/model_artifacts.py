@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS
+from .model_manifest import read_model_manifest
 from .settings import MODEL_REGISTRY, get_settings
 
 
@@ -20,7 +21,7 @@ def _sha256(path: Path) -> str | None:
         return None
     digest = hashlib.sha256()
     with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        for chunk in iter(lambda: handle.read(1024 * 1024), b=""):
             digest.update(chunk)
     return digest.hexdigest()
 
@@ -67,21 +68,27 @@ def model_status(model_key: str, info: Dict[str, Any]) -> Dict[str, Any]:
         "lastModified": None,
         "integrityStatus": "missing_artifact",
     }
-    real_ready = bool(artifact["exists"])
+    manifest = read_model_manifest(path)
+    artifact_ready = bool(artifact["exists"] and artifact["sha256"])
+    baseline_ready = artifact_ready and bool(manifest.get("baselineReady"))
+    readiness = "real_baseline_ready" if baseline_ready else "real_artifact_missing_manifest" if artifact_ready else "contract_only_missing_artifact"
     return {
         **info,
         "key": model_key,
-        "version": info.get("version", "contract-v1"),
+        "version": manifest.get("version") or info.get("version", "contract-v1"),
         "artifact": artifact,
+        "manifest": manifest,
         "artifactHash": artifact["sha256"],
         "artifactIntegrityStatus": artifact["integrityStatus"],
-        "readiness": "real_artifact_available" if real_ready else "contract_only_missing_artifact",
+        "readiness": readiness,
         "inferenceModes": {
             "contract": True,
             "mock": True,
-            "real": real_ready,
+            "real": baseline_ready,
+            "real_baseline": baseline_ready,
         },
-        "availableForRealInference": real_ready,
+        "availableForRealInference": baseline_ready,
+        "baselineReady": baseline_ready,
         "enabled": True,
         "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
         "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
@@ -95,15 +102,17 @@ def registry_with_artifact_status() -> Dict[str, Dict[str, Any]]:
 def artifact_summary() -> Dict[str, Any]:
     models = registry_with_artifact_status()
     available = sum(1 for model in models.values() if model["availableForRealInference"])
-    missing = len(models) - available
+    missing = sum(1 for model in models.values() if not model.get("artifact", {}).get("exists"))
     hashed = sum(1 for model in models.values() if model.get("artifactHash"))
+    baseline_ready = sum(1 for model in models.values() if model.get("baselineReady"))
     return {
         "modelsRegistered": len(models),
-        "artifactsAvailable": available,
+        "artifactsAvailable": sum(1 for model in models.values() if model.get("artifact", {}).get("exists")),
         "artifactsMissing": missing,
         "artifactsHashed": hashed,
+        "baselineModelsReady": baseline_ready,
         "readyForRealInference": available == len(models) and len(models) > 0,
-        "defaultInferenceMode": "real" if available == len(models) and len(models) > 0 else "contract",
+        "defaultInferenceMode": "real_baseline" if available == len(models) and len(models) > 0 else "contract",
         "hashAlgorithm": "sha256",
         "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
         "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
@@ -113,13 +122,16 @@ def artifact_summary() -> Dict[str, Any]:
 def verify_model_artifacts() -> Dict[str, Any]:
     models = registry_with_artifact_status()
     missing = []
+    missing_manifest = []
     unverified = []
     verified = []
     for model_key, status in models.items():
         artifact = status.get("artifact", {})
+        manifest = status.get("manifest", {})
         exists = bool(artifact.get("exists"))
         sha256 = artifact.get("sha256")
         integrity = artifact.get("integrityStatus")
+        baseline_ready = bool(status.get("baselineReady"))
         model_result = {
             "modelKey": model_key,
             "plane": status.get("plane"),
@@ -129,21 +141,26 @@ def verify_model_artifacts() -> Dict[str, Any]:
             "hashAlgorithm": artifact.get("hashAlgorithm", "sha256"),
             "sha256": sha256,
             "integrityStatus": integrity,
+            "manifestStatus": manifest.get("status"),
+            "manifestValid": bool(manifest.get("valid")),
+            "baselineReady": baseline_ready,
             "readiness": status.get("readiness"),
             "availableForRealInference": bool(status.get("availableForRealInference")),
-            "verified": exists and bool(sha256) and integrity == "hashed",
+            "verified": exists and bool(sha256) and integrity == "hashed" and baseline_ready,
         }
         if not exists:
             missing.append(model_result)
+        elif not baseline_ready:
+            missing_manifest.append(model_result)
         elif not model_result["verified"]:
             unverified.append(model_result)
         else:
             verified.append(model_result)
 
     summary = artifact_summary()
-    valid = not missing and not unverified and bool(models)
+    valid = not missing and not missing_manifest and not unverified and bool(models)
     return {
-        "status": "verified" if valid else "degraded_contract_mode",
+        "status": "real_baseline_verified" if valid else "degraded_contract_mode",
         "valid": valid,
         "readyForRealInference": summary["readyForRealInference"],
         "defaultInferenceMode": summary["defaultInferenceMode"],
@@ -151,9 +168,11 @@ def verify_model_artifacts() -> Dict[str, Any]:
         "artifactsAvailable": summary["artifactsAvailable"],
         "artifactsMissing": summary["artifactsMissing"],
         "artifactsHashed": summary["artifactsHashed"],
+        "baselineModelsReady": summary["baselineModelsReady"],
         "hashAlgorithm": "sha256",
         "verifiedModels": verified,
         "missingArtifacts": missing,
+        "missingManifestOrBaselineEvidence": missing_manifest,
         "unverifiedArtifacts": unverified,
         "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
         "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
