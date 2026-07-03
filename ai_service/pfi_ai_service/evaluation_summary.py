@@ -17,6 +17,8 @@ def evaluation_summary(output_dir: Path) -> Dict[str, Any]:
     return {
         "status": "evaluation_evidence_available" if items else "evaluation_evidence_empty",
         "reportCount": len(items),
+        "hasReports": bool(items),
+        "latestRunId": latest_run_id(items),
         "contractRunCount": contract_runs,
         "realRunCount": real_runs,
         "averageMeasurementCount": average(measurement_counts),
@@ -27,6 +29,16 @@ def evaluation_summary(output_dir: Path) -> Dict[str, Any]:
         "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
         "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
     }
+
+
+def latest_run_id(items: list[Any]) -> str:
+    if not items:
+        return ""
+    first = items[0]
+    if not isinstance(first, dict):
+        return ""
+    value = first.get("runId")
+    return "" if value is None else str(value)
 
 
 def average(values: list[Any]) -> float:
