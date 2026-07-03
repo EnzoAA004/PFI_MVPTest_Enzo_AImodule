@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS, build_agent_decision
 from .contract_geometry import build_landmarks_from_masks, build_measurements_from_contract, contract_quality_summary
 from .model_artifacts import model_status
+from .real_inference_runtime import run_real_inference
 from .reporting import write_json
 from .settings import MODEL_REGISTRY, get_settings
 
@@ -43,10 +44,15 @@ def _requested_inference_mode(request: PipelineRunRequest) -> str:
 
 
 def _effective_inference_mode(request: PipelineRunRequest) -> str:
-    # La solicitud real se conserva para trazabilidad, pero el pipeline visual no
-    # puede declararla efectiva hasta que el runtime PyTorch cargue y ejecute el artifact.
     requested = _requested_inference_mode(request)
     return "contract" if requested in {"real", "real_baseline"} else requested
+
+
+def _allow_contract_fallback(request: PipelineRunRequest) -> bool:
+    value = request.metadata.get("allowContractFallback", True)
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in {"false", "0", "no", "off"}
 
 
 def _trace_id(request: PipelineRunRequest) -> str | None:
@@ -251,24 +257,45 @@ def _as_backend_response(
 
 
 def run_pipeline(request: PipelineRunRequest) -> Dict[str, Any]:
-    flags = []
+    flags: list[str] = []
     model_info = MODEL_REGISTRY.get(request.model_key)
     artifact = model_status(request.model_key, dict(model_info or {}))
+    model_matches_plane = model_info is not None and model_info.get("plane") == request.plane
     if model_info is None:
         flags.append(f"unknown_model_key:{request.model_key}")
-    elif model_info.get("plane") != request.plane:
+    elif not model_matches_plane:
         flags.append(f"model_plane_mismatch:expected={model_info.get('plane')},received={request.plane}")
 
     requested_mode = _requested_inference_mode(request)
-    inference_mode = _effective_inference_mode(request)
-    if requested_mode in {"real", "real_baseline"} and inference_mode != requested_mode:
-        flags.append(f"{requested_mode}_requested_but_contract_mode_used")
-    if requested_mode in {"real", "real_baseline"} and not artifact.get("availableForRealInference", False):
-        flags.append("model_artifact_missing_for_real_inference")
-    elif requested_mode in {"real", "real_baseline"}:
-        flags.append("real_baseline_artifact_ready_runtime_pending")
-
     run_id = _run_id_for(request)
+    wants_real = requested_mode in {"real", "real_baseline"}
+    can_run_real = wants_real and model_matches_plane and bool(artifact.get("availableForRealInference", False))
+
+    if can_run_real:
+        try:
+            response = run_real_inference(request, run_id)
+            write_json(get_settings().output_dir / "agent_reports" / f"{run_id}.json", response)
+            return response
+        except Exception as exc:
+            if not _allow_contract_fallback(request):
+                raise
+            fallback_metadata = dict(request.metadata)
+            fallback_metadata["realInferenceFailure"] = {
+                "type": type(exc).__name__,
+                "message": str(exc)[:240],
+            }
+            fallback_metadata["realInferenceAttempted"] = True
+            request = request.model_copy(update={"metadata": fallback_metadata})
+            flags.append(f"real_inference_failed:{type(exc).__name__}")
+            flags.append("contract_fallback_after_real_inference_failure")
+    elif wants_real and not artifact.get("availableForRealInference", False):
+        flags.append("model_artifact_missing_for_real_inference")
+    elif wants_real and not model_matches_plane:
+        flags.append("real_inference_not_started_model_plane_mismatch")
+
+    if wants_real:
+        flags.append(f"{requested_mode}_requested_but_contract_mode_used")
+
     overlay_path = _overlay_path_for(run_id)
     agent_decision = build_agent_decision(
         plane=request.plane,
