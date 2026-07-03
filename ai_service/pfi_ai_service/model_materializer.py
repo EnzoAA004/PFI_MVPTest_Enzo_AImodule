@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict
 from urllib.parse import urlparse
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS
 from .model_artifacts import verify_model_artifacts
@@ -33,7 +33,7 @@ def sync_model_artifacts(force: bool = False) -> Dict[str, Any]:
         artifact_path: Path = getattr(settings, spec["artifact_attr"])
         artifact_uri: str | None = getattr(settings, spec["uri_attr"])
         manifest_uri: str | None = getattr(settings, spec["manifest_uri_attr"])
-        items.append(sync_one_model(model_key, artifact_uri, artifact_path, manifest_uri, force))
+        items.append(sync_one_model(model_key, artifact_uri, artifact_path, manifest_uri, force, settings.model_download_token))
     verification = verify_model_artifacts()
     return {
         "status": "models_sync_completed",
@@ -41,12 +41,20 @@ def sync_model_artifacts(force: bool = False) -> Dict[str, Any]:
         "verification": verification,
         "readyForRealInference": verification.get("readyForRealInference", False),
         "defaultInferenceMode": verification.get("defaultInferenceMode", "contract"),
+        "authenticatedDownloadConfigured": bool(settings.model_download_token),
         "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
         "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
     }
 
 
-def sync_one_model(model_key: str, artifact_uri: str | None, artifact_path: Path, manifest_uri: str | None, force: bool) -> Dict[str, Any]:
+def sync_one_model(
+    model_key: str,
+    artifact_uri: str | None,
+    artifact_path: Path,
+    manifest_uri: str | None,
+    force: bool,
+    token: str | None = None,
+) -> Dict[str, Any]:
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path = manifest_path_for_artifact(artifact_path)
     result: Dict[str, Any] = {
@@ -57,30 +65,30 @@ def sync_one_model(model_key: str, artifact_uri: str | None, artifact_path: Path
         "manifestUriConfigured": bool(manifest_uri),
     }
     if not artifact_uri:
-        result.update({"status": "missing_artifact_uri", "artifactSynced": False, "manifestSynced": False})
+        result.update({"status": "missing_artifact_uri", "artifactSynced": False, "manifestSynced": manifest_path.exists()})
         return result
 
-    artifact_result = materialize_uri(artifact_uri, artifact_path, force)
+    artifact_result = materialize_uri(artifact_uri, artifact_path, force, token)
     result["artifact"] = artifact_result
     if manifest_uri:
-        result["manifest"] = materialize_uri(manifest_uri, manifest_path, force)
+        result["manifest"] = materialize_uri(manifest_uri, manifest_path, force, token)
     else:
-        result["manifest"] = {"status": "missing_manifest_uri", "path": str(manifest_path), "synced": manifest_path.exists()}
+        result["manifest"] = {"status": "local_manifest", "path": str(manifest_path), "synced": manifest_path.exists()}
 
     result["artifactSynced"] = bool(result["artifact"].get("synced"))
     result["manifestSynced"] = bool(result["manifest"].get("synced"))
-    result["status"] = "synced" if result["artifactSynced"] else "not_synced"
+    result["status"] = "synced" if result["artifactSynced"] and result["manifestSynced"] else "partially_synced" if result["artifactSynced"] else "not_synced"
     return result
 
 
-def materialize_uri(uri: str, destination: Path, force: bool) -> Dict[str, Any]:
+def materialize_uri(uri: str, destination: Path, force: bool, token: str | None = None) -> Dict[str, Any]:
     if destination.exists() and destination.is_file() and not force:
         return {"status": "already_exists", "path": str(destination), "synced": True, "sizeBytes": destination.stat().st_size}
 
     parsed = urlparse(uri)
     try:
         if parsed.scheme in {"http", "https"}:
-            download_http(uri, destination)
+            download_http(uri, destination, token)
         elif parsed.scheme == "file":
             copy_local(Path(parsed.path), destination)
         elif parsed.scheme == "":
@@ -93,12 +101,20 @@ def materialize_uri(uri: str, destination: Path, force: bool) -> Dict[str, Any]:
     return {"status": "synced", "path": str(destination), "synced": True, "sizeBytes": destination.stat().st_size}
 
 
-def download_http(uri: str, destination: Path) -> None:
+def download_http(uri: str, destination: Path, token: str | None = None) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = destination.with_suffix(destination.suffix + ".tmp")
-    with urlopen(uri, timeout=120) as response, tmp_path.open("wb") as handle:
-        shutil.copyfileobj(response, handle)
-    tmp_path.replace(destination)
+    headers = {"User-Agent": "pfi-ai-module/real-baseline"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = Request(uri, headers=headers)
+    try:
+        with urlopen(request, timeout=300) as response, tmp_path.open("wb") as handle:
+            shutil.copyfileobj(response, handle)
+        tmp_path.replace(destination)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def copy_local(source: Path, destination: Path) -> None:
