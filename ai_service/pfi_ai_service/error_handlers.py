@@ -6,10 +6,14 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from .multiplanar_routes import register_multiplanar_routes
+
 TRACE_ID_HEADER = "X-Trace-Id"
 
 
 def register_error_handlers(app: FastAPI) -> None:
+    register_multiplanar_routes(app)
+
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
         trace_id = trace_id_from_request(request)
