@@ -19,6 +19,7 @@ from .evaluation_summary import evaluation_summary as build_evaluation_summary
 from .evidence_summary import evidence_summary as build_evidence_summary
 from .inference import run_axial_inference, run_sagittal_inference
 from .model_artifacts import artifact_summary, registry_with_artifact_status, verify_model_artifacts
+from .multiplanar_contract import multiplanar_workspace_contract
 from .pipeline import PipelineRunRequest, run_pipeline
 from .readiness import build_readiness
 from .report_summary import recent_agent_report_summaries, summarize_agent_report
@@ -213,6 +214,11 @@ def evaluation_summary():
 def evaluation_evidence():
     settings = get_settings()
     return clean_for_json(build_evidence_summary(settings.output_dir))
+
+
+@app.get("/multiplanar/contract")
+def multiplanar_contract():
+    return clean_for_json(multiplanar_workspace_contract())
 
 
 @app.get("/pipeline/schema")
