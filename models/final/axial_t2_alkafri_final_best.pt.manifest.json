@@ -1,0 +1,19 @@
+{
+  "modelKey": "axial_t2_alkafri",
+  "version": "real-baseline-v1",
+  "artifactFile": "axial_t2_alkafri_final_best.pt",
+  "dataset": "alkafri_sudirman_axial",
+  "task": "lumbar_mri_multiclass_segmentation",
+  "inputPlane": "axial",
+  "classes": ["background_250", "raw_0", "raw_50", "raw_100", "raw_150", "raw_200"],
+  "metrics": {
+    "dice": 0.8167,
+    "iou": 0.7001,
+    "scope": "test_useful_classes_excluding_raw_0"
+  },
+  "trainingStatus": "baseline_evaluated",
+  "targetSize": [256, 256],
+  "baseChannels": 16,
+  "humanReviewRequired": true,
+  "notClinicalDiagnosis": true
+}
