@@ -15,6 +15,11 @@ MODEL_PATH_KEYS = {
     "axial_t2_alkafri": "axial_model_path",
 }
 
+MODEL_URI_KEYS = {
+    "sagittal_spider": "sagittal_model_uri",
+    "axial_t2_alkafri": "axial_model_uri",
+}
+
 
 def _sha256(path: Path) -> str | None:
     if not path.exists() or not path.is_file():
@@ -55,8 +60,15 @@ def model_artifact_path(model_key: str) -> Path | None:
     return getattr(settings, attr) if attr else None
 
 
+def model_artifact_uri(model_key: str) -> str | None:
+    settings = get_settings()
+    attr = MODEL_URI_KEYS.get(model_key)
+    return getattr(settings, attr) if attr else None
+
+
 def model_status(model_key: str, info: Dict[str, Any]) -> Dict[str, Any]:
     path = model_artifact_path(model_key)
+    external_uri = model_artifact_uri(model_key)
     artifact = _artifact_status(path) if path is not None else {
         "path": None,
         "exists": False,
@@ -68,10 +80,12 @@ def model_status(model_key: str, info: Dict[str, Any]) -> Dict[str, Any]:
         "lastModified": None,
         "integrityStatus": "missing_artifact",
     }
+    artifact["externalUriConfigured"] = bool(external_uri)
+    artifact["externalUri"] = external_uri
     manifest = read_model_manifest(path)
     artifact_ready = bool(artifact["exists"] and artifact["sha256"])
     baseline_ready = artifact_ready and bool(manifest.get("baselineReady"))
-    readiness = "real_baseline_ready" if baseline_ready else "real_artifact_missing_manifest" if artifact_ready else "contract_only_missing_artifact"
+    readiness = "real_baseline_ready" if baseline_ready else "real_artifact_missing_manifest" if artifact_ready else "external_artifact_configured" if external_uri else "contract_only_missing_artifact"
     return {
         **info,
         "key": model_key,
@@ -89,6 +103,7 @@ def model_status(model_key: str, info: Dict[str, Any]) -> Dict[str, Any]:
         },
         "availableForRealInference": baseline_ready,
         "baselineReady": baseline_ready,
+        "externalArtifactConfigured": bool(external_uri),
         "enabled": True,
         "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
         "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
@@ -105,12 +120,14 @@ def artifact_summary() -> Dict[str, Any]:
     missing = sum(1 for model in models.values() if not model.get("artifact", {}).get("exists"))
     hashed = sum(1 for model in models.values() if model.get("artifactHash"))
     baseline_ready = sum(1 for model in models.values() if model.get("baselineReady"))
+    external_configured = sum(1 for model in models.values() if model.get("externalArtifactConfigured"))
     return {
         "modelsRegistered": len(models),
         "artifactsAvailable": sum(1 for model in models.values() if model.get("artifact", {}).get("exists")),
         "artifactsMissing": missing,
         "artifactsHashed": hashed,
         "baselineModelsReady": baseline_ready,
+        "externalArtifactsConfigured": external_configured,
         "readyForRealInference": available == len(models) and len(models) > 0,
         "defaultInferenceMode": "real_baseline" if available == len(models) and len(models) > 0 else "contract",
         "hashAlgorithm": "sha256",
@@ -138,6 +155,7 @@ def verify_model_artifacts() -> Dict[str, Any]:
             "version": status.get("version"),
             "path": artifact.get("path"),
             "exists": exists,
+            "externalArtifactConfigured": bool(status.get("externalArtifactConfigured")),
             "hashAlgorithm": artifact.get("hashAlgorithm", "sha256"),
             "sha256": sha256,
             "integrityStatus": integrity,
@@ -169,6 +187,7 @@ def verify_model_artifacts() -> Dict[str, Any]:
         "artifactsMissing": summary["artifactsMissing"],
         "artifactsHashed": summary["artifactsHashed"],
         "baselineModelsReady": summary["baselineModelsReady"],
+        "externalArtifactsConfigured": summary["externalArtifactsConfigured"],
         "hashAlgorithm": "sha256",
         "verifiedModels": verified,
         "missingArtifacts": missing,
