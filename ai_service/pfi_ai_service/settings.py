@@ -23,9 +23,16 @@ class ServiceSettings:
 
     sagittal_model_path: Path
     axial_model_path: Path
+    sagittal_model_uri: str | None
+    axial_model_uri: str | None
 
     e13_results_root: Path
     e14_results_root: Path
+
+
+def optional_env(name: str) -> str | None:
+    value = os.getenv(name)
+    return value.strip() if value and value.strip() else None
 
 
 def get_settings() -> ServiceSettings:
@@ -46,6 +53,8 @@ def get_settings() -> ServiceSettings:
         output_dir=output_dir,
         sagittal_model_path=models_root / "sagittal_spider_multiclass_final_best.pt",
         axial_model_path=models_root / "axial_t2_alkafri_final_best.pt",
+        sagittal_model_uri=optional_env("PFI_SAGITTAL_MODEL_URI"),
+        axial_model_uri=optional_env("PFI_AXIAL_MODEL_URI"),
         e13_results_root=results_root / "E13_multiplanar_inference_pipeline",
         e14_results_root=results_root / "E14_ai_agent_orchestrator",
     )
