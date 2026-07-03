@@ -18,6 +18,7 @@ from .error_handlers import register_error_handlers
 from .inference import run_axial_inference, run_sagittal_inference
 from .model_artifacts import artifact_summary, registry_with_artifact_status, verify_model_artifacts
 from .pipeline import PipelineRunRequest, run_pipeline
+from .readiness import build_readiness
 from .report_summary import recent_agent_report_summaries, summarize_agent_report
 from .reporting import build_markdown_summary
 from .study_contract import demo_study_review_contract
@@ -142,6 +143,12 @@ def health():
         "humanReviewRequired": True,
         "notClinicalDiagnosis": True,
     })
+
+
+@app.get("/readiness")
+def readiness():
+    settings = get_settings()
+    return clean_for_json(build_readiness(settings.output_dir))
 
 
 @app.get("/warmup")
