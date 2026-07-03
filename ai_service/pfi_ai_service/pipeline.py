@@ -39,13 +39,14 @@ def _overlay_path_for(run_id: str) -> Optional[str]:
 def _requested_inference_mode(request: PipelineRunRequest) -> str:
     value = request.metadata.get("inferenceMode", request.metadata.get("mode", "contract"))
     normalized = str(value).strip().lower()
-    return normalized if normalized in {"contract", "mock", "real"} else "contract"
+    return normalized if normalized in {"contract", "mock", "real", "real_baseline"} else "contract"
 
 
 def _effective_inference_mode(request: PipelineRunRequest) -> str:
-    # Real inference remains behind the dedicated /inference/* endpoints until model/runtime validation is complete.
+    # La solicitud real se conserva para trazabilidad, pero el pipeline visual no
+    # puede declararla efectiva hasta que el runtime PyTorch cargue y ejecute el artifact.
     requested = _requested_inference_mode(request)
-    return "contract" if requested == "real" else requested
+    return "contract" if requested in {"real", "real_baseline"} else requested
 
 
 def _trace_id(request: PipelineRunRequest) -> str | None:
@@ -260,10 +261,12 @@ def run_pipeline(request: PipelineRunRequest) -> Dict[str, Any]:
 
     requested_mode = _requested_inference_mode(request)
     inference_mode = _effective_inference_mode(request)
-    if requested_mode == "real" and inference_mode != "real":
-        flags.append("real_inference_requested_but_contract_mode_used")
-    if requested_mode == "real" and not artifact.get("availableForRealInference", False):
+    if requested_mode in {"real", "real_baseline"} and inference_mode != requested_mode:
+        flags.append(f"{requested_mode}_requested_but_contract_mode_used")
+    if requested_mode in {"real", "real_baseline"} and not artifact.get("availableForRealInference", False):
         flags.append("model_artifact_missing_for_real_inference")
+    elif requested_mode in {"real", "real_baseline"}:
+        flags.append("real_baseline_artifact_ready_runtime_pending")
 
     run_id = _run_id_for(request)
     overlay_path = _overlay_path_for(run_id)
