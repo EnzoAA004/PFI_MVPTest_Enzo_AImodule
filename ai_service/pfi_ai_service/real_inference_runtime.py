@@ -10,6 +10,7 @@ import torch
 from PIL import Image
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS, build_agent_decision
+from .asset_registry import registered_assets_for_run, register_run_assets
 from .model_architectures import build_checkpoint_model
 from .model_artifacts import model_artifact_path, model_status
 from .settings import MODEL_REGISTRY, get_settings
@@ -389,12 +390,14 @@ def save_outputs(run_id: str, plane: str, image: np.ndarray, prediction: np.ndar
         selected = prediction == class_id
         overlay[selected] = (1.0 - alpha) * overlay[selected] + alpha * color
     Image.fromarray(np.clip(overlay * 255.0, 0, 255).astype(np.uint8)).save(overlay_path)
-    return {
+    outputs = {
         "imagePath": str(image_path),
         "maskPath": str(mask_path),
         "confidencePath": str(confidence_path),
         "overlayPath": str(overlay_path),
     }
+    register_run_assets(run_id, plane, outputs)
+    return outputs
 
 
 def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
@@ -426,6 +429,7 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
 
     series_id = "series-sag-t2" if request.plane == "sagittal" else "series-ax-t2"
     outputs = save_outputs(run_id, request.plane, image, prediction, confidence)
+    assets = registered_assets_for_run(run_id, request.plane)
     spacing = in_plane_spacing(loaded, selected_axis)
     masks = build_masks(request.model_key, request.plane, prediction, confidence, series_id, selected_slice)
     landmarks = build_landmarks(masks)
@@ -514,6 +518,7 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
         "not_clinical_diagnosis": NOT_CLINICAL_DIAGNOSIS,
         "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
         "quality": quality,
+        "assets": assets,
         "modelArtifact": artifact,
         "metadata": {
             **request.metadata,
@@ -532,6 +537,7 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
             "inputFormat": loaded.suffix,
             "sourcePath": str(loaded.path),
             "outputFiles": outputs,
+            "assets": assets,
             "quality": quality,
             "deidentified": True,
             "diagnosisGenerated": False,

@@ -9,10 +9,12 @@ from typing import Any
 
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 
 from .settings import get_settings, MODEL_REGISTRY
 from .agent import build_agent_decisions, summarize_agent_decisions
 from .agent_policy import regression_test_report
+from .asset_registry import AssetRegistryError, is_public_browser_asset, resolve_run_asset
 from .contract_schema import contract_verification, pipeline_contract_schema
 from .error_handlers import register_error_handlers
 from .evaluation_summary import evaluation_summary as build_evaluation_summary
@@ -279,6 +281,18 @@ def pipeline_run(request: PipelineRunRequest, http_request: Request):
     return clean_for_json(run_pipeline(traced_request))
 
 
+
+@app.get("/assets/{run_id}/{plane}/{asset_name}")
+def get_run_asset(run_id: str, plane: str, asset_name: str):
+    try:
+        record = resolve_run_asset(run_id, plane, asset_name)
+    except AssetRegistryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+    if not is_public_browser_asset(record.asset_name):
+        raise HTTPException(status_code=403, detail="asset interno no disponible publicamente")
+    return FileResponse(record.path, media_type="image/png", filename=record.asset_name)
+
 @app.get("/study/demo-review")
 def study_demo_review():
     return clean_for_json(demo_study_review_contract())
@@ -343,3 +357,4 @@ def agent_report_by_run(run_id: str):
 @app.get("/agent/regression-test")
 def agent_regression_test():
     return clean_for_json(regression_test_report())
+
