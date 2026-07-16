@@ -1,0 +1,156 @@
+{
+  "purpose": "Fixtures deidentificados para validar carga e inferencia real_baseline en AI Module.",
+  "warning": "No constituyen validacion clinica ni dataset de evaluacion poblacional.",
+  "output_dir": "/content/drive/MyDrive/PFI_MVP/fixtures/real_baseline",
+  "sagittal": {
+    "source_path": "/content/drive/MyDrive/PFI_MVP/data/SPIDER/images/images/101_t2.mha",
+    "source_shape": [
+      352,
+      384,
+      17
+    ],
+    "prepared_shape": [
+      256,
+      256
+    ],
+    "target": [
+      256,
+      256
+    ],
+    "sagittal_axis": 2,
+    "file": "/content/drive/MyDrive/PFI_MVP/fixtures/real_baseline/sagittal_sample_input.npy",
+    "file_sha256": "dd29d7f78631008af946c3965ccc400ecca8d981611258a66d686933ee85788b",
+    "chw_file": "/content/drive/MyDrive/PFI_MVP/fixtures/real_baseline/sagittal_sample_input_chw.npy",
+    "chw_file_sha256": "0f0edf70f0e44ed5dc350bf503219c09966c8a6705656cabb8a71486f78af9d6",
+    "preview": "/content/drive/MyDrive/PFI_MVP/fixtures/real_baseline/sagittal_sample_input_preview.png",
+    "checkpoint": {
+      "path": "/content/drive/MyDrive/PFI_MVP/models/final/sagittal_spider_multiclass_final_best.pt",
+      "exists": true,
+      "size_mb": 1.88,
+      "sha256": "7dd393cc750311c98003516d8110136310c31e8b6f0f00b6815f949fd61ef15b",
+      "checkpoint_type": "dict",
+      "checkpoint_keys": [
+        "model_state_dict",
+        "epoch",
+        "val_dice_macro_no_bg",
+        "num_classes",
+        "label_group_mapping",
+        "class_weights",
+        "target_size",
+        "sagittal_axis",
+        "base_channels",
+        "slice_strategy"
+      ],
+      "state_dict_keys_sample": [
+        "enc1.block.0.weight",
+        "enc1.block.0.bias",
+        "enc1.block.1.weight",
+        "enc1.block.1.bias",
+        "enc1.block.1.running_mean",
+        "enc1.block.1.running_var",
+        "enc1.block.1.num_batches_tracked",
+        "enc1.block.3.weight",
+        "enc1.block.3.bias",
+        "enc1.block.4.weight",
+        "enc1.block.4.bias",
+        "enc1.block.4.running_mean",
+        "enc1.block.4.running_var",
+        "enc1.block.4.num_batches_tracked",
+        "enc2.block.0.weight"
+      ],
+      "num_classes_ckpt": 4,
+      "num_classes_inferred": 4,
+      "base_channels_ckpt": 16,
+      "base_channels_inferred": 16,
+      "target_size_ckpt": [
+        256,
+        256
+      ],
+      "sagittal_axis_ckpt": 2,
+      "slice_strategy_ckpt": "center_window_best_prediction"
+    }
+  },
+  "axial": {
+    "source_path": "/content/drive/MyDrive/PFI_MVP/data/AXIAL_ALKAFRI/processed/pairing_v1/pair_0001_image.npy",
+    "source_shape": [
+      320,
+      320
+    ],
+    "prepared_shape": [
+      256,
+      256
+    ],
+    "target": [
+      256,
+      256
+    ],
+    "file": "/content/drive/MyDrive/PFI_MVP/fixtures/real_baseline/axial_sample_input.npy",
+    "file_sha256": "d6379d5180a1f6c1ae8e439bf544d3b50272c65c9c1f90d9d5efdcb3d46238f0",
+    "chw_file": "/content/drive/MyDrive/PFI_MVP/fixtures/real_baseline/axial_sample_input_chw.npy",
+    "chw_file_sha256": "c6094214ec7a8ff0d59a9345f55ef29f20999c80bc5391454056110648febfd9",
+    "preview": "/content/drive/MyDrive/PFI_MVP/fixtures/real_baseline/axial_sample_input_preview.png",
+    "checkpoint": {
+      "path": "/content/drive/MyDrive/PFI_MVP/models/final/axial_t2_alkafri_final_best.pt",
+      "exists": true,
+      "size_mb": 1.88,
+      "sha256": "a8b91f563e101c9c4a3cf2c0ec84af29cbcfabd76eb76b2d06dbd13f7d7c78d6",
+      "checkpoint_type": "dict",
+      "checkpoint_keys": [
+        "e1.net.0.weight",
+        "e1.net.0.bias",
+        "e1.net.1.weight",
+        "e1.net.1.bias",
+        "e1.net.1.running_mean",
+        "e1.net.1.running_var",
+        "e1.net.1.num_batches_tracked",
+        "e1.net.3.weight",
+        "e1.net.3.bias",
+        "e1.net.4.weight",
+        "e1.net.4.bias",
+        "e1.net.4.running_mean",
+        "e1.net.4.running_var",
+        "e1.net.4.num_batches_tracked",
+        "e2.net.0.weight",
+        "e2.net.0.bias",
+        "e2.net.1.weight",
+        "e2.net.1.bias",
+        "e2.net.1.running_mean",
+        "e2.net.1.running_var",
+        "e2.net.1.num_batches_tracked",
+        "e2.net.3.weight",
+        "e2.net.3.bias",
+        "e2.net.4.weight",
+        "e2.net.4.bias",
+        "e2.net.4.running_mean",
+        "e2.net.4.running_var",
+        "e2.net.4.num_batches_tracked",
+        "e3.net.0.weight",
+        "e3.net.0.bias"
+      ],
+      "state_dict_keys_sample": [
+        "e1.net.0.weight",
+        "e1.net.0.bias",
+        "e1.net.1.weight",
+        "e1.net.1.bias",
+        "e1.net.1.running_mean",
+        "e1.net.1.running_var",
+        "e1.net.1.num_batches_tracked",
+        "e1.net.3.weight",
+        "e1.net.3.bias",
+        "e1.net.4.weight",
+        "e1.net.4.bias",
+        "e1.net.4.running_mean",
+        "e1.net.4.running_var",
+        "e1.net.4.num_batches_tracked",
+        "e2.net.0.weight"
+      ],
+      "num_classes_ckpt": null,
+      "num_classes_inferred": 6,
+      "base_channels_ckpt": null,
+      "base_channels_inferred": 16,
+      "target_size_ckpt": null,
+      "sagittal_axis_ckpt": null,
+      "slice_strategy_ckpt": null
+    }
+  }
+}
