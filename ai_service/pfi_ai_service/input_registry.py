@@ -1,13 +1,17 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import BinaryIO, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .real_inference_runtime import SUPPORTED_EXTENSIONS
+
+DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+UPLOAD_CHUNK_BYTES = 1024 * 1024
 
 
 class InputRegistryError(Exception):
@@ -50,6 +54,23 @@ SERVER_SIDE_SOURCES = {
 _INPUT_REGISTRY: dict[str, InputRecord] = {}
 
 
+def upload_root() -> Path:
+    return Path(os.getenv("PFI_UPLOAD_DIR", "uploads/inputs"))
+
+
+def max_upload_bytes() -> int:
+    raw = os.getenv("PFI_MAX_UPLOAD_BYTES")
+    if raw is None or not raw.strip():
+        return DEFAULT_MAX_UPLOAD_BYTES
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise InputRegistryError("PFI_MAX_UPLOAD_BYTES invalido", status_code=500) from exc
+    if value <= 0:
+        raise InputRegistryError("PFI_MAX_UPLOAD_BYTES debe ser positivo", status_code=500)
+    return value
+
+
 def register_server_side_input(request: InputRegistrationRequest) -> dict[str, object]:
     source = SERVER_SIDE_SOURCES.get(request.source_key)
     if source is None:
@@ -61,22 +82,111 @@ def register_server_side_input(request: InputRegistrationRequest) -> dict[str, o
     path = Path(source["path"])
     if not path.exists() or not path.is_file():
         raise InputRegistryError("recurso server-side no disponible", status_code=404)
-    suffix = path.suffix.lower()
-    if suffix not in SUPPORTED_EXTENSIONS:
-        raise InputRegistryError(f"formato no soportado: {suffix}", status_code=400)
+    suffix = validate_suffix(path.name)
 
-    input_id = f"inp_{uuid4().hex}"
-    record = InputRecord(
-        input_id=input_id,
+    return register_existing_path(
         case_id=request.case_id,
         plane=request.plane,
         path=path,
-        format=suffix.lstrip("."),
-        size=path.stat().st_size,
         source_key=request.source_key,
+        suffix=suffix,
+    )
+
+
+def register_uploaded_input(
+    *,
+    case_id: str,
+    plane: str,
+    client_filename: str | None,
+    stream: BinaryIO,
+) -> dict[str, object]:
+    normalized_plane = validate_plane(plane)
+    suffix = validate_suffix(client_filename or "")
+    input_id = f"inp_{uuid4().hex}"
+    destination = upload_destination(input_id, normalized_plane, suffix)
+    size = write_limited_upload(stream, destination, max_upload_bytes())
+    record = InputRecord(
+        input_id=input_id,
+        case_id=case_id,
+        plane=normalized_plane,
+        path=destination,
+        format=suffix.lstrip("."),
+        size=size,
+        source_key="upload",
     )
     _INPUT_REGISTRY[input_id] = record
     return public_input_metadata(record)
+
+
+def register_existing_path(
+    *,
+    case_id: str,
+    plane: str,
+    path: Path,
+    source_key: str,
+    suffix: str | None = None,
+) -> dict[str, object]:
+    normalized_plane = validate_plane(plane)
+    clean_suffix = suffix or validate_suffix(path.name)
+    input_id = f"inp_{uuid4().hex}"
+    record = InputRecord(
+        input_id=input_id,
+        case_id=case_id,
+        plane=normalized_plane,
+        path=path,
+        format=clean_suffix.lstrip("."),
+        size=path.stat().st_size,
+        source_key=source_key,
+    )
+    _INPUT_REGISTRY[input_id] = record
+    return public_input_metadata(record)
+
+
+def validate_plane(plane: str) -> str:
+    normalized = str(plane).strip().lower()
+    if normalized not in {"sagittal", "axial"}:
+        raise InputRegistryError("plane invalido", status_code=400)
+    return normalized
+
+
+def validate_suffix(filename: str) -> str:
+    suffix = Path(filename).suffix.lower()
+    if suffix not in SUPPORTED_EXTENSIONS:
+        raise InputRegistryError(f"extension no permitida: {suffix or 'sin_extension'}", status_code=400)
+    return suffix
+
+
+def upload_destination(input_id: str, plane: str, suffix: str) -> Path:
+    root = upload_root()
+    destination_dir = root / plane
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination = destination_dir / f"{input_id}{suffix}"
+    resolved_root = root.resolve()
+    resolved_destination = destination.resolve()
+    if not str(resolved_destination).startswith(str(resolved_root)):
+        raise InputRegistryError("ruta de upload invalida", status_code=400)
+    return destination
+
+
+def write_limited_upload(stream: BinaryIO, destination: Path, max_bytes: int) -> int:
+    size = 0
+    try:
+        with destination.open("wb") as handle:
+            while True:
+                chunk = stream.read(UPLOAD_CHUNK_BYTES)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > max_bytes:
+                    raise InputRegistryError("archivo excede el limite de tama?o", status_code=413)
+                handle.write(chunk)
+    except Exception:
+        if destination.exists():
+            destination.unlink()
+        raise
+    if size == 0:
+        raise InputRegistryError("archivo vacio", status_code=400)
+    return size
 
 
 def public_input_metadata(record: InputRecord) -> dict[str, object]:

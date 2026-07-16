@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 
 from .settings import get_settings, MODEL_REGISTRY
 from .agent import build_agent_decisions, summarize_agent_decisions
@@ -18,7 +18,7 @@ from .error_handlers import register_error_handlers
 from .evaluation_summary import evaluation_summary as build_evaluation_summary
 from .evidence_summary import evidence_summary as build_evidence_summary
 from .inference import run_axial_inference, run_sagittal_inference
-from .input_registry import InputRegistrationRequest, register_server_side_input
+from .input_registry import InputRegistrationRequest, register_server_side_input, register_uploaded_input
 from .model_artifacts import artifact_summary, registry_with_artifact_status, verify_model_artifacts
 from .model_materializer import sync_model_artifacts
 from .multiplanar_contract import multiplanar_workspace_contract
@@ -207,8 +207,24 @@ def models_verify():
 
 
 @app.post("/inputs")
-def inputs_register(request: InputRegistrationRequest):
-    return clean_for_json(register_server_side_input(request))
+async def inputs_register(
+    http_request: Request,
+    file: UploadFile | None = File(default=None),
+    case_id: str | None = Form(default=None, alias="caseId"),
+    plane: str | None = Form(default=None),
+):
+    content_type = http_request.headers.get("content-type", "")
+    if file is not None or content_type.startswith("multipart/form-data"):
+        if file is None or case_id is None or plane is None:
+            raise HTTPException(status_code=400, detail="multipart requiere file, caseId y plane")
+        return clean_for_json(register_uploaded_input(
+            case_id=case_id,
+            plane=plane,
+            client_filename=file.filename,
+            stream=file.file,
+        ))
+    payload = await http_request.json()
+    return clean_for_json(register_server_side_input(InputRegistrationRequest.model_validate(payload)))
 
 
 @app.post("/models/sync")

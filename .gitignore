@@ -29,6 +29,7 @@ data/
 models/checkpoints/
 models/exported/
 outputs/
+uploads/
 *.mha
 *.nii
 *.nii.gz
