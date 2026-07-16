@@ -2,7 +2,8 @@
   "modelKey": "sagittal_spider",
   "version": "real-baseline-v1",
   "artifactFile": "sagittal_spider_multiclass_final_best.pt",
-  "dataset": "spider_sagittal",
+  "dataset": "SPIDER sagittal lumbar MRI",
+  "datasetVersion": "PENDIENTE: manifest/split versionado del held-out final",
   "task": "lumbar_mri_multiclass_segmentation",
   "inputPlane": "sagittal",
   "classes": [
@@ -14,16 +15,31 @@
   "metrics": {
     "dice": 0.8311,
     "iou": 0.7309,
-    "scope": "holdout_test_macro_no_background"
+    "scope": "legacy_internal_holdout_macro_no_background",
+    "status": "legacy_not_final_quality_gate"
   },
-  "trainingStatus": "baseline_evaluated",
+  "preliminaryEvaluation": {
+    "status": "preliminary_not_final",
+    "source": "QUAL-003b official evaluator",
+    "split": "held-out preliminary_gt_not_confirmed_unseen",
+    "heldOutConfirmedByPatient": false,
+    "diceMacroForeground": 0.625,
+    "iouMacroForeground": 0.511,
+    "reliable": true,
+    "thresholdDiceMacroForeground": 0.7,
+    "qualityGateStatus": "below_threshold",
+    "note": "Preliminar, held-out no confirmado por paciente; NO es test limpio final. Umbral objetivo Dice macro >= 0.70."
+  },
+  "trainingStatus": "baseline_evaluated_preliminary_quality_below_threshold",
   "targetSize": [
     256,
     256
   ],
+  "targetSizeSource": "checkpoint:target_size",
   "baseChannels": 16,
   "humanReviewRequired": true,
   "notClinicalDiagnosis": true,
   "sha256": "7dd393cc750311c98003516d8110136310c31e8b6f0f00b6815f949fd61ef15b",
-  "numClasses": 4
+  "numClasses": 4,
+  "modelCard": "models/final/sagittal_spider_multiclass_final_best.pt.modelcard.md"
 }

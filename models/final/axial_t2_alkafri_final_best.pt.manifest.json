@@ -2,7 +2,8 @@
   "modelKey": "axial_t2_alkafri",
   "version": "real-baseline-v1",
   "artifactFile": "axial_t2_alkafri_final_best.pt",
-  "dataset": "alkafri_sudirman_axial",
+  "dataset": "ALKAFRI/Sudirman axial T2 lumbar MRI",
+  "datasetVersion": "PENDIENTE: manifest/split versionado del held-out final",
   "task": "lumbar_mri_multiclass_segmentation",
   "inputPlane": "axial",
   "classes": [
@@ -13,17 +14,39 @@
     "raw_150",
     "raw_200"
   ],
+  "classesNote": "PENDIENTE: confirmar semantica anatomica de las clases raw_* y resolver raw_0.",
   "metrics": {
     "dice": 0.8167,
     "iou": 0.7001,
-    "scope": "test_useful_classes_excluding_raw_0"
+    "scope": "legacy_test_useful_classes_excluding_raw_0",
+    "status": "legacy_not_final_quality_gate"
   },
-  "trainingStatus": "baseline_evaluated",
-  "targetSize": null,
+  "preliminaryEvaluation": {
+    "status": "preliminary_not_final",
+    "source": "QUAL-003b official evaluator",
+    "split": "held-out preliminary_gt_not_confirmed_unseen",
+    "heldOutConfirmedByPatient": false,
+    "diceMacroForeground": 0.344,
+    "iouMacroForeground": null,
+    "reliable": false,
+    "unreliableReason": "raw_0 gt_present_cases=0",
+    "usefulDiceMacroForegroundExcludingRaw0Approx": 0.43,
+    "thresholdDiceMacroForeground": 0.7,
+    "qualityGateStatus": "below_threshold_unreliable",
+    "note": "Preliminar, held-out no confirmado por paciente; NO es test limpio final. Umbral objetivo Dice macro >= 0.70. Axial pendiente de resolver raw_0."
+  },
+  "trainingStatus": "baseline_evaluated_preliminary_quality_below_threshold_unreliable",
+  "targetSize": [
+    256,
+    256
+  ],
+  "targetSizeSource": "confirmed_external_config_not_embedded_in_checkpoint",
+  "targetSizeNote": "AI-001 confirmo que target_size esta AUSENTE en el checkpoint axial crudo; QUAL-006 registra 256x256 como dato confirmado externo.",
   "baseChannels": 16,
   "humanReviewRequired": true,
   "notClinicalDiagnosis": true,
   "sha256": "a8b91f563e101c9c4a3cf2c0ec84af29cbcfabd76eb76b2d06dbd13f7d7c78d6",
   "numClasses": 6,
-  "targetSizeNote": "AUSENTE en checkpoint axial; requiere config de entrenamiento para validacion de arquitectura."
+  "stateDictFormat": "raw_state_dict",
+  "modelCard": "models/final/axial_t2_alkafri_final_best.pt.modelcard.md"
 }
