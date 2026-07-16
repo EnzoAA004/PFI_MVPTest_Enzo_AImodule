@@ -5,15 +5,25 @@
   "dataset": "alkafri_sudirman_axial",
   "task": "lumbar_mri_multiclass_segmentation",
   "inputPlane": "axial",
-  "classes": ["background_250", "raw_0", "raw_50", "raw_100", "raw_150", "raw_200"],
+  "classes": [
+    "background_250",
+    "raw_0",
+    "raw_50",
+    "raw_100",
+    "raw_150",
+    "raw_200"
+  ],
   "metrics": {
     "dice": 0.8167,
     "iou": 0.7001,
     "scope": "test_useful_classes_excluding_raw_0"
   },
   "trainingStatus": "baseline_evaluated",
-  "targetSize": [256, 256],
+  "targetSize": null,
   "baseChannels": 16,
   "humanReviewRequired": true,
-  "notClinicalDiagnosis": true
+  "notClinicalDiagnosis": true,
+  "sha256": "a8b91f563e101c9c4a3cf2c0ec84af29cbcfabd76eb76b2d06dbd13f7d7c78d6",
+  "numClasses": 6,
+  "targetSizeNote": "AUSENTE en checkpoint axial; requiere config de entrenamiento para validacion de arquitectura."
 }
