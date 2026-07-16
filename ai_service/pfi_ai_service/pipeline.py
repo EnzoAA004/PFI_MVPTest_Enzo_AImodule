@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS, build_agent_decision
 from .contract_geometry import build_landmarks_from_masks, build_measurements_from_contract, contract_quality_summary
+from .input_registry import InputRegistryError, resolve_input_id
 from .model_artifacts import model_status
 from .real_inference_runtime import run_real_inference
 from .reporting import write_json
@@ -20,12 +21,14 @@ class PipelineRunRequest(BaseModel):
     case_id: str = Field(..., alias="caseId")
     plane: Literal["sagittal", "axial"]
     model_key: str = Field(..., alias="modelKey")
-    input_path: str = Field(..., alias="inputPath")
+    input_path: str | None = Field(default=None, alias="inputPath")
+    input_id: str | None = Field(default=None, alias="inputId")
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 def _run_id_for(request: PipelineRunRequest) -> str:
-    raw = f"{request.case_id}|{request.plane}|{request.model_key}|{request.input_path}"
+    input_ref = request.input_id or request.input_path or ""
+    raw = f"{request.case_id}|{request.plane}|{request.model_key}|{input_ref}"
     return sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -61,6 +64,74 @@ def _trace_id(request: PipelineRunRequest) -> str | None:
         return None
     normalized = str(value).strip()
     return normalized or None
+
+
+def _resolve_input_reference(request: PipelineRunRequest) -> tuple[PipelineRunRequest, bool]:
+    if request.input_id:
+        record = resolve_input_id(request.input_id, case_id=request.case_id, plane=request.plane)
+        metadata = {
+            **request.metadata,
+            "inputId": record.input_id,
+            "inputFormat": record.format,
+            "inputSize": record.size,
+            "inputResolutionMode": "server_side_input_id",
+        }
+        return request.model_copy(update={"input_path": str(record.path), "metadata": metadata}), True
+    if not request.input_path:
+        raise InputRegistryError("inputPath o inputId requerido", status_code=400)
+    return request, False
+
+
+def _public_output_files(output_files: Any) -> dict[str, Any]:
+    if not isinstance(output_files, dict):
+        return {}
+    public: dict[str, Any] = {}
+    for key, value in output_files.items():
+        name = Path(str(value)).name if value else None
+        public[key] = {"generated": bool(value), "fileName": name}
+    return public
+
+
+def _strip_internal_path_keys(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _strip_internal_path_keys(item)
+            for key, item in value.items()
+            if key not in {"path", "sourcePath"}
+        }
+    if isinstance(value, list):
+        return [_strip_internal_path_keys(item) for item in value]
+    return value
+
+
+def _sanitize_input_id_response(response: Dict[str, Any], request: PipelineRunRequest) -> Dict[str, Any]:
+    if not request.input_id:
+        return response
+    sanitized = dict(response)
+    sanitized.pop("input_path", None)
+    sanitized.pop("inputPath", None)
+    sanitized["inputId"] = request.input_id
+    sanitized["input_id"] = request.input_id
+
+    for series in sanitized.get("series", []) if isinstance(sanitized.get("series"), list) else []:
+        if isinstance(series, dict):
+            series.pop("imagePath", None)
+            series.pop("overlayPath", None)
+
+    sanitized.pop("overlay_path", None)
+    sanitized.pop("overlayPath", None)
+
+    if "modelArtifact" in sanitized:
+        sanitized["modelArtifact"] = _strip_internal_path_keys(sanitized["modelArtifact"])
+
+    metadata = dict(sanitized.get("metadata") or {})
+    metadata.pop("sourcePath", None)
+    metadata.pop("inputPath", None)
+    metadata["inputId"] = request.input_id
+    if "outputFiles" in metadata:
+        metadata["outputFiles"] = _public_output_files(metadata["outputFiles"])
+    sanitized["metadata"] = metadata
+    return sanitized
 
 
 def _contour(series_id: str, slice_index: int, points: list[tuple[float, float]]) -> Dict[str, Any]:
@@ -224,6 +295,7 @@ def _as_backend_response(
         "modelVersion": artifact.get("version", "contract-v1"),
         "input_path": request.input_path,
         "inputPath": request.input_path,
+        "inputId": request.input_id,
         "series": series,
         "masks": masks,
         "landmarks": landmarks,
@@ -257,6 +329,7 @@ def _as_backend_response(
 
 
 def run_pipeline(request: PipelineRunRequest) -> Dict[str, Any]:
+    request, uses_input_id = _resolve_input_reference(request)
     flags: list[str] = []
     model_info = MODEL_REGISTRY.get(request.model_key)
     artifact = model_status(request.model_key, dict(model_info or {}))
@@ -274,6 +347,7 @@ def run_pipeline(request: PipelineRunRequest) -> Dict[str, Any]:
     if can_run_real:
         try:
             response = run_real_inference(request, run_id)
+            response = _sanitize_input_id_response(response, request)
             write_json(get_settings().output_dir / "agent_reports" / f"{run_id}.json", response)
             return response
         except Exception as exc:
@@ -309,5 +383,6 @@ def run_pipeline(request: PipelineRunRequest) -> Dict[str, Any]:
         overlay_path=overlay_path,
         agent_decision=agent_decision,
     )
+    response = _sanitize_input_id_response(response, request)
     write_json(get_settings().output_dir / "agent_reports" / f"{run_id}.json", response)
     return response

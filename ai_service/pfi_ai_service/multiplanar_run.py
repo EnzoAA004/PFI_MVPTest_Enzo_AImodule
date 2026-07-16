@@ -17,6 +17,8 @@ class MultiplanarRunRequest(BaseModel):
     case_id: str = Field(..., alias="caseId")
     sagittal_input_path: str | None = Field(default=None, alias="sagittalInputPath")
     axial_input_path: str | None = Field(default=None, alias="axialInputPath")
+    sagittal_input_id: str | None = Field(default=None, alias="sagittalInputId")
+    axial_input_id: str | None = Field(default=None, alias="axialInputId")
     sagittal_model_key: str = Field(default="sagittal_spider", alias="sagittalModelKey")
     axial_model_key: str = Field(default="axial_t2_alkafri", alias="axialModelKey")
     metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -77,6 +79,7 @@ def run_multiplanar_pipeline(request: MultiplanarRunRequest) -> Dict[str, Any]:
 def plane_request(request: MultiplanarRunRequest, plane: str, run_id: str, trace_id: str | None) -> PipelineRunRequest:
     is_sagittal = plane == "sagittal"
     input_path = request.sagittal_input_path if is_sagittal else request.axial_input_path
+    input_id = request.sagittal_input_id if is_sagittal else request.axial_input_id
     model_key = request.sagittal_model_key if is_sagittal else request.axial_model_key
     metadata = {
         **request.metadata,
@@ -91,7 +94,8 @@ def plane_request(request: MultiplanarRunRequest, plane: str, run_id: str, trace
         caseId=request.case_id,
         plane=plane,
         modelKey=model_key,
-        inputPath=input_path or f"demo/{request.case_id}/{plane}",
+        inputPath=input_path or (None if input_id else f"demo/{request.case_id}/{plane}"),
+        inputId=input_id,
         metadata=metadata,
     )
 
@@ -99,8 +103,8 @@ def plane_request(request: MultiplanarRunRequest, plane: str, run_id: str, trace
 def shared_run_id(request: MultiplanarRunRequest) -> str:
     raw = "|".join([
         request.case_id,
-        request.sagittal_input_path or "",
-        request.axial_input_path or "",
+        request.sagittal_input_id or request.sagittal_input_path or "",
+        request.axial_input_id or request.axial_input_path or "",
         request.sagittal_model_key,
         request.axial_model_key,
     ])

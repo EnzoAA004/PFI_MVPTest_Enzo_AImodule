@@ -18,6 +18,7 @@ from .error_handlers import register_error_handlers
 from .evaluation_summary import evaluation_summary as build_evaluation_summary
 from .evidence_summary import evidence_summary as build_evidence_summary
 from .inference import run_axial_inference, run_sagittal_inference
+from .input_registry import InputRegistrationRequest, register_server_side_input
 from .model_artifacts import artifact_summary, registry_with_artifact_status, verify_model_artifacts
 from .model_materializer import sync_model_artifacts
 from .multiplanar_contract import multiplanar_workspace_contract
@@ -203,6 +204,11 @@ def models():
 @app.get("/models/verify")
 def models_verify():
     return clean_for_json(verify_model_artifacts())
+
+
+@app.post("/inputs")
+def inputs_register(request: InputRegistrationRequest):
+    return clean_for_json(register_server_side_input(request))
 
 
 @app.post("/models/sync")
