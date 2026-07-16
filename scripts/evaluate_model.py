@@ -5,7 +5,7 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import numpy as np
 import torch
@@ -20,9 +20,7 @@ for relative in ("ai_service", "src"):
 from pfi_ai_service.model_architectures import build_checkpoint_model  # noqa: E402
 from pfi_ai_service.real_inference_runtime import (  # noqa: E402
     CachedModel,
-    LoadedInput,
     load_input,
-    resize_image,
     runtime_device,
     select_slice,
 )
@@ -39,6 +37,12 @@ class CasePair:
 
 
 @dataclass(frozen=True)
+class LabelMapping:
+    values: dict[int, int]
+    source: str
+
+
+@dataclass(frozen=True)
 class ClassAccumulator:
     class_id: int
     intersection: int = 0
@@ -46,6 +50,8 @@ class ClassAccumulator:
     gt_pixels: int = 0
     union: int = 0
     absent_both_cases: int = 0
+    gt_present_cases: int = 0
+    pred_present_cases: int = 0
 
     def add(self, prediction: np.ndarray, ground_truth: np.ndarray) -> "ClassAccumulator":
         pred_mask = np.asarray(prediction) == self.class_id
@@ -62,6 +68,8 @@ class ClassAccumulator:
             gt_pixels=self.gt_pixels + gt_pixels,
             union=self.union + union,
             absent_both_cases=self.absent_both_cases + absent_both,
+            gt_present_cases=self.gt_present_cases + int(gt_pixels > 0),
+            pred_present_cases=self.pred_present_cases + int(pred_pixels > 0),
         )
 
     def dice(self) -> float | None:
@@ -88,6 +96,75 @@ def macro_foreground(values: dict[int, float | None]) -> float | None:
     if not defined:
         return None
     return float(np.mean(defined))
+
+
+def _to_int(value: Any, field: str) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"label_group_mapping invalido: {field}={value!r} no es entero") from exc
+
+
+def normalize_label_mapping(raw_mapping: Mapping[Any, Any] | None, num_classes: int, source: str) -> LabelMapping | None:
+    if not raw_mapping:
+        return None
+    normalized: dict[int, int] = {}
+    for raw_key, raw_value in raw_mapping.items():
+        if isinstance(raw_value, (list, tuple, set)):
+            class_id = _to_int(raw_key, "class_id")
+            raw_labels = raw_value
+            if class_id < 0 or class_id >= num_classes:
+                raise ValueError(f"label_group_mapping invalido: class_id={class_id} fuera de rango")
+            for raw_label in raw_labels:
+                normalized[_to_int(raw_label, "raw_label")] = class_id
+        else:
+            raw_label = _to_int(raw_key, "raw_label")
+            class_id = _to_int(raw_value, "class_id")
+            if class_id < 0 or class_id >= num_classes:
+                raise ValueError(f"label_group_mapping invalido: class_id={class_id} fuera de rango")
+            normalized[raw_label] = class_id
+    normalized.setdefault(0, 0)
+    return LabelMapping(values=dict(sorted(normalized.items())), source=source)
+
+
+def load_label_map_file(path: Path, num_classes: int) -> LabelMapping:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, Mapping):
+        raise ValueError("--label-map debe apuntar a un JSON objeto")
+    return normalize_label_mapping(payload, num_classes, f"file:{path.name}") or LabelMapping({0: 0}, f"file:{path.name}")
+
+
+def checkpoint_label_mapping(checkpoint: Any, num_classes: int) -> LabelMapping | None:
+    if isinstance(checkpoint, Mapping):
+        mapping = checkpoint.get("label_group_mapping")
+        if isinstance(mapping, Mapping):
+            return normalize_label_mapping(mapping, num_classes, "checkpoint:label_group_mapping")
+    return None
+
+
+def validate_labels_in_model_space(mask: np.ndarray, num_classes: int, case_id: str) -> None:
+    labels = sorted(int(value) for value in np.unique(mask))
+    outside = [label for label in labels if label < 0 or label >= num_classes]
+    if outside:
+        raise ValueError(
+            f"GT contiene labels fuera de [0..{num_classes - 1}] para caseId={case_id}: {outside}. "
+            "Proveer --label-map o usar un checkpoint con label_group_mapping."
+        )
+
+
+def apply_label_mapping(mask: np.ndarray, mapping: LabelMapping | None, num_classes: int, case_id: str) -> np.ndarray:
+    labels = sorted(int(value) for value in np.unique(mask))
+    if mapping is None:
+        validate_labels_in_model_space(mask, num_classes, case_id)
+        return mask.astype(np.int64)
+    uncovered = [label for label in labels if label not in mapping.values]
+    if uncovered:
+        raise ValueError(f"GT contiene labels sin mapping para caseId={case_id}: {uncovered}")
+    mapped = np.zeros_like(mask, dtype=np.int64)
+    for raw_label, class_id in mapping.values.items():
+        mapped[mask == raw_label] = class_id
+    validate_labels_in_model_space(mapped, num_classes, case_id)
+    return mapped
 
 
 def load_mask(mask_path: Path, target_size: tuple[int, int]) -> np.ndarray:
@@ -181,14 +258,48 @@ def predict_case(cached: CachedModel, plane: str, image_path: Path, target_size:
     }
 
 
-def evaluate_pairs(cached: CachedModel, pairs: Iterable[CasePair], plane: str, num_classes: int, target_size: tuple[int, int]) -> dict[str, Any]:
+def class_stats(accumulators: dict[int, ClassAccumulator]) -> dict[str, dict[str, int | float | None]]:
+    return {
+        str(class_id): {
+            "dice": accumulator.dice(),
+            "iou": accumulator.iou(),
+            "gt_present_cases": accumulator.gt_present_cases,
+            "pred_present_cases": accumulator.pred_present_cases,
+            "gt_pixels": accumulator.gt_pixels,
+            "pred_pixels": accumulator.pred_pixels,
+            "intersection": accumulator.intersection,
+            "union": accumulator.union,
+            "absent_both_cases": accumulator.absent_both_cases,
+        }
+        for class_id, accumulator in accumulators.items()
+    }
+
+
+def empty_foreground_warnings(accumulators: dict[int, ClassAccumulator]) -> list[str]:
+    return [
+        f"WARNING: foreground class {class_id} has gt_present_cases=0; macro foreground may indicate mapping/dataset issue."
+        for class_id, accumulator in accumulators.items()
+        if class_id != 0 and accumulator.gt_present_cases == 0
+    ]
+
+
+def evaluate_pairs(
+    cached: CachedModel,
+    pairs: Iterable[CasePair],
+    plane: str,
+    num_classes: int,
+    target_size: tuple[int, int],
+    label_mapping: LabelMapping | None = None,
+) -> dict[str, Any]:
     accumulators = {class_id: ClassAccumulator(class_id) for class_id in range(num_classes)}
     cases: list[dict[str, Any]] = []
     for pair in pairs:
         prediction, metadata = predict_case(cached, plane, pair.image_path, target_size)
-        ground_truth = load_mask(pair.mask_path, target_size)
+        ground_truth_raw = load_mask(pair.mask_path, target_size)
+        ground_truth = apply_label_mapping(ground_truth_raw, label_mapping, num_classes, pair.case_id)
         if prediction.shape != ground_truth.shape:
             raise ValueError(f"Shape mismatch luego de resize para caseId={pair.case_id}: pred={prediction.shape}, gt={ground_truth.shape}")
+        validate_labels_in_model_space(prediction, num_classes, pair.case_id)
         for class_id in range(num_classes):
             accumulators[class_id] = accumulators[class_id].add(prediction, ground_truth)
         cases.append({"caseId": pair.case_id, **metadata})
@@ -200,15 +311,21 @@ def evaluate_pairs(cached: CachedModel, pairs: Iterable[CasePair], plane: str, n
         for class_id, accumulator in accumulators.items()
         if accumulator.pred_pixels + accumulator.gt_pixels == 0
     }
+    warnings = empty_foreground_warnings(accumulators)
     return {
         "plane": plane,
         "numClasses": num_classes,
         "targetSize": list(target_size),
         "nCases": len(cases),
+        "labelMappingSource": label_mapping.source if label_mapping else None,
+        "labelMapping": {str(key): value for key, value in label_mapping.values.items()} if label_mapping else None,
         "diceByClass": {str(key): value for key, value in dice_by_class.items()},
         "iouByClass": {str(key): value for key, value in iou_by_class.items()},
+        "classStats": class_stats(accumulators),
         "diceMacroForeground": macro_foreground(dice_by_class),
         "iouMacroForeground": macro_foreground(iou_by_class),
+        "macroForegroundReliable": not warnings,
+        "warnings": warnings,
         "absentClassNotes": {str(key): value for key, value in absent_notes.items()},
         "cases": cases,
         "deidentified": True,
@@ -238,6 +355,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--test-dir", type=Path, required=True, help="Directorio con images/ y masks/.")
     parser.add_argument("--num-classes", type=int, required=True)
     parser.add_argument("--target-size", type=parse_target_size, default=(256, 256))
+    parser.add_argument("--label-map", type=Path, default=None, help="JSON opcional raw_label -> class_id o class_id -> [raw_labels].")
     parser.add_argument("--output", type=Path, default=Path("docs/qual-003-eval-report.json"))
     return parser
 
@@ -248,9 +366,14 @@ def main() -> int:
         raise FileNotFoundError(f"Checkpoint no encontrado: {args.checkpoint}")
     pairs = find_case_pairs(args.test_dir)
     cached = load_checkpoint_model(args.checkpoint, args.plane)
-    report = evaluate_pairs(cached, pairs, args.plane, args.num_classes, args.target_size)
+    label_mapping = checkpoint_label_mapping(cached.checkpoint, args.num_classes)
+    if label_mapping is None and args.label_map is not None:
+        label_mapping = load_label_map_file(args.label_map, args.num_classes)
+    report = evaluate_pairs(cached, pairs, args.plane, args.num_classes, args.target_size, label_mapping)
     report["checkpointFile"] = args.checkpoint.name
     write_report(report, args.output)
+    for warning in report["warnings"]:
+        print(warning, file=sys.stderr)
     print(json.dumps(report, indent=2, sort_keys=True))
     print(f"Reporte JSON escrito en {args.output}")
     return 0
