@@ -14,28 +14,38 @@
     "raw_150",
     "raw_200"
   ],
-  "classesNote": "PENDIENTE: confirmar semantica anatomica de las clases raw_* y resolver raw_0.",
+  "classesNote": "Clases discretas del dataset axial: background_250, raw_0, raw_50, raw_100, raw_150, raw_200. Traduccion anatomica de raw_* PENDIENTE; no inventar equivalencias.",
   "metrics": {
-    "dice": 0.8167,
-    "iou": 0.7001,
-    "scope": "legacy_test_useful_classes_excluding_raw_0",
-    "status": "legacy_not_final_quality_gate"
+    "dice": 0.659,
+    "scope": "E10_curated_test_dice_macro_no_bg_preliminary_not_final_gate",
+    "status": "preliminary_not_final_quality_gate",
+    "dice_macro_excluding_raw0": 0.817,
+    "raw_0_dice": 0.026,
+    "raw_0_present_cases_percent_range": "16-21"
   },
   "preliminaryEvaluation": {
     "status": "preliminary_not_final",
-    "source": "QUAL-003b official evaluator",
-    "split": "held-out preliminary_gt_not_confirmed_unseen",
+    "source": "QUAL-003b official evaluator / E10 axial context",
+    "split": "E10 curated test; gate will use E9 patient-level curated split with label identity",
     "heldOutConfirmedByPatient": false,
-    "diceMacroForeground": 0.344,
-    "iouMacroForeground": null,
-    "reliable": false,
-    "unreliableReason": "raw_0 gt_present_cases=0",
-    "usefulDiceMacroForegroundExcludingRaw0Approx": 0.43,
+    "diceMacroForeground": 0.659,
+    "diceMacroExcludingRaw0": 0.817,
+    "raw0Dice": 0.026,
+    "raw0PresentCasesPercentRange": "16-21",
+    "reliable": true,
     "thresholdDiceMacroForeground": 0.7,
-    "qualityGateStatus": "below_threshold_unreliable",
-    "note": "Preliminar, held-out no confirmado por paciente; NO es test limpio final. Umbral objetivo Dice macro >= 0.70. Axial pendiente de resolver raw_0."
+    "qualityGateStatus": "below_threshold_pending_E9_patient_split_gate",
+    "note": "Preliminar; NO es test limpio final. El numero de gate se tomara del split curado E9 por paciente con identidad de labels."
   },
-  "trainingStatus": "baseline_evaluated_preliminary_quality_below_threshold_unreliable",
+  "pairingV1PreliminaryEvaluation": {
+    "status": "preliminary_not_reliable",
+    "source": "QUAL-004b preliminary pairing_v1",
+    "diceMacroForeground": 0.344,
+    "reliable": false,
+    "unreliableReason": "raw_0 gt_present_cases=0 in pairing_v1",
+    "note": "No usar este 0.344 como calidad axial final; pairing_v1 no representa raw_0."
+  },
+  "trainingStatus": "baseline_evaluated_preliminary_quality_pending_E9_patient_split_gate",
   "targetSize": [
     256,
     256

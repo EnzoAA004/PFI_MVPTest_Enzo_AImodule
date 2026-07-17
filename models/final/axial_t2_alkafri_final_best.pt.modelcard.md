@@ -15,8 +15,8 @@
 - Origen: notebook de Colab axial E10 / `AxialUNet2D` final segun runtime y backlog.
 - Dataset: ALKAFRI/Sudirman axial T2 lumbar MRI.
 - Split de entrenamiento/validacion/test final: PENDIENTE de manifest versionado por paciente.
-- Evaluacion preliminar indicada para QUAL-006: `held-out preliminary_gt_not_confirmed_unseen`.
-- Riesgo conocido: el held-out preliminar NO esta confirmado como test limpio final por paciente.
+- Evaluaciones preliminares documentadas: E10 sobre test curado y QUAL-004b sobre `pairing_v1`.
+- Riesgo conocido: el numero de gate se tomara del split curado E9 por paciente; las metricas actuales son contexto preliminar.
 
 ## Arquitectura e hiperparametros
 
@@ -36,23 +36,31 @@
 - 4: `raw_150`
 - 5: `raw_200`
 
-PENDIENTE: confirmar definicion anatomica/semantica de las clases `raw_*`, en especial resolver `raw_0` antes de usar macro como indicador confiable.
+Definicion actual: clases discretas del dataset axial (`background_250`, `raw_0`, `raw_50`, `raw_100`, `raw_150`, `raw_200`) sin traduccion anatomica cerrada. NO se inventa equivalencia anatomica para `raw_*`; queda PENDIENTE. En el test curado E10, `raw_0` esta presente aproximadamente en 16-21% de los casos, por lo que no debe tratarse como clase ausente global.
 
 ## Calidad actual documentada
 
 Estado: PRELIMINAR, no final.
 
-- Evaluador: QUAL-003b official evaluator.
-- Split: `held-out preliminary_gt_not_confirmed_unseen`.
-- Dice macro foreground preliminar: 0.344.
-- IoU macro foreground preliminar: PENDIENTE/no provisto.
-- `reliable`: false.
-- Motivo de no confiabilidad: `raw_0 gt_present_cases=0`.
-- Dice macro util excluyendo `raw_0`: aproximadamente 0.43.
-- Umbral objetivo: Dice macro foreground >= 0.70.
-- Estado frente al umbral: por debajo del umbral y pendiente de resolver mapping/clase `raw_0`.
+### E10 sobre test curado
 
-Aclaracion obligatoria: estas metricas NO son test limpio final. El conjunto held-out aun no esta confirmado por paciente, por lo que no debe presentarse como resultado final de calidad.
+- Evaluador: QUAL-003b official evaluator / contexto E10 axial.
+- Split: test curado E10, con identidad de labels preservada.
+- Dice macro foreground (`dice_macro_no_bg`): 0.659.
+- Dice macro foreground excluyendo `raw_0` (`dice_macro_excluding_raw0`): 0.817.
+- Dice de `raw_0`: 0.026.
+- Presencia de `raw_0`: aproximadamente 16-21% de los casos.
+- Umbral objetivo: Dice macro foreground >= 0.70.
+- Estado frente al umbral: 0.659 queda por debajo del umbral global; excluyendo `raw_0` supera el umbral, pero `raw_0` requiere resolucion especifica.
+
+### QUAL-004b preliminar sobre pairing_v1
+
+- Dice macro foreground preliminar: 0.344.
+- `reliable`: false.
+- Motivo de no confiabilidad: `raw_0 gt_present_cases=0` en pairing_v1.
+- Interpretacion: ese 0.344 no debe usarse como calidad axial final; evidencia un problema de split/mapping/presencia de `raw_0` en pairing_v1.
+
+Aclaracion obligatoria: el numero de gate se tomara del split curado E9 por paciente, con identidad de labels. Hasta congelar ese split, estas metricas son preliminares y NO son test limpio final.
 
 ## Metricas legacy en manifest
 
@@ -69,7 +77,7 @@ El manifest conserva metricas historicas bajo `metrics` con status `legacy_not_f
 
 ## Pendientes
 
-- Resolver `raw_0` y confirmar mapping/semantica de clases axiales.
+- Resolver desempeno de `raw_0` y confirmar semantica anatomica de clases axiales `raw_*` sin inventar traducciones.
 - Congelar y versionar test held-out limpio por paciente.
 - Ejecutar QUAL-003b sobre el test limpio final.
 - Alcanzar o justificar brecha frente a Dice macro foreground >= 0.70.
