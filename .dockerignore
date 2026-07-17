@@ -2,26 +2,51 @@
 .github
 .agents
 .codex
+.idea
+
+# Python/env caches
 .venv
 venv
 env
 __pycache__
 *.pyc
+*.pyo
 .pytest_cache
 .coverage
 htmlcov
+
+# Secrets / local env
 .env
-.env.local
+.env.*
+!.env.example
+
+# Medical data, datasets, checkpoints, generated outputs
 data
+datasets
 outputs
-notebooks
-*.ipynb
-.ipynb_checkpoints
+uploads
+models/checkpoints
+models/exported
+*.pt
+**/*.pt
+models/final/*.pt
+src/lumbar_mri/models/*.pt
+*.pth
+**/*.pth
+models/final/*.pth
+*.ckpt
 *.mha
+*.mhd
 *.nii
 *.nii.gz
 *.nrrd
 *.dcm
-*.ckpt
-models/checkpoints
-models/exported
+*.raw
+
+# Notebook outputs / bulky experiments
+notebooks
+*.ipynb
+.ipynb_checkpoints
+
+# Local tooling
+.cache
