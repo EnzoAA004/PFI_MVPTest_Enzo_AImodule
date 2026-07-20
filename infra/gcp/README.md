@@ -109,6 +109,56 @@ set +a
 
 `training-vm.env` es local, no debe commitearse y no debe contener secretos. Modificarlo solamente para rutas o parametros de una corrida.
 
+## Preparacion local de la VM
+
+`prepare-training-vm.sh` prepara de forma idempotente el filesystem, el checkout del repo y el entorno Python de la futura VM. No descarga datasets, no ejecuta notebooks, no entrena, no crea recursos Google Cloud y no instala torch, torchvision, CUDA ni drivers NVIDIA.
+
+Uso futuro dentro de la VM:
+
+```bash
+cp infra/gcp/training-vm.env.example infra/gcp/training-vm.env
+
+bash infra/gcp/prepare-training-vm.sh \
+  --env-file infra/gcp/training-vm.env
+```
+
+Dry-run local o previo:
+
+```bash
+bash infra/gcp/prepare-training-vm.sh \
+  --dry-run \
+  --skip-apt \
+  --skip-python \
+  --env-file infra/gcp/training-vm.env.example
+```
+
+El dry-run informa acciones y no modifica el sistema.
+
+## Preflight
+
+`preflight-training-vm.sh` es read-only. No entrena, no descarga datos, no sube datos, no crea archivos dentro de `/opt/pfi`, no ejecuta notebooks y no modifica recursos de Google Cloud.
+
+Preflight estatico desde el checkout local:
+
+```bash
+bash infra/gcp/preflight-training-vm.sh \
+  --mode static \
+  --env-file infra/gcp/training-vm.env.example
+```
+
+El modo `static` no necesita VM ni GPU. Valida el contrato de variables, rutas, archivos del repo, notebook v4 como JSON, arquitectura Python, gitignore y ausencia de artifacts trackeados.
+
+Preflight real dentro de la VM:
+
+```bash
+bash infra/gcp/preflight-training-vm.sh \
+  --mode vm \
+  --env-file infra/gcp/training-vm.env
+```
+
+El modo `vm` debe ejecutarse dentro de Compute Engine. Agrega validaciones de Linux, comandos, venv, GPU/CUDA, `nvidia-smi`, metadata de Compute Engine, identidad adjunta, bucket/prefijos GCS en modo solo lectura, disco y datasets locales.
+
+Todavia faltan el script de descarga/sync y el notebook v5 portable. No documentar esos pasos como disponibles hasta implementarlos.
 ## Trabajo pendiente
 
 1. `prepare-training-vm.sh`
