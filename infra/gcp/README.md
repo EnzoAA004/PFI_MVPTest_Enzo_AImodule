@@ -159,6 +159,9 @@ bash infra/gcp/preflight-training-vm.sh \
 El modo `vm` debe ejecutarse dentro de Compute Engine. Agrega validaciones de Linux, comandos, venv, GPU/CUDA, `nvidia-smi`, metadata de Compute Engine, identidad adjunta, bucket/prefijos GCS en modo solo lectura, disco y datasets locales.
 
 Todavia faltan el script de descarga/sync y el notebook v5 portable. No documentar esos pasos como disponibles hasta implementarlos.
+### Correcciones de seguridad del preflight
+
+El modo `static` valida Python sin crear `__pycache__`. `prepare-training-vm.sh` debe ejecutarse como usuario normal: puede usar `sudo` para tareas del sistema, pero no ejecuta `pip` como root. En `preflight --mode vm`, un prefijo `datasets/` vacio falla cuando `PFI_DOWNLOAD_DATASETS=1`; los prefijos `models/`, `resume/`, `manifests/` y `outputs/` vacios solo se informan como advertencia.
 ## Trabajo pendiente
 
 1. `prepare-training-vm.sh`
