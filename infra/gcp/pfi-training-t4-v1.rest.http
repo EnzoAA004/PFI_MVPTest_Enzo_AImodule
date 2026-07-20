@@ -1,0 +1,93 @@
+# Referencia REST exportada desde Google Cloud Console.
+# No enviar hasta habilitar la facturación para GPU y obtener cuota global de 1 GPU.
+
+POST https://compute.googleapis.com/compute/v1/projects/pfi-asplanatti-fabrello-v1/zones/us-central1-a/instances
+Content-Type: application/json
+
+{
+  "canIpForward": false,
+  "confidentialInstanceConfig": {
+    "enableConfidentialCompute": false
+  },
+  "deletionProtection": false,
+  "description": "",
+  "disks": [
+    {
+      "autoDelete": true,
+      "boot": true,
+      "deviceName": "pfi-training-t4-v1",
+      "diskEncryptionKey": {},
+      "initializeParams": {
+        "diskSizeGb": "100",
+        "diskType": "projects/pfi-asplanatti-fabrello-v1/zones/us-central1-a/diskTypes/pd-balanced",
+        "labels": {},
+        "sourceImage": "projects/ml-images/global/images/pytorch-2-9-cu129-ubuntu-2204-nvidia-580-v20260713"
+      },
+      "mode": "READ_WRITE",
+      "type": "PERSISTENT"
+    }
+  ],
+  "displayDevice": {
+    "enableDisplay": false
+  },
+  "guestAccelerators": [
+    {
+      "acceleratorCount": 1,
+      "acceleratorType": "projects/pfi-asplanatti-fabrello-v1/zones/us-central1-a/acceleratorTypes/nvidia-tesla-t4"
+    }
+  ],
+  "instanceEncryptionKey": {},
+  "keyRevocationActionType": "NONE",
+  "labels": {
+    "goog-ec-src": "vm_add-rest"
+  },
+  "machineType": "projects/pfi-asplanatti-fabrello-v1/zones/us-central1-a/machineTypes/n1-standard-4",
+  "metadata": {
+    "items": []
+  },
+  "name": "pfi-training-t4-v1",
+  "networkInterfaces": [
+    {
+      "accessConfigs": [
+        {
+          "name": "External NAT",
+          "networkTier": "PREMIUM"
+        }
+      ],
+      "stackType": "IPV4_ONLY",
+      "subnetwork": "projects/pfi-asplanatti-fabrello-v1/regions/us-central1/subnetworks/default"
+    }
+  ],
+  "params": {
+    "resourceManagerTags": {}
+  },
+  "reservationAffinity": {
+    "consumeReservationType": "NO_RESERVATION"
+  },
+  "scheduling": {
+    "automaticRestart": false,
+    "instanceTerminationAction": "STOP",
+    "maxRunDuration": {
+      "seconds": "43200"
+    },
+    "onHostMaintenance": "TERMINATE",
+    "provisioningModel": "STANDARD"
+  },
+  "serviceAccounts": [
+    {
+      "email": "pfi-training-vm@pfi-asplanatti-fabrello-v1.iam.gserviceaccount.com",
+      "scopes": [
+        "https://www.googleapis.com/auth/cloud-platform"
+      ]
+    }
+  ],
+  "shieldedInstanceConfig": {
+    "enableIntegrityMonitoring": true,
+    "enableSecureBoot": false,
+    "enableVtpm": true
+  },
+  "tags": {
+    "items": []
+  },
+  "zone": "projects/pfi-asplanatti-fabrello-v1/zones/us-central1-a"
+}
