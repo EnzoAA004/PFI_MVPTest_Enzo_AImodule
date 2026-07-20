@@ -42,3 +42,10 @@ uploads/
 # Environment files
 .env
 .env.local
+
+# Google Cloud local training configuration
+infra/gcp/training-vm.env
+infra/gcp/*.env.local
+infra/gcp/*.secret
+infra/gcp/*credentials*.json
+infra/gcp/*service-account*.json
