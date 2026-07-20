@@ -82,14 +82,25 @@ assert 'torch.save(' not in text
 PY
 }
 validate_helper_static(){
-  local py="${1:-python}" helper="$REPO_CHECKOUT_ROOT/ai_service/pfi_ai_service/training/cloud_runtime.py"
-  "$py" - <<'PY' "$helper"
+  local py="${1:-python}" helper="$REPO_CHECKOUT_ROOT/ai_service/pfi_ai_service/training/cloud_runtime.py" executor="$REPO_CHECKOUT_ROOT/ai_service/pfi_ai_service/training/notebook_executor.py" runner="$REPO_CHECKOUT_ROOT/infra/gcp/run-final-training.sh"
+  "$py" - <<'PY' "$helper" "$executor" "$runner"
 from pathlib import Path
 import sys
-p=Path(sys.argv[1]); text=p.read_text(encoding='utf-8')
+p=Path(sys.argv[1]); executor=Path(sys.argv[2]); runner=Path(sys.argv[3]); text=p.read_text(encoding='utf-8')
 compile(text, str(p), 'exec')
 for bad in ['shell=True','gcloud storage','auth print-' + 'access-token','credentials' + '.json','rm -rf']:
     assert bad not in text, bad
+exec_text=Path(executor).read_text(encoding='utf-8')
+compile(exec_text, str(executor), 'exec')
+for needed in ['nbclient','nbformat','NotebookClient']:
+    assert needed in exec_text, needed
+for bad in ['shell=True','nbconvert','exec(','gcloud','CUDA','torch.']:
+    assert bad not in exec_text, bad
+runner_text=Path(runner).read_text(encoding='utf-8')
+for needed in ['--execute','--dry-run','preflight-training-vm.sh','download-training-data.sh','sync-training-artifacts.sh','notebook_executor','push-resume','push-all','PFI_PREFLIGHT_ONLY','PFI_SYNC_DRY_RUN']:
+    assert needed in runner_text, needed
+for bad in ['gcloud storage rm','gcloud storage mv','gsutil','delete-unmatched-destination-objects','auth print-' + 'access-token','git reset','git clean','git pull','sudo','pip install','rm -rf']:
+    assert bad not in runner_text, bad
 PY
 }
 static_checks(){
@@ -115,7 +126,7 @@ static_checks(){
     [[ "${!n}" == *"/$PFI_RUN_ID" || "${!n}" == *"/$PFI_RUN_ID/"* ]] && pass "$n contiene run_id" || fail "$n no contiene run_id"
   done
   [[ "$PFI_VM_SERVICE_ACCOUNT" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.iam\.gserviceaccount\.com$ ]] && pass "service account formato valido" || fail "service account formato invalido"
-  for f in notebooks/train_final_models_v4_final.ipynb notebooks/train_final_models_v5_cloud_portable.ipynb ai_service/pfi_ai_service/model_architectures.py ai_service/pfi_ai_service/training/__init__.py ai_service/pfi_ai_service/training/cloud_runtime.py ai_service/tests/test_cloud_training_runtime.py requirements.txt infra/gcp/create-pfi-training-t4-v1.sh infra/gcp/download-training-data.sh infra/gcp/sync-training-artifacts.sh; do [[ -f "$REPO_CHECKOUT_ROOT/$f" ]] && pass "existe $f" || fail "falta $f"; done
+  for f in notebooks/train_final_models_v4_final.ipynb notebooks/train_final_models_v5_cloud_portable.ipynb ai_service/pfi_ai_service/model_architectures.py ai_service/pfi_ai_service/training/__init__.py ai_service/pfi_ai_service/training/cloud_runtime.py ai_service/tests/test_cloud_training_runtime.py ai_service/pfi_ai_service/training/notebook_executor.py ai_service/tests/test_notebook_executor.py ai_service/tests/test_final_training_runner.py infra/gcp/run-final-training.sh requirements.txt infra/gcp/create-pfi-training-t4-v1.sh infra/gcp/download-training-data.sh infra/gcp/sync-training-artifacts.sh; do [[ -f "$REPO_CHECKOUT_ROOT/$f" ]] && pass "existe $f" || fail "falta $f"; done
   cmd python || py=python3
   if cmd "$py"; then
     "$py" -m json.tool "$REPO_CHECKOUT_ROOT/notebooks/train_final_models_v4_final.ipynb" >/dev/null && pass "notebook v4 JSON valido" || fail "notebook v4 JSON invalido"
@@ -133,13 +144,16 @@ static_checks(){
   local secret_re
   secret_re='PRIVATE ''KEY|private_''key|client_''secret|access_''token|pass''word=|credentials\.json|BEGIN ''RSA|BEGIN ''OPENSSH'
   grep -REn "$secret_re" "$REPO_CHECKOUT_ROOT/infra/gcp/prepare-training-vm.sh" "$REPO_CHECKOUT_ROOT/infra/gcp/preflight-training-vm.sh" "$REPO_CHECKOUT_ROOT/infra/gcp/README.md" >/dev/null && fail "patrones de secreto encontrados" || pass "sin patrones de secretos infra"
-    for f in infra/gcp/download-training-data.sh infra/gcp/sync-training-artifacts.sh; do
+    for f in infra/gcp/download-training-data.sh infra/gcp/sync-training-artifacts.sh infra/gcp/run-final-training.sh; do
     bash -n "$REPO_CHECKOUT_ROOT/$f" && pass "$f sintaxis bash" || fail "$f sintaxis bash"
     mode="$(git -C "$REPO_CHECKOUT_ROOT" ls-files --stage "$f" | awk '{print $1}')"
     [[ "$mode" == 100755 ]] && pass "$f modo 100755" || fail "$f no esta trackeado como 100755"
   done
   if grep -RE -- '--delete-unmatched-destination-objects\|gcloud storage rm\|gcloud storage mv\|gsutil' "$REPO_CHECKOUT_ROOT/infra/gcp/download-training-data.sh" "$REPO_CHECKOUT_ROOT/infra/gcp/sync-training-artifacts.sh" >/dev/null; then fail "scripts contienen comandos prohibidos"; else pass "scripts sin comandos GCS prohibidos"; fi
   grep -q -- '--execute' "$REPO_CHECKOUT_ROOT/infra/gcp/download-training-data.sh" && grep -q -- '--execute' "$REPO_CHECKOUT_ROOT/infra/gcp/sync-training-artifacts.sh" && pass "scripts requieren --execute" || fail "falta control --execute"
+  bash -n "$REPO_CHECKOUT_ROOT/infra/gcp/run-final-training.sh" && pass "runner sintaxis bash" || fail "runner sintaxis bash"
+  mode="$(git -C "$REPO_CHECKOUT_ROOT" ls-files --stage infra/gcp/run-final-training.sh | awk '{print $1}')"
+  [[ "$mode" == 100755 ]] && pass "runner modo 100755" || fail "runner no esta trackeado como 100755"
   worktree_check
 }
 
@@ -183,7 +197,7 @@ python_vm(){
   local out rc; set +e
   out="$("$PFI_VENV_DIR/bin/python" - <<'PY'
 import importlib, sys
-mods=['numpy','scipy','pandas','matplotlib','skimage','sklearn','torch','torchvision','pytest','SimpleITK','pydicom','PIL','nbformat','nbconvert','jupyter','ipykernel']
+mods=['numpy','scipy','pandas','matplotlib','skimage','sklearn','torch','torchvision','pytest','SimpleITK','pydicom','PIL','nbclient','nbformat','jupyter_client','nbconvert','jupyter','ipykernel']
 missing=[]
 for m in mods:
     try: importlib.import_module(m)
@@ -309,7 +323,7 @@ PY
   [[ "$rc" -eq 0 ]] && pass "AXIAL CSV y paths" || fail "AXIAL CSV/paths invalidos"
   [[ "$FAIL" -gt "$before" ]] && S_AXIAL=FAIL || S_AXIAL=OK
 }
-model_import(){ [[ -x "$PFI_VENV_DIR/bin/python" ]] || { fail "venv python faltante para import"; return; }; PYTHONPATH="$PFI_REPO_ROOT/ai_service" "$PFI_VENV_DIR/bin/python" -c 'from pfi_ai_service.model_architectures import SagittalUNet2D, AxialUNet2D, build_checkpoint_model' && pass "imports model_architectures" || fail "imports model_architectures fallan"; }
+model_import(){ [[ -x "$PFI_VENV_DIR/bin/python" ]] || { fail "venv python faltante para import"; return; }; PYTHONPATH="$PFI_REPO_ROOT/ai_service" "$PFI_VENV_DIR/bin/python" -c 'from pfi_ai_service.model_architectures import SagittalUNet2D, AxialUNet2D, build_checkpoint_model; import nbclient, nbformat, jupyter_client, ipykernel; import pfi_ai_service.training.notebook_executor' && pass "imports model_architectures/notebook_executor" || fail "imports model_architectures/notebook_executor fallan"; }
 summary(){
   local result
   [[ "$FAIL" -eq 0 ]] && result=READY || result='NOT READY'

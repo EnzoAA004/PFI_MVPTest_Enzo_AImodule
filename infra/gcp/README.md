@@ -335,6 +335,53 @@ PFI_INSTALL_NOTEBOOK_DEPS=1
 ```
 
 En Colab se puede montar Drive si `PFI_USE_GOOGLE_DRIVE=1`; si `MyDrive` ya existe se reutiliza. El notebook no borra contenido del mountpoint y no modifica v4.
+
+## Runner final
+
+`infra/gcp/run-final-training.sh` orquesta la corrida final de la VM en foreground y no crea recursos Cloud. El flujo previsto es:
+
+```text
+static -> datasets -> resume -> preflight vm -> notebook v5 -> sync -> verificacion read-only
+```
+
+Dry-run seguro:
+
+```bash
+bash infra/gcp/run-final-training.sh \
+  --dry-run \
+  --env-file infra/gcp/training-vm.env
+```
+
+Ejecucion real futura dentro de la VM:
+
+```bash
+bash infra/gcp/run-final-training.sh \
+  --execute \
+  --env-file infra/gcp/training-vm.env
+```
+
+El modo default es `--dry-run`. En `--execute` el runner exige `PFI_CLOUD_MODE=1`, `PFI_PREFLIGHT_ONLY=0`, `PFI_SYNC_DRY_RUN=0`, `PFI_SYNC_RESUME=1`, `PFI_SYNC_FINAL_ARTIFACTS=1`, `PFI_SYNC_FAILURE_IS_FATAL=1`, `REQUIRE_GPU=1`, metadata GCE coincidente, repo limpio en `main`, `HEAD == origin/main` cuando `origin/main` esta disponible, y scripts ejecutables. No hace `git fetch`, `git pull`, `git reset`, `sudo`, `pip`, ni consulta tokens.
+
+Resume:
+
+- si existen `*.last_checkpoint.pt` o `*.best_checkpoint.pt` locales, se preservan y no se pisa progreso local con una copia remota anterior;
+- si no existen y `PFI_DOWNLOAD_RESUME=1`, se llama `sync-training-artifacts.sh --mode pull-resume`;
+- `--force-pull-resume` fuerza una restauracion consciente sin borrar checkpoints locales;
+- `--require-resume` impide empezar desde cero cuando la reanudacion es obligatoria.
+
+Ejecucion y evidencia:
+
+- usa lock atomico por run ID en `/tmp/pfi-final-training-${PFI_RUN_ID}.lock`;
+- escribe `PFI_LOCAL_LOGS_DIR/final_training_${PFI_RUN_ID}.log` en append;
+- escribe `PFI_LOCAL_LOGS_DIR/runner_status_${PFI_RUN_ID}.json` de forma atomica;
+- ejecuta `notebooks/train_final_models_v5_cloud_portable.ipynb` con `pfi_ai_service.training.notebook_executor` y guarda una copia local ejecutada;
+- ante fallo o senial intenta `push-resume` una sola vez si hay checkpoints reconocidos;
+- ante exito hace `push-all` aunque el notebook haya sincronizado, como cierre idempotente del runner;
+- despues verifica remoto con `gcloud storage ls` solamente;
+- si falla la verificacion remota, no borrar la VM: los artifacts locales siguen siendo la fuente de recuperacion.
+
+El segundo sync final es intencional: protege log, status JSON y artifacts finales del runner, puede crear un segundo `sync_manifest`, y no elimina objetos remotos.
+
 ## Trabajo pendiente
 
 Implementados:
@@ -344,6 +391,7 @@ Implementados:
 3. `download-training-data.sh`
 4. `sync-training-artifacts.sh`
 5. `train_final_models_v5_cloud_portable.ipynb`
+6. `run-final-training.sh`
 
 Pendientes:
 
