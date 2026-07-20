@@ -279,6 +279,62 @@ Sube modelos finales permitidos, manifests y logs seleccionados hacia prefijos s
 - El manifest registra SHA-256, tamanio, destino y metadata minima de entorno sin credenciales ni rutas internas completas.
 - No eliminar la VM antes de verificar `models/`, `resume/` y `manifests/` en GCS.
 
+
+## Notebook v5 cloud portable
+
+`notebooks/train_final_models_v5_cloud_portable.ipynb` es el notebook previsto para la VM de entrenamiento y tambien puede reutilizarse en Colab con flags explicitos. `train_final_models_v4_final.ipynb` permanece intacto como referencia Colab validada.
+
+En VM usa `/opt/pfi` y las rutas de `training-vm.env`. No entrena directamente desde GCS: primero se materializan datasets en disco local. Los outputs quedan separados por tipo:
+
+```text
+/opt/pfi/outputs/final_training/
+|-- models/
+|   |-- sagittal_spider_multiclass_final_best.pt
+|   `-- axial_t2_alkafri_final_best.pt
+|-- resume/
+|   |-- *.last_checkpoint.pt
+|   |-- *.best_checkpoint.pt
+|   `-- *_resume_state.json
+|-- manifests/
+|   |-- spider_sagittal_patient_split.csv
+|   |-- alkafri_axial_patient_split.csv
+|   |-- *.metrics.json
+|   |-- final_training_quality_gate_summary.csv
+|   `-- training_run_<PFI_RUN_ID>.json
+`-- logs/
+```
+
+El notebook guarda checkpoints y manifests con escritura atomica, sincroniza resume por epoch usando `sync-training-artifacts.sh --mode push-resume`, y sincroniza finales con `--mode push-final` al terminar todos los planos activos. El notebook no crea la VM, no crea recursos Cloud y no llama `gcloud` directamente.
+
+## Modos seguros
+
+Primera validacion segura:
+
+```bash
+PFI_PREFLIGHT_ONLY=1
+PFI_SYNC_DRY_RUN=1
+```
+
+Entrenamiento real futuro:
+
+```bash
+PFI_PREFLIGHT_ONLY=0
+PFI_SYNC_DRY_RUN=0
+```
+
+No cambiar esos valores hasta completar dry-run y preflight real dentro de la VM. En cloud mode el notebook bloquea el entrenamiento si `PFI_SYNC_DRY_RUN=1`, para evitar gastar GPU sin persistencia real. `PFI_SYNC_FAILURE_IS_FATAL=1` detiene el entrenamiento despues de guardar localmente si no puede proteger el checkpoint en GCS.
+
+## Compatibilidad Colab
+
+Para usar v5 en Colab:
+
+```bash
+PFI_CLOUD_MODE=0
+PFI_USE_GOOGLE_DRIVE=1
+PFI_INSTALL_NOTEBOOK_DEPS=1
+```
+
+En Colab se puede montar Drive si `PFI_USE_GOOGLE_DRIVE=1`; si `MyDrive` ya existe se reutiliza. El notebook no borra contenido del mountpoint y no modifica v4.
 ## Trabajo pendiente
 
 Implementados:
@@ -287,6 +343,7 @@ Implementados:
 2. `preflight-training-vm.sh`
 3. `download-training-data.sh`
 4. `sync-training-artifacts.sh`
+5. `train_final_models_v5_cloud_portable.ipynb`
 
 Pendientes:
 
@@ -301,5 +358,5 @@ Pendientes:
 - creacion operativa: `create-pfi-training-t4-v1.sh`;
 - valores de ejecucion: `training-vm.env`;
 - notebook final Colab vigente: `train_final_models_v4_final.ipynb`;
-- futuro notebook cloud: `train_final_models_v5_cloud_portable.ipynb`;
+- notebook cloud portable: `train_final_models_v5_cloud_portable.ipynb`;
 - no usar el Terraform disabled.

@@ -20,7 +20,7 @@ ALL_VARS=(
   PFI_VM_ROOT PFI_REPO_URL PFI_REPO_ROOT PFI_DATA_ROOT PFI_OUTPUT_ROOT PFI_TRAIN_OUTPUT_DIR
   PFI_LOCAL_RESUME_DIR PFI_LOCAL_MODELS_DIR PFI_LOCAL_MANIFESTS_DIR PFI_LOCAL_LOGS_DIR PFI_PYTHON_BIN PFI_VENV_DIR
   PFI_RUN_ID PFI_MIN_FREE_DISK_GB REQUIRE_GPU RUN_SAGITTAL RUN_AXIAL PFI_SMOKE_RUN PFI_RESUME_TRAINING
-  PFI_MAX_EPOCHS PFI_EARLY_STOP_PATIENCE PFI_PREFLIGHT_ONLY PFI_SYNC_DRY_RUN PFI_DOWNLOAD_DATASETS PFI_DOWNLOAD_RESUME PFI_SYNC_RESUME PFI_SYNC_FINAL_ARTIFACTS PFI_SYNC_MIN_FILE_AGE_SECONDS
+  PFI_MAX_EPOCHS PFI_EARLY_STOP_PATIENCE PFI_PREFLIGHT_ONLY PFI_SYNC_DRY_RUN PFI_DOWNLOAD_DATASETS PFI_DOWNLOAD_RESUME PFI_SYNC_RESUME PFI_SYNC_FINAL_ARTIFACTS PFI_SYNC_MIN_FILE_AGE_SECONDS PFI_CLOUD_MODE PFI_USE_GOOGLE_DRIVE PFI_INSTALL_NOTEBOOK_DEPS PFI_TRAINING_ENV_FILE PFI_SYNC_EVERY_N_EPOCHS PFI_SYNC_FAILURE_IS_FATAL
   SPIDER_IMAGES_DIR SPIDER_MASKS_DIR SPIDER_LABEL_GROUP_MAPPING_JSON SPIDER_CHECKPOINT_FOR_LABEL_MAP
   AXIAL_E9_CURATED_SPLIT_CSV AXIAL_IMAGES_DIR AXIAL_MASKS_DIR AXIAL_IMAGE_COL AXIAL_MASK_COL AXIAL_PATIENT_COL AXIAL_SPLIT_COL
 )
@@ -61,17 +61,50 @@ worktree_check(){
   status="$(git -C "$REPO_CHECKOUT_ROOT" status --porcelain)"
   if [[ -z "$status" ]]; then pass "worktree clean"; else warn "worktree dirty"; printf '%s\n' "$status" | sed 's/^/[WARN] git status: /'; fi
 }
+validate_v5_notebook(){
+  local py="${1:-python}" nb="$REPO_CHECKOUT_ROOT/notebooks/train_final_models_v5_cloud_portable.ipynb"
+  "$py" - <<'PY' "$nb"
+import json, sys
+from pathlib import Path
+p=Path(sys.argv[1]); nb=json.loads(p.read_text(encoding='utf-8'))
+assert nb.get('nbformat') == 4
+text='\n'.join((''.join(c.get('source','')) if isinstance(c.get('source'),list) else c.get('source','')) for c in nb.get('cells',[]))
+for i,c in enumerate(nb.get('cells',[])):
+    if c.get('cell_type') == 'code':
+        assert c.get('outputs', []) == [], f'outputs no vacios cell {i}'
+        assert c.get('execution_count') is None, f'execution_count no null cell {i}'
+        compile(''.join(c.get('source','')) if isinstance(c.get('source'),list) else c.get('source',''), f'{p}:cell{i}', 'exec')
+for bad in ['!pip','%pip','shutil.rmtree','child.unlink','gcloud storage rm','gcloud storage mv','delete-unmatched-destination-objects','auth print-' + 'access-token','shell=True','GOOGLE_APPLICATION_' + 'CREDENTIALS=']:
+    assert bad not in text, bad
+for needed in ['atomic_torch_save','PFI_PREFLIGHT_ONLY','PFI_RUN_ID','PFI_LOCAL_MODELS_DIR','PFI_LOCAL_RESUME_DIR','PFI_LOCAL_MANIFESTS_DIR','push-resume','push-final']:
+    assert needed in text, needed
+assert 'torch.save(' not in text
+PY
+}
+validate_helper_static(){
+  local py="${1:-python}" helper="$REPO_CHECKOUT_ROOT/ai_service/pfi_ai_service/training/cloud_runtime.py"
+  "$py" - <<'PY' "$helper"
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); text=p.read_text(encoding='utf-8')
+compile(text, str(p), 'exec')
+for bad in ['shell=True','gcloud storage','auth print-' + 'access-token','credentials' + '.json','rm -rf']:
+    assert bad not in text, bad
+PY
+}
 static_checks(){
   local n f py=python
   validate_structural_vars
   for n in "${ALL_VARS[@]}"; do req "$n"; done
   for n in PFI_VM_ROOT PFI_REPO_ROOT PFI_DATA_ROOT PFI_OUTPUT_ROOT PFI_TRAIN_OUTPUT_DIR PFI_LOCAL_RESUME_DIR PFI_LOCAL_MODELS_DIR PFI_LOCAL_MANIFESTS_DIR PFI_LOCAL_LOGS_DIR PFI_VENV_DIR; do path_ok "$n"; done
   eqv PFI_MAX_EPOCHS 80; eqv PFI_EARLY_STOP_PATIENCE 12; eqv PFI_RESUME_TRAINING 1; eqv REQUIRE_GPU 1; eqv PFI_SMOKE_RUN 0
-  for n in RUN_SAGITTAL RUN_AXIAL PFI_PREFLIGHT_ONLY PFI_SYNC_DRY_RUN PFI_DOWNLOAD_DATASETS PFI_DOWNLOAD_RESUME PFI_SYNC_RESUME PFI_SYNC_FINAL_ARTIFACTS; do boolv "$n"; done
+  for n in RUN_SAGITTAL RUN_AXIAL PFI_PREFLIGHT_ONLY PFI_SYNC_DRY_RUN PFI_DOWNLOAD_DATASETS PFI_DOWNLOAD_RESUME PFI_SYNC_RESUME PFI_SYNC_FINAL_ARTIFACTS PFI_CLOUD_MODE PFI_USE_GOOGLE_DRIVE PFI_INSTALL_NOTEBOOK_DEPS PFI_SYNC_FAILURE_IS_FATAL; do boolv "$n"; done
   [[ "$PFI_GCS_BUCKET_URI" == gs://* ]] && pass "bucket gs://" || fail "bucket no usa gs://"
   [[ "$PFI_RUN_ID" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] && { pass "PFI_RUN_ID valido"; S_RUN_ID="$PFI_RUN_ID"; } || fail "PFI_RUN_ID invalido"
-  eqv PFI_SYNC_DRY_RUN 1
+  eqv PFI_PREFLIGHT_ONLY 1; eqv PFI_SYNC_DRY_RUN 1; eqv PFI_CLOUD_MODE 1; eqv PFI_USE_GOOGLE_DRIVE 0; eqv PFI_INSTALL_NOTEBOOK_DEPS 0
   [[ "$PFI_SYNC_MIN_FILE_AGE_SECONDS" =~ ^[0-9]+$ ]] && pass "PFI_SYNC_MIN_FILE_AGE_SECONDS entero" || fail "PFI_SYNC_MIN_FILE_AGE_SECONDS invalido"
+  [[ "$PFI_SYNC_EVERY_N_EPOCHS" =~ ^[0-9]+$ && "$PFI_SYNC_EVERY_N_EPOCHS" -ge 1 ]] && pass "PFI_SYNC_EVERY_N_EPOCHS entero >=1" || fail "PFI_SYNC_EVERY_N_EPOCHS invalido"
+  [[ "$PFI_TRAINING_ENV_FILE" == /* && "$PFI_TRAINING_ENV_FILE" == "$PFI_REPO_ROOT"/* ]] && pass "PFI_TRAINING_ENV_FILE dentro de PFI_REPO_ROOT" || fail "PFI_TRAINING_ENV_FILE inseguro"
   local uri bucket
   bucket="${PFI_GCS_BUCKET_URI%/}"
   for n in PFI_GCS_SPIDER_URI PFI_GCS_AXIAL_URI PFI_GCS_METADATA_URI PFI_GCS_BOOTSTRAP_MODELS_URI PFI_GCS_RUN_MODELS_URI PFI_GCS_RUN_RESUME_URI PFI_GCS_RUN_MANIFESTS_URI PFI_GCS_RUN_OUTPUTS_URI; do
@@ -82,11 +115,13 @@ static_checks(){
     [[ "${!n}" == *"/$PFI_RUN_ID" || "${!n}" == *"/$PFI_RUN_ID/"* ]] && pass "$n contiene run_id" || fail "$n no contiene run_id"
   done
   [[ "$PFI_VM_SERVICE_ACCOUNT" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.iam\.gserviceaccount\.com$ ]] && pass "service account formato valido" || fail "service account formato invalido"
-  for f in notebooks/train_final_models_v4_final.ipynb ai_service/pfi_ai_service/model_architectures.py requirements.txt infra/gcp/create-pfi-training-t4-v1.sh infra/gcp/download-training-data.sh infra/gcp/sync-training-artifacts.sh; do [[ -f "$REPO_CHECKOUT_ROOT/$f" ]] && pass "existe $f" || fail "falta $f"; done
+  for f in notebooks/train_final_models_v4_final.ipynb notebooks/train_final_models_v5_cloud_portable.ipynb ai_service/pfi_ai_service/model_architectures.py ai_service/pfi_ai_service/training/__init__.py ai_service/pfi_ai_service/training/cloud_runtime.py ai_service/tests/test_cloud_training_runtime.py requirements.txt infra/gcp/create-pfi-training-t4-v1.sh infra/gcp/download-training-data.sh infra/gcp/sync-training-artifacts.sh; do [[ -f "$REPO_CHECKOUT_ROOT/$f" ]] && pass "existe $f" || fail "falta $f"; done
   cmd python || py=python3
   if cmd "$py"; then
     "$py" -m json.tool "$REPO_CHECKOUT_ROOT/notebooks/train_final_models_v4_final.ipynb" >/dev/null && pass "notebook v4 JSON valido" || fail "notebook v4 JSON invalido"
     compile_python_readonly "$REPO_CHECKOUT_ROOT/ai_service/pfi_ai_service/model_architectures.py" && pass "model_architectures.py compila sin bytecode" || fail "model_architectures.py no compila"
+    validate_v5_notebook "$py" && pass "notebook v5 portable valido" || fail "notebook v5 invalido"
+    validate_helper_static "$py" && pass "cloud_runtime.py compila y pasa safety" || fail "cloud_runtime.py invalido"
   else
     fail "python no disponible"
   fi
@@ -229,10 +264,11 @@ axial_check(){
   [[ -d "$AXIAL_MASKS_DIR" ]] && pass "AXIAL masks dir" || fail "AXIAL masks dir faltante"
   [[ -x "$PFI_VENV_DIR/bin/python" ]] || { fail "venv python faltante para AXIAL"; S_AXIAL=FAIL; return; }
   local out rc; set +e
-  out="$("$PFI_VENV_DIR/bin/python" - <<'PY' "$AXIAL_E9_CURATED_SPLIT_CSV" "$AXIAL_IMAGES_DIR" "$AXIAL_MASKS_DIR" "$AXIAL_IMAGE_COL" "$AXIAL_MASK_COL" "$AXIAL_PATIENT_COL" "$AXIAL_SPLIT_COL"
-import re, sys
+  out="$(PYTHONPATH="$PFI_REPO_ROOT/ai_service" "$PFI_VENV_DIR/bin/python" - <<'PY' "$AXIAL_E9_CURATED_SPLIT_CSV" "$AXIAL_IMAGES_DIR" "$AXIAL_MASKS_DIR" "$AXIAL_IMAGE_COL" "$AXIAL_MASK_COL" "$AXIAL_PATIENT_COL" "$AXIAL_SPLIT_COL"
+import sys
 from pathlib import Path
 import pandas as pd
+from pfi_ai_service.training.cloud_runtime import PortablePathError, resolve_portable_axial_path
 csv,img_root,mask_root,img_col,mask_col,patient_col,split_col=sys.argv[1:]
 df=pd.read_csv(csv); req=[img_col,mask_col,patient_col,split_col]
 missing_cols=[c for c in req if c not in df.columns]
@@ -243,32 +279,29 @@ print(f'rows_total={len(df)}')
 print(f'patients_unique={df[patient_col].nunique(dropna=True)}')
 print(f'splits={df[split_col].astype(str).value_counts(dropna=False).to_dict()}')
 print(f'nulls={nulls}')
-legacy_total=0; miss_i_total=0; miss_m_total=0
-legacy_ex=[]; miss_i_ex=[]; miss_m_ex=[]
-win=re.compile(r'^[A-Za-z]:[\\/]')
+missing_images=[]; missing_masks=[]; rebased=0; direct=0
 for _, row in df.iterrows():
-    vals=[str(row[img_col]), str(row[mask_col])]
-    for val in vals:
-        low=val.lower()
-        if '/content/drive' in low or 'google drive' in low or win.match(val):
-            legacy_total += 1
-            if len(legacy_ex) < 10: legacy_ex.append(val)
-    img=Path(vals[0]); msk=Path(vals[1])
-    if not img.is_absolute(): img=Path(img_root)/img
-    if not msk.is_absolute(): msk=Path(mask_root)/msk
-    if not img.exists():
-        miss_i_total += 1
-        if len(miss_i_ex) < 10: miss_i_ex.append(str(img))
-    if not msk.exists():
-        miss_m_total += 1
-        if len(miss_m_ex) < 10: miss_m_ex.append(str(msk))
-print(f'legacy_paths_total={legacy_total}')
-print(f'missing_images_total={miss_i_total}')
-print(f'missing_masks_total={miss_m_total}')
-if legacy_ex: print('legacy_paths_examples='+' | '.join(legacy_ex))
-if miss_i_ex: print('missing_images_examples='+' | '.join(miss_i_ex))
-if miss_m_ex: print('missing_masks_examples='+' | '.join(miss_m_ex))
-if len(df)==0 or df[[img_col,mask_col]].isna().any().any() or legacy_total or miss_i_total or miss_m_total:
+    try:
+        img=resolve_portable_axial_path(row[img_col], Path(img_root), Path(csv).parent)
+        msk=resolve_portable_axial_path(row[mask_col], Path(mask_root), Path(csv).parent)
+    except PortablePathError as exc:
+        print(f'path_error={exc}'); raise SystemExit(1)
+    for original, resolved in [(str(row[img_col]), img), (str(row[mask_col]), msk)]:
+        if Path(original).as_posix() == resolved.as_posix():
+            direct += 1
+        else:
+            rebased += 1
+    if not img.exists() and len(missing_images) < 10:
+        missing_images.append(str(img))
+    if not msk.exists() and len(missing_masks) < 10:
+        missing_masks.append(str(msk))
+print(f'portable_paths_direct={direct}')
+print(f'portable_paths_rebased={rebased}')
+print(f'missing_images_total={len(missing_images)}')
+print(f'missing_masks_total={len(missing_masks)}')
+if missing_images: print('missing_images_examples='+' | '.join(missing_images))
+if missing_masks: print('missing_masks_examples='+' | '.join(missing_masks))
+if len(df)==0 or df[[img_col,mask_col]].isna().any().any() or missing_images or missing_masks:
     raise SystemExit(1)
 PY
 )"; rc=$?; set -e
