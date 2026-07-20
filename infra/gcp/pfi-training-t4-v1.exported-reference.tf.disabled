@@ -1,0 +1,77 @@
+# REFERENCIA EXPORTADA DESDE GOOGLE CLOUD CONSOLE.
+# NO RENOMBRAR A .tf NI EJECUTAR CON terraform apply SIN ADAPTARLA.
+#
+# Este export no contiene los controles críticos presentes en gcloud/REST:
+# - maxRunDuration = 43200 segundos;
+# - instanceTerminationAction = STOP.
+#
+# La fuente de verdad operativa es create-pfi-training-t4-v1.sh.
+# Este archivo se conserva únicamente para trazabilidad y futura migración a Terraform.
+#
+# Código compatible con Terraform 4.25.0 y versiones compatibles con 4.25.0,
+# según el export de Google Cloud Console.
+
+resource "google_compute_instance" "pfi-training-t4-v1" {
+  boot_disk {
+    auto_delete = true
+    device_name = "pfi-training-t4-v1"
+
+    initialize_params {
+      image = "projects/ml-images/global/images/pytorch-2-9-cu129-ubuntu-2204-nvidia-580-v20260713"
+      size  = 100
+      type  = "pd-balanced"
+    }
+
+    mode = "READ_WRITE"
+  }
+
+  can_ip_forward      = false
+  deletion_protection = false
+  enable_display      = false
+
+  guest_accelerator {
+    count = 1
+    type  = "projects/pfi-asplanatti-fabrello-v1/zones/us-central1-a/acceleratorTypes/nvidia-tesla-t4"
+  }
+
+  labels = {
+    goog-ec-src = "vm_add-tf"
+  }
+
+  machine_type = "n1-standard-4"
+  name         = "pfi-training-t4-v1"
+
+  network_interface {
+    access_config {
+      network_tier = "PREMIUM"
+    }
+
+    queue_count = 0
+    stack_type  = "IPV4_ONLY"
+    subnetwork  = "projects/pfi-asplanatti-fabrello-v1/regions/us-central1/subnetworks/default"
+  }
+
+  reservation_affinity {
+    type = "NO_RESERVATION"
+  }
+
+  scheduling {
+    automatic_restart   = false
+    on_host_maintenance = "TERMINATE"
+    preemptible         = false
+    provisioning_model  = "STANDARD"
+  }
+
+  service_account {
+    email  = "pfi-training-vm@pfi-asplanatti-fabrello-v1.iam.gserviceaccount.com"
+    scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+  }
+
+  shielded_instance_config {
+    enable_integrity_monitoring = true
+    enable_secure_boot          = false
+    enable_vtpm                 = true
+  }
+
+  zone = "us-central1-a"
+}
