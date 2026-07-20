@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_CHECKOUT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+[[ -n "$REPO_CHECKOUT_ROOT" ]] || REPO_CHECKOUT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+ENV_FILE=""; MODE=""; EXECUTE=0; STAGING=""; RESULT=SUCCESS
+ARTIFACTS_JSON="[]"; TOTAL_BYTES=0; SELECTED=0; OMITTED=0
+log(){ printf '[%s] %s\n' "$1" "$2" >&2; }; info(){ log INFO "$*"; }; warn(){ log WARN "$*"; }; err(){ log ERROR "$*"; }; dry(){ log DRY-RUN "$*"; }; pass(){ log PASS "$*"; }
+cleanup(){ if [[ -n "$STAGING" && "$STAGING" == /tmp/* && -d "$STAGING" ]]; then rm -rf "$STAGING"; fi; }
+trap cleanup EXIT
+trap 'err "fallo en linea $LINENO: $BASH_COMMAND"; exit 1' ERR
+usage(){ cat <<'USAGE'
+Uso: sync-training-artifacts.sh --mode pull-resume|push-resume|push-final|push-all [--env-file PATH] [--dry-run|--execute]
+Sincroniza resume/final artifacts por PFI_RUN_ID. Default: dry-run. No borra objetos remotos.
+USAGE
+}
+while [[ $# -gt 0 ]]; do case "$1" in --env-file) [[ $# -ge 2 ]] || exit 2; ENV_FILE="$2"; shift 2;; --mode) [[ $# -ge 2 ]] || exit 2; MODE="$2"; shift 2;; --dry-run) [[ "$EXECUTE" -eq 0 ]] || { err "--dry-run y --execute incompatibles"; exit 2; }; EXECUTE=0; shift;; --execute) EXECUTE=1; shift;; --help) usage; exit 0;; *) err "argumento desconocido: $1"; usage >&2; exit 2;; esac; done
+case "$MODE" in pull-resume|push-resume|push-final|push-all) ;; "") err "--mode es obligatorio"; exit 2;; *) err "modo invalido: $MODE"; exit 2;; esac
+select_env(){ if [[ -n "$ENV_FILE" ]]; then printf '%s\n' "$ENV_FILE"; elif [[ -f "$SCRIPT_DIR/training-vm.env" ]]; then printf '%s\n' "$SCRIPT_DIR/training-vm.env"; else printf '%s\n' "$SCRIPT_DIR/training-vm.env.example"; fi; }
+load_env(){ ENV_FILE="$(select_env)"; [[ -f "$ENV_FILE" ]] || { err "env-file inexistente"; exit 2; }; set -a; source "$ENV_FILE"; set +a; }
+need(){ local n="$1"; local -n ref="$n"; [[ -n "${ref-}" ]] || { err "variable requerida ausente: $n"; exit 2; }; }
+bool(){ local n="$1"; local -n ref="$n"; local v="${ref-}"; [[ "$v" == 0 || "$v" == 1 ]] || { err "$n debe ser 0/1"; exit 2; }; }
+run_id_ok(){ [[ "$PFI_RUN_ID" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || { err "PFI_RUN_ID invalido"; exit 2; }; }
+norm(){ if command -v realpath >/dev/null 2>&1; then realpath -m "$1"; else printf '%s\n' "$1"; fi; }
+path_ok(){ local n="$1" root val v; local -n ref="$n"; v="${ref-}"; [[ -n "$v" && "$v" == /* && "$v" != / ]] || { err "$n ruta insegura"; exit 2; }; root="$(norm "$PFI_VM_ROOT")"; val="$(norm "$v")"; [[ "$val" != *'/../'* && "$val" != */.. && "$val" != ..* ]] || { err "$n contiene .."; exit 2; }; [[ "$val" == "$root" || "$val" == "$root"/* ]] || { err "$n fuera de PFI_VM_ROOT"; exit 2; }; }
+uri_ok(){ local n="$1" u b="${PFI_GCS_BUCKET_URI%/}"; local -n ref="$n"; u="${ref-}"; [[ "$u" == gs://* ]] || { err "$n no es gs://"; exit 2; }; [[ "${u%/}" != "$b" ]] || { err "$n no puede ser raiz bucket"; exit 2; }; [[ "${u%/}" == "$b"/* ]] || { err "$n fuera de bucket"; exit 2; }; [[ "${u%/}" == *"/$PFI_RUN_ID" || "${u%/}" == *"/$PFI_RUN_ID/"* ]] || { err "$n debe incluir PFI_RUN_ID"; exit 2; }; }
+validate_env(){ local v; for v in PFI_RUN_ID PFI_GCP_PROJECT_ID PFI_GCP_ZONE PFI_VM_NAME PFI_VM_SERVICE_ACCOUNT PFI_GCS_BUCKET_URI PFI_GCS_RUN_RESUME_URI PFI_GCS_RUN_MODELS_URI PFI_GCS_RUN_MANIFESTS_URI PFI_GCS_RUN_OUTPUTS_URI PFI_LOCAL_RESUME_DIR PFI_LOCAL_MODELS_DIR PFI_LOCAL_MANIFESTS_DIR PFI_LOCAL_LOGS_DIR PFI_REPO_ROOT PFI_VM_ROOT PFI_SYNC_MIN_FILE_AGE_SECONDS PFI_SYNC_RESUME PFI_SYNC_FINAL_ARTIFACTS RUN_SAGITTAL RUN_AXIAL; do need "$v"; done; run_id_ok; bool PFI_SYNC_RESUME; bool PFI_SYNC_FINAL_ARTIFACTS; bool RUN_SAGITTAL; bool RUN_AXIAL; [[ "$PFI_SYNC_MIN_FILE_AGE_SECONDS" =~ ^[0-9]+$ ]] || { err "PFI_SYNC_MIN_FILE_AGE_SECONDS invalido"; exit 2; }; for v in PFI_GCS_RUN_RESUME_URI PFI_GCS_RUN_MODELS_URI PFI_GCS_RUN_MANIFESTS_URI PFI_GCS_RUN_OUTPUTS_URI; do uri_ok "$v"; done; for v in PFI_LOCAL_RESUME_DIR PFI_LOCAL_MODELS_DIR PFI_LOCAL_MANIFESTS_DIR PFI_LOCAL_LOGS_DIR PFI_REPO_ROOT; do path_ok "$v"; done; [[ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]] || { err "GOOGLE_APPLICATION_CREDENTIALS definido"; exit 2; }; }
+metadata_get(){ curl -fsS --max-time 2 -H 'Metadata-Flavor: Google' "http://metadata.google.internal/computeMetadata/v1/$1"; }
+check_execute_env(){ [[ "$(uname -s)" == Linux ]] || { err "--execute requiere Linux/GCE"; exit 1; }; for c in gcloud curl find awk python3; do command -v "$c" >/dev/null || { err "comando faltante: $c"; exit 1; }; done; local p i z e; p="$(metadata_get project/project-id 2>/dev/null || true)"; i="$(metadata_get instance/name 2>/dev/null || true)"; z="$(metadata_get instance/zone 2>/dev/null || true)"; e="$(metadata_get instance/service-accounts/default/email 2>/dev/null || true)"; [[ "$p" == "$PFI_GCP_PROJECT_ID" && "$i" == "$PFI_VM_NAME" && "${z##*/}" == "$PFI_GCP_ZONE" && "$e" == "$PFI_VM_SERVICE_ACCOUNT" ]] || { err "metadata GCE no coincide"; exit 1; }; gcloud storage ls "$PFI_GCS_BUCKET_URI/" >/dev/null || { err "bucket no listable"; exit 1; }; }
+mk_stage(){ STAGING="$(mktemp -d /tmp/pfi-sync.XXXXXX)"; [[ "$STAGING" == /tmp/* ]] || { err "staging inseguro"; exit 2; }; }
+sha256(){ python3 -c 'import hashlib,sys; h=hashlib.sha256(); f=open(sys.argv[1],"rb"); [h.update(b) for b in iter(lambda:f.read(1048576), b"")]; print(h.hexdigest())' "$1"; }
+file_age(){ python3 -c 'import os,sys,time; print(int(time.time()-os.path.getmtime(sys.argv[1])))' "$1"; }
+stable_copy(){ local src="$1" dst_dir="$2" category="$3" dest_uri="$4" name size1 size2 mt1 mt2 age sha; [[ -f "$src" && ! -L "$src" ]] || { warn "omitido no regular/symlink: $(basename "$src")"; OMITTED=$((OMITTED+1)); return; }; name="$(basename "$src")"; [[ "$name" != .* && "$name" != *.tmp && "$name" != *.partial ]] || { warn "omitido temporal/oculto: $name"; OMITTED=$((OMITTED+1)); return; }; age="$(file_age "$src")"; if (( age < PFI_SYNC_MIN_FILE_AGE_SECONDS )); then warn "omitido reciente: $name"; OMITTED=$((OMITTED+1)); return; fi; size1="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$src")"; [[ "$size1" -gt 0 ]] || { warn "omitido tamano cero: $name"; OMITTED=$((OMITTED+1)); return; }; mt1="$(python3 -c 'import os,sys; print(os.path.getmtime(sys.argv[1]))' "$src")"; cp "$src" "$dst_dir/$name"; size2="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$src")"; mt2="$(python3 -c 'import os,sys; print(os.path.getmtime(sys.argv[1]))' "$src")"; [[ "$size1" == "$size2" && "$mt1" == "$mt2" ]] || { err "archivo cambio durante staging: $name"; exit 1; }; sha="$(sha256 "$dst_dir/$name")"; TOTAL_BYTES=$((TOTAL_BYTES+size1)); SELECTED=$((SELECTED+1)); add_artifact "$category" "$name" "$size1" "$sha" "$dest_uri/$name"; }
+add_artifact(){ local category="$1" filename="$2" size="$3" sha="$4" dest="$5"; ARTIFACTS_JSON="$(python3 - <<'PY' "$ARTIFACTS_JSON" "$category" "$filename" "$size" "$sha" "$dest"
+import json,sys
+items=json.loads(sys.argv[1]); items.append({'category':sys.argv[2],'filename':sys.argv[3],'size_bytes':int(sys.argv[4]),'sha256':sys.argv[5],'destination_uri':sys.argv[6]}); print(json.dumps(items,separators=(',',':')))
+PY
+)"; }
+rsync_dir(){ local src="$1" dst="$2" label="$3"; [[ -d "$src" ]] || { info "$label sin archivos"; return; }; if [[ "$EXECUTE" -eq 1 ]]; then gcloud storage rsync "$src" "$dst" --recursive; else dry "gcloud storage rsync $src $dst --recursive --dry-run"; gcloud storage rsync "$src" "$dst" --recursive --dry-run; fi; }
+inspect_remote_empty(){ local uri="$1" out rc lower; set +eE; out="$(gcloud storage ls "$uri/" 2>&1)"; rc=$?; set -eE; lower="$(printf '%s' "$out"|tr '[:upper:]' '[:lower:]')"; if [[ "$rc" -ne 0 ]]; then if printf '%s' "$lower"|grep -Eq 'matched no objects|no urls matched|no objects|url matched no objects'; then return 0; fi; if printf '%s' "$lower"|grep -Eq 'denied|forbidden|permission'; then err "permiso denegado listando $uri"; exit 1; fi; err "error desconocido listando $uri"; exit 1; fi; [[ -z "$out" ]] && return 0 || return 1; }
+pull_resume(){ if inspect_remote_empty "$PFI_GCS_RUN_RESUME_URI"; then info "resume remoto vacio; nada que restaurar"; return; fi; [[ -d "$PFI_LOCAL_RESUME_DIR" && -w "$PFI_LOCAL_RESUME_DIR" || "$EXECUTE" -eq 0 ]] || { err "resume local no existe/escribible"; exit 1; }; rsync_dir "$PFI_GCS_RUN_RESUME_URI" "$PFI_LOCAL_RESUME_DIR" pull-resume; }
+select_resume(){ [[ "$PFI_SYNC_RESUME" == 1 ]] || { info "push-resume SKIP por PFI_SYNC_RESUME=0"; return; }; local d="$STAGING/resume"; mkdir -p "$d"; while IFS= read -r -d '' f; do case "$(basename "$f")" in *.last_checkpoint.pt|*.best_checkpoint.pt|*.json) stable_copy "$f" "$d" resume "$PFI_GCS_RUN_RESUME_URI";; *) warn "omitido resume no permitido: $(basename "$f")"; OMITTED=$((OMITTED+1));; esac; done < <(find "$PFI_LOCAL_RESUME_DIR" -maxdepth 1 -type f ! -name '.*' -print0 2>/dev/null); [[ -n "$(find "$d" -type f -print -quit 2>/dev/null)" ]] || { err "sin archivos resume estables para subir"; exit 1; }; }
+select_final(){ [[ "$PFI_SYNC_FINAL_ARTIFACTS" == 1 ]] || { info "push-final SKIP por PFI_SYNC_FINAL_ARTIFACTS=0"; return; }; local md="$STAGING/models" mf="$STAGING/manifests" lg="$STAGING/logs"; mkdir -p "$md" "$mf" "$lg"; if [[ "$RUN_SAGITTAL" == 1 ]]; then [[ -f "$PFI_LOCAL_MODELS_DIR/sagittal_spider_multiclass_final_best.pt" ]] || { err "falta modelo sagital final"; exit 1; }; stable_copy "$PFI_LOCAL_MODELS_DIR/sagittal_spider_multiclass_final_best.pt" "$md" model "$PFI_GCS_RUN_MODELS_URI"; fi; if [[ "$RUN_AXIAL" == 1 ]]; then [[ -f "$PFI_LOCAL_MODELS_DIR/axial_t2_alkafri_final_best.pt" ]] || { err "falta modelo axial final"; exit 1; }; stable_copy "$PFI_LOCAL_MODELS_DIR/axial_t2_alkafri_final_best.pt" "$md" model "$PFI_GCS_RUN_MODELS_URI"; fi; while IFS= read -r -d '' f; do case "$(basename "$f")" in *.json|*.csv) stable_copy "$f" "$mf" manifest "$PFI_GCS_RUN_MANIFESTS_URI";; *) warn "omitido manifest no permitido: $(basename "$f")"; OMITTED=$((OMITTED+1));; esac; done < <(find "$PFI_LOCAL_MANIFESTS_DIR" -maxdepth 1 -type f ! -name '.*' -print0 2>/dev/null); while IFS= read -r -d '' f; do case "$(basename "$f")" in *.log|*.txt|*.json) stable_copy "$f" "$lg" log "$PFI_GCS_RUN_OUTPUTS_URI/logs";; *) warn "omitido log no permitido: $(basename "$f")"; OMITTED=$((OMITTED+1));; esac; done < <(find "$PFI_LOCAL_LOGS_DIR" -maxdepth 1 -type f ! -name '.*' -print0 2>/dev/null); }
+manifest_env(){ python3 - <<'PY'
+import json,sys,subprocess,os
+info={'python':sys.version.split()[0],'torch':None,'cuda':None,'gpu':None}
+try:
+ import torch
+ info['torch']=torch.__version__; info['cuda']=str(torch.version.cuda)
+ if torch.cuda.is_available() and torch.cuda.device_count(): info['gpu']=torch.cuda.get_device_name(0)
+except Exception: pass
+print(json.dumps(info,separators=(',',':')))
+PY
+}
+write_manifest(){ local path="$1" created git_commit branch dirty env_json; created="$(date -u +%Y%m%dT%H%M%SZ)"; git_commit="$(git -C "$REPO_CHECKOUT_ROOT" rev-parse HEAD 2>/dev/null || printf NO_OBTENIDO)"; branch="$(git -C "$REPO_CHECKOUT_ROOT" branch --show-current 2>/dev/null || printf NO_OBTENIDO)"; git -C "$REPO_CHECKOUT_ROOT" diff --quiet && git -C "$REPO_CHECKOUT_ROOT" diff --cached --quiet && dirty=false || dirty=true; env_json="$(manifest_env)"; python3 - <<'PY' "$path" "$PFI_RUN_ID" "$created" "$MODE" "$PFI_GCP_PROJECT_ID" "$PFI_GCP_ZONE" "$PFI_VM_NAME" "$PFI_VM_SERVICE_ACCOUNT" "$git_commit" "$branch" "$dirty" "$env_json" "$ARTIFACTS_JSON"
+import json,sys
+path,run_id,created,mode,project,zone,vm,sa,commit,branch,dirty,env_json,arts=sys.argv[1:]
+data={'schema_version':1,'run_id':run_id,'created_at_utc':created,'mode':mode,'project_id':project,'zone':zone,'vm_name':vm,'service_account':sa,'git':{'commit':commit,'branch':branch,'dirty':dirty=='true'},'environment':json.loads(env_json),'artifacts':json.loads(arts)}
+open(path,'w',encoding='utf-8').write(json.dumps(data,indent=2,sort_keys=True)+"\n")
+PY
+}
+push_manifest(){ local mfdir="$STAGING/manifest-upload" mfile ts; mkdir -p "$mfdir"; ts="$(date -u +%Y%m%dT%H%M%SZ)"; mfile="$mfdir/sync_manifest_${ts}.json"; write_manifest "$mfile"; if [[ "$EXECUTE" -eq 1 ]]; then cp "$mfile" "$PFI_LOCAL_MANIFESTS_DIR/$(basename "$mfile")"; gcloud storage rsync "$mfdir" "$PFI_GCS_RUN_MANIFESTS_URI" --recursive; else dry "manifest JSON generado en staging: $(basename "$mfile")"; python3 -m json.tool "$mfile" >/dev/null; fi; }
+push_resume(){ select_resume; rsync_dir "$STAGING/resume" "$PFI_GCS_RUN_RESUME_URI" push-resume; }
+push_final(){ select_final; rsync_dir "$STAGING/models" "$PFI_GCS_RUN_MODELS_URI" models; rsync_dir "$STAGING/manifests" "$PFI_GCS_RUN_MANIFESTS_URI" manifests; rsync_dir "$STAGING/logs" "$PFI_GCS_RUN_OUTPUTS_URI/logs" logs; }
+main(){ load_env; validate_env; [[ "$EXECUTE" -eq 1 ]] && check_execute_env || info "modo dry-run por default; --execute requerido para transferir"; mk_stage; case "$MODE" in pull-resume) pull_resume;; push-resume) push_resume; push_manifest;; push-final) push_final; push_manifest;; push-all) push_resume; push_final; push_manifest;; esac; pass "SUCCESS mode=$MODE run_id=$PFI_RUN_ID selected=$SELECTED omitted=$OMITTED bytes=$TOTAL_BYTES"; }
+main "$@"

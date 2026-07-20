@@ -12,15 +12,15 @@ MODE="vm"
 PASS=0; WARN=0; FAIL=0
 S_PROJECT=NO_OBTENIDO; S_VM=NO_OBTENIDO; S_ZONE=NO_OBTENIDO; S_SA=NO_OBTENIDO; S_HEAD=NO_OBTENIDO
 S_PY=NO_OBTENIDO; S_TORCH=NO_OBTENIDO; S_CUDA=NO_OBTENIDO; S_GPU=NO_OBTENIDO; S_DISK=NO_OBTENIDO
-S_BUCKET=NO_OBTENIDO; S_SPIDER=NO_OBTENIDO; S_AXIAL=NO_OBTENIDO
+S_BUCKET=NO_OBTENIDO; S_SPIDER=NO_OBTENIDO; S_AXIAL=NO_OBTENIDO; S_RUN_ID=NO_OBTENIDO
 STRUCTURAL_VARS=(PFI_VM_ROOT PFI_REPO_ROOT PFI_DATA_ROOT PFI_OUTPUT_ROOT PFI_TRAIN_OUTPUT_DIR PFI_VENV_DIR PFI_GCS_BUCKET_URI PFI_GCP_PROJECT_ID PFI_GCP_ZONE PFI_VM_NAME PFI_VM_SERVICE_ACCOUNT)
 ALL_VARS=(
   PFI_GCP_PROJECT_ID PFI_GCP_REGION PFI_GCP_ZONE PFI_VM_NAME PFI_VM_SERVICE_ACCOUNT
-  PFI_GCS_BUCKET_URI PFI_GCS_DATASETS_URI PFI_GCS_MODELS_URI PFI_GCS_RESUME_URI PFI_GCS_MANIFESTS_URI PFI_GCS_OUTPUTS_URI
+  PFI_GCS_BUCKET_URI PFI_GCS_DATASETS_URI PFI_GCS_SPIDER_URI PFI_GCS_AXIAL_URI PFI_GCS_METADATA_URI PFI_GCS_BOOTSTRAP_MODELS_URI PFI_GCS_MODELS_URI PFI_GCS_RESUME_URI PFI_GCS_MANIFESTS_URI PFI_GCS_OUTPUTS_URI PFI_GCS_RUN_MODELS_URI PFI_GCS_RUN_RESUME_URI PFI_GCS_RUN_MANIFESTS_URI PFI_GCS_RUN_OUTPUTS_URI
   PFI_VM_ROOT PFI_REPO_URL PFI_REPO_ROOT PFI_DATA_ROOT PFI_OUTPUT_ROOT PFI_TRAIN_OUTPUT_DIR
   PFI_LOCAL_RESUME_DIR PFI_LOCAL_MODELS_DIR PFI_LOCAL_MANIFESTS_DIR PFI_LOCAL_LOGS_DIR PFI_PYTHON_BIN PFI_VENV_DIR
-  PFI_MIN_FREE_DISK_GB REQUIRE_GPU RUN_SAGITTAL RUN_AXIAL PFI_SMOKE_RUN PFI_RESUME_TRAINING
-  PFI_MAX_EPOCHS PFI_EARLY_STOP_PATIENCE PFI_PREFLIGHT_ONLY PFI_SYNC_DRY_RUN PFI_DOWNLOAD_DATASETS PFI_SYNC_RESUME PFI_SYNC_FINAL_ARTIFACTS
+  PFI_RUN_ID PFI_MIN_FREE_DISK_GB REQUIRE_GPU RUN_SAGITTAL RUN_AXIAL PFI_SMOKE_RUN PFI_RESUME_TRAINING
+  PFI_MAX_EPOCHS PFI_EARLY_STOP_PATIENCE PFI_PREFLIGHT_ONLY PFI_SYNC_DRY_RUN PFI_DOWNLOAD_DATASETS PFI_DOWNLOAD_RESUME PFI_SYNC_RESUME PFI_SYNC_FINAL_ARTIFACTS PFI_SYNC_MIN_FILE_AGE_SECONDS
   SPIDER_IMAGES_DIR SPIDER_MASKS_DIR SPIDER_LABEL_GROUP_MAPPING_JSON SPIDER_CHECKPOINT_FOR_LABEL_MAP
   AXIAL_E9_CURATED_SPLIT_CSV AXIAL_IMAGES_DIR AXIAL_MASKS_DIR AXIAL_IMAGE_COL AXIAL_MASK_COL AXIAL_PATIENT_COL AXIAL_SPLIT_COL
 )
@@ -47,14 +47,14 @@ done
 
 select_env(){ if [[ -n "$ENV_FILE" ]]; then printf '%s\n' "$ENV_FILE"; elif [[ -f "$SCRIPT_DIR/training-vm.env" ]]; then printf '%s\n' "$SCRIPT_DIR/training-vm.env"; else printf '%s\n' "$SCRIPT_DIR/training-vm.env.example"; fi; }
 load_env(){ ENV_FILE="$(select_env)"; [[ -f "$ENV_FILE" ]] || { printf '[FAIL] env-file inexistente: %s\n' "$ENV_FILE" >&2; exit 2; }; set -a; source "$ENV_FILE"; set +a; pass "env cargable: $ENV_FILE"; }
-validate_structural_vars(){ local missing=() v; for v in "${STRUCTURAL_VARS[@]}"; do [[ -n "${!v:-}" ]] || missing+=("$v"); done; if [[ ${#missing[@]} -gt 0 ]]; then printf '[FAIL] variables estructurales faltantes: %s\n' "${missing[*]}" >&2; exit 2; fi; }
-req(){ local n="$1"; [[ -n "${!n:-}" ]] && pass "var $n" || fail "variable ausente: $n"; }
+validate_structural_vars(){ local missing=() v; for v in "${STRUCTURAL_VARS[@]}"; do [[ -n "${!v-}" ]] || missing+=("$v"); done; if [[ ${#missing[@]} -gt 0 ]]; then printf '[FAIL] variables estructurales faltantes: %s\n' "${missing[*]}" >&2; exit 2; fi; }
+req(){ local n="$1"; local -n ref="$n"; [[ -n "${ref-}" ]] && pass "var $n" || fail "variable ausente: $n"; }
 cmd(){ command -v "$1" >/dev/null 2>&1; }
 need_cmd(){ cmd "$1" && pass "comando $1" || fail "comando faltante: $1"; }
-norm(){ python3 -c 'import os,sys; print(os.path.normpath(sys.argv[1]))' "$1" 2>/dev/null || printf '%s\n' "$1"; }
-path_ok(){ local n="$1" v="${!n:-}" r pv; [[ -n "$v" && "$v" != / && "$v" == /* ]] || { fail "$n ruta invalida: ${v:-AUSENTE}"; return; }; r="$(norm "$PFI_VM_ROOT")"; pv="$(norm "$v")"; if [[ "$n" != PFI_VM_ROOT && "$pv" != "$r" && "$pv" != "$r"/* ]]; then fail "$n fuera de PFI_VM_ROOT"; else pass "$n ruta segura"; fi; }
-eqv(){ local n="$1" e="$2"; [[ "${!n:-}" == "$e" ]] && pass "$n=$e" || fail "$n esperado $e obtenido ${!n:-AUSENTE}"; }
-boolv(){ local n="$1" v="${!n:-}"; [[ "$v" == 0 || "$v" == 1 ]] && pass "$n booleano" || fail "$n debe ser 0/1"; }
+norm(){ if command -v realpath >/dev/null 2>&1; then realpath -m "$1"; else printf '%s\n' "$1"; fi; }
+path_ok(){ local n="$1" v r pv; local -n ref="$n"; v="${ref-}"; [[ -n "$v" && "$v" != / && "$v" == /* ]] || { fail "$n ruta invalida: ${v:-AUSENTE}"; return; }; r="$(norm "$PFI_VM_ROOT")"; pv="$(norm "$v")"; if [[ "$n" != PFI_VM_ROOT && "$pv" != "$r" && "$pv" != "$r"/* ]]; then fail "$n fuera de PFI_VM_ROOT"; else pass "$n ruta segura"; fi; }
+eqv(){ local n="$1" e="$2"; local -n ref="$n"; [[ "${ref-}" == "$e" ]] && pass "$n=$e" || fail "$n esperado $e obtenido ${ref:-AUSENTE}"; }
+boolv(){ local n="$1"; local -n ref="$n"; local v="${ref-}"; [[ "$v" == 0 || "$v" == 1 ]] && pass "$n booleano" || fail "$n debe ser 0/1"; }
 compile_python_readonly(){ local path="$1" py=python; cmd python || py=python3; "$py" -c 'from pathlib import Path; import sys; p=Path(sys.argv[1]); compile(p.read_text(encoding="utf-8"), str(p), "exec")' "$path"; }
 worktree_check(){
   local status
@@ -67,10 +67,22 @@ static_checks(){
   for n in "${ALL_VARS[@]}"; do req "$n"; done
   for n in PFI_VM_ROOT PFI_REPO_ROOT PFI_DATA_ROOT PFI_OUTPUT_ROOT PFI_TRAIN_OUTPUT_DIR PFI_LOCAL_RESUME_DIR PFI_LOCAL_MODELS_DIR PFI_LOCAL_MANIFESTS_DIR PFI_LOCAL_LOGS_DIR PFI_VENV_DIR; do path_ok "$n"; done
   eqv PFI_MAX_EPOCHS 80; eqv PFI_EARLY_STOP_PATIENCE 12; eqv PFI_RESUME_TRAINING 1; eqv REQUIRE_GPU 1; eqv PFI_SMOKE_RUN 0
-  for n in RUN_SAGITTAL RUN_AXIAL PFI_PREFLIGHT_ONLY PFI_SYNC_DRY_RUN PFI_DOWNLOAD_DATASETS PFI_SYNC_RESUME PFI_SYNC_FINAL_ARTIFACTS; do boolv "$n"; done
+  for n in RUN_SAGITTAL RUN_AXIAL PFI_PREFLIGHT_ONLY PFI_SYNC_DRY_RUN PFI_DOWNLOAD_DATASETS PFI_DOWNLOAD_RESUME PFI_SYNC_RESUME PFI_SYNC_FINAL_ARTIFACTS; do boolv "$n"; done
   [[ "$PFI_GCS_BUCKET_URI" == gs://* ]] && pass "bucket gs://" || fail "bucket no usa gs://"
+  [[ "$PFI_RUN_ID" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] && { pass "PFI_RUN_ID valido"; S_RUN_ID="$PFI_RUN_ID"; } || fail "PFI_RUN_ID invalido"
+  eqv PFI_SYNC_DRY_RUN 1
+  [[ "$PFI_SYNC_MIN_FILE_AGE_SECONDS" =~ ^[0-9]+$ ]] && pass "PFI_SYNC_MIN_FILE_AGE_SECONDS entero" || fail "PFI_SYNC_MIN_FILE_AGE_SECONDS invalido"
+  local uri bucket
+  bucket="${PFI_GCS_BUCKET_URI%/}"
+  for n in PFI_GCS_SPIDER_URI PFI_GCS_AXIAL_URI PFI_GCS_METADATA_URI PFI_GCS_BOOTSTRAP_MODELS_URI PFI_GCS_RUN_MODELS_URI PFI_GCS_RUN_RESUME_URI PFI_GCS_RUN_MANIFESTS_URI PFI_GCS_RUN_OUTPUTS_URI; do
+    uri="${!n-}"
+    [[ "$uri" == "$bucket"/* && "${uri%/}" != "$bucket" ]] && pass "$n bajo bucket" || fail "$n insegura"
+  done
+  for n in PFI_GCS_RUN_MODELS_URI PFI_GCS_RUN_RESUME_URI PFI_GCS_RUN_MANIFESTS_URI PFI_GCS_RUN_OUTPUTS_URI; do
+    [[ "${!n}" == *"/$PFI_RUN_ID" || "${!n}" == *"/$PFI_RUN_ID/"* ]] && pass "$n contiene run_id" || fail "$n no contiene run_id"
+  done
   [[ "$PFI_VM_SERVICE_ACCOUNT" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.iam\.gserviceaccount\.com$ ]] && pass "service account formato valido" || fail "service account formato invalido"
-  for f in notebooks/train_final_models_v4_final.ipynb ai_service/pfi_ai_service/model_architectures.py requirements.txt infra/gcp/create-pfi-training-t4-v1.sh; do [[ -f "$REPO_CHECKOUT_ROOT/$f" ]] && pass "existe $f" || fail "falta $f"; done
+  for f in notebooks/train_final_models_v4_final.ipynb ai_service/pfi_ai_service/model_architectures.py requirements.txt infra/gcp/create-pfi-training-t4-v1.sh infra/gcp/download-training-data.sh infra/gcp/sync-training-artifacts.sh; do [[ -f "$REPO_CHECKOUT_ROOT/$f" ]] && pass "existe $f" || fail "falta $f"; done
   cmd python || py=python3
   if cmd "$py"; then
     "$py" -m json.tool "$REPO_CHECKOUT_ROOT/notebooks/train_final_models_v4_final.ipynb" >/dev/null && pass "notebook v4 JSON valido" || fail "notebook v4 JSON invalido"
@@ -86,6 +98,13 @@ static_checks(){
   local secret_re
   secret_re='PRIVATE ''KEY|private_''key|client_''secret|access_''token|pass''word=|credentials\.json|BEGIN ''RSA|BEGIN ''OPENSSH'
   grep -REn "$secret_re" "$REPO_CHECKOUT_ROOT/infra/gcp/prepare-training-vm.sh" "$REPO_CHECKOUT_ROOT/infra/gcp/preflight-training-vm.sh" "$REPO_CHECKOUT_ROOT/infra/gcp/README.md" >/dev/null && fail "patrones de secreto encontrados" || pass "sin patrones de secretos infra"
+    for f in infra/gcp/download-training-data.sh infra/gcp/sync-training-artifacts.sh; do
+    bash -n "$REPO_CHECKOUT_ROOT/$f" && pass "$f sintaxis bash" || fail "$f sintaxis bash"
+    mode="$(git -C "$REPO_CHECKOUT_ROOT" ls-files --stage "$f" | awk '{print $1}')"
+    [[ "$mode" == 100755 ]] && pass "$f modo 100755" || fail "$f no esta trackeado como 100755"
+  done
+  if grep -RE -- '--delete-unmatched-destination-objects\|gcloud storage rm\|gcloud storage mv\|gsutil' "$REPO_CHECKOUT_ROOT/infra/gcp/download-training-data.sh" "$REPO_CHECKOUT_ROOT/infra/gcp/sync-training-artifacts.sh" >/dev/null; then fail "scripts contienen comandos prohibidos"; else pass "scripts sin comandos GCS prohibidos"; fi
+  grep -q -- '--execute' "$REPO_CHECKOUT_ROOT/infra/gcp/download-training-data.sh" && grep -q -- '--execute' "$REPO_CHECKOUT_ROOT/infra/gcp/sync-training-artifacts.sh" && pass "scripts requieren --execute" || fail "falta control --execute"
   worktree_check
 }
 
@@ -262,7 +281,7 @@ summary(){
   local result
   [[ "$FAIL" -eq 0 ]] && result=READY || result='NOT READY'
   printf '\n[INFO] Resumen preflight\n'
-  info "modo: $MODE"; info "PASS: $PASS WARN: $WARN FAIL: $FAIL"; info "project: $S_PROJECT"; info "VM: $S_VM"; info "zone: $S_ZONE"; info "service account: $S_SA"; info "repo HEAD: $S_HEAD"; info "Python: $S_PY"; info "torch: $S_TORCH"; info "CUDA: $S_CUDA"; info "GPU: $S_GPU"; info "disco disponible: $S_DISK"; info "acceso bucket: $S_BUCKET"; info "SPIDER: $S_SPIDER"; info "AXIAL: $S_AXIAL"
+  info "modo: $MODE"; info "PASS: $PASS WARN: $WARN FAIL: $FAIL"; info "project: $S_PROJECT"; info "VM: $S_VM"; info "zone: $S_ZONE"; info "service account: $S_SA"; info "repo HEAD: $S_HEAD"; info "Python: $S_PY"; info "torch: $S_TORCH"; info "CUDA: $S_CUDA"; info "GPU: $S_GPU"; info "disco disponible: $S_DISK"; info "acceso bucket: $S_BUCKET"; info "SPIDER: $S_SPIDER"; info "AXIAL: $S_AXIAL"; info "run ID: $S_RUN_ID"
   if [[ "$result" == READY ]]; then printf '[PASS] READY\n'; else printf '[FAIL] NOT READY\n'; fi
 }
 main(){ load_env; validate_structural_vars; static_checks; if [[ "$MODE" == vm ]]; then vm_system; disk_check; python_vm; nvidia_check; metadata_check; gcloud_check; spider_check; axial_check; model_import; fi; summary; [[ "$FAIL" -eq 0 ]] && exit 0 || exit 1; }

@@ -24,6 +24,22 @@ Referencia de Terraform incompleta. No ejecutar ni renombrar a `.tf` sin adaptar
 
 Contrato de variables de entorno para la VM de entrenamiento. Debe copiarse a `training-vm.env` para uso local. `training-vm.env` no se commitea.
 
+### prepare-training-vm.sh
+
+Prepara filesystem, checkout y entorno Python de la VM. No descarga datasets, no sube artifacts, no entrena y no instala torch/CUDA/drivers.
+
+### preflight-training-vm.sh
+
+Valida en modo read-only el contrato estatico y, dentro de la VM, el entorno real. No ejecuta los scripts de descarga ni sincronizacion.
+
+### download-training-data.sh
+
+Planifica o ejecuta descargas controladas desde Cloud Storage al disco local de la VM. El default es dry-run y `--execute` es obligatorio para transferir.
+
+### sync-training-artifacts.sh
+
+Planifica o ejecuta restauracion de resume y subida segura de checkpoints/artifacts por corrida. El default es dry-run y `--execute` es obligatorio para transferir.
+
 ## Arquitectura de almacenamiento
 
 Cloud Storage:
@@ -52,6 +68,44 @@ Disco local:
 ```
 
 GCS es persistencia. El disco local es espacio de trabajo. No se debe entrenar directamente desde GCS: los datasets deben descargarse al disco local antes de entrenar. Los checkpoints deben guardarse primero localmente y sincronizarse despues. No eliminar la VM hasta verificar que los artifacts necesarios estan en GCS.
+
+## Identidad de corrida
+
+`PFI_RUN_ID` identifica una corrida de entrenamiento y debe mantenerse estable entre reinicios para poder restaurar checkpoints. El valor default versionado es:
+
+```bash
+PFI_RUN_ID=pfi-final-training-v1
+```
+
+Debe cumplir `^[a-z0-9][a-z0-9-]{0,62}$`. Una corrida nueva se crea cambiando explicitamente `PFI_RUN_ID`; no se genera automaticamente con fecha/hora.
+
+Los prefijos derivados se calculan al hacer `source` del env:
+
+```bash
+PFI_GCS_RUN_MODELS_URI="${PFI_GCS_MODELS_URI}/${PFI_RUN_ID}"
+PFI_GCS_RUN_RESUME_URI="${PFI_GCS_RESUME_URI}/${PFI_RUN_ID}"
+PFI_GCS_RUN_MANIFESTS_URI="${PFI_GCS_MANIFESTS_URI}/${PFI_RUN_ID}"
+PFI_GCS_RUN_OUTPUTS_URI="${PFI_GCS_OUTPUTS_URI}/${PFI_RUN_ID}"
+```
+
+Ningun script sincroniza contra la raiz del bucket. Los destinos deben contener `models/`, `resume/`, `manifests/` u `outputs/` y el `PFI_RUN_ID`.
+
+## Estructura de datasets en GCS
+
+```text
+datasets/
+|-- SPIDER/
+|   |-- images/
+|   `-- masks/
+|-- AXIAL_ALKAFRI/
+|-- metadata/
+|   |-- E5_multiclass_label_mapping.json
+|   `-- E9_t2_final_labels_curated_split.csv
+`-- bootstrap_models/
+    `-- sagittal_spider_multiclass_final_best.pt
+```
+
+`bootstrap_models/` es opcional si el mapping JSON existe. `SPIDER`, `AXIAL_ALKAFRI` y `metadata` son requeridos para preparar datos reales.
 
 ## Cuenta de servicio
 
@@ -86,18 +140,6 @@ El techo conservador de computo por inicio es 12 horas, aproximadamente USD 6,50
 
 No crear la VM hasta tener notebook portable, datasets y preflight listos.
 
-## Prerrequisitos antes de crear la VM
-
-- notebook v5 portable validado;
-- datasets presentes en GCS;
-- CSV axial revisado;
-- preflight implementado;
-- sync implementado;
-- cuota global GPUs (all regions) = 1;
-- cuota T4 `us-central1` = 1;
-- credito y presupuesto revisados;
-- comando de eliminacion conocido.
-
 ## Uso futuro del archivo env
 
 ```bash
@@ -110,8 +152,6 @@ set +a
 `training-vm.env` es local, no debe commitearse y no debe contener secretos. Modificarlo solamente para rutas o parametros de una corrida.
 
 ## Preparacion local de la VM
-
-`prepare-training-vm.sh` prepara de forma idempotente el filesystem, el checkout del repo y el entorno Python de la futura VM. No descarga datasets, no ejecuta notebooks, no entrena, no crea recursos Google Cloud y no instala torch, torchvision, CUDA ni drivers NVIDIA.
 
 Uso futuro dentro de la VM:
 
@@ -146,7 +186,7 @@ bash infra/gcp/preflight-training-vm.sh \
   --env-file infra/gcp/training-vm.env.example
 ```
 
-El modo `static` no necesita VM ni GPU. Valida el contrato de variables, rutas, archivos del repo, notebook v4 como JSON, arquitectura Python, gitignore y ausencia de artifacts trackeados.
+El modo `static` valida el contrato de variables, rutas, archivos del repo, notebook v4 como JSON, arquitectura Python, gitignore, ausencia de artifacts trackeados, scripts nuevos con sintaxis Bash, modo `100755`, ausencia de comandos GCS destructivos y control explicito de `--execute`.
 
 Preflight real dentro de la VM:
 
@@ -156,22 +196,105 @@ bash infra/gcp/preflight-training-vm.sh \
   --env-file infra/gcp/training-vm.env
 ```
 
-El modo `vm` debe ejecutarse dentro de Compute Engine. Agrega validaciones de Linux, comandos, venv, GPU/CUDA, `nvidia-smi`, metadata de Compute Engine, identidad adjunta, bucket/prefijos GCS en modo solo lectura, disco y datasets locales.
+El modo `vm` debe ejecutarse dentro de Compute Engine. Agrega validaciones de Linux, comandos, venv, GPU/CUDA, `nvidia-smi`, metadata de Compute Engine, identidad adjunta, bucket/prefijos GCS en modo solo lectura, disco y datasets locales. Tambien informa `PFI_RUN_ID` en el resumen. Si el prefijo remoto de resume para la corrida esta vacio, debe informarse sin fallar en la primera corrida.
 
-Todavia faltan el script de descarga/sync y el notebook v5 portable. No documentar esos pasos como disponibles hasta implementarlos.
-### Correcciones de seguridad del preflight
+## Descarga de datos
 
-El modo `static` valida Python sin crear `__pycache__`. `prepare-training-vm.sh` debe ejecutarse como usuario normal: puede usar `sudo` para tareas del sistema, pero no ejecuta `pip` como root. En `preflight --mode vm`, un prefijo `datasets/` vacio falla cuando `PFI_DOWNLOAD_DATASETS=1`; los prefijos `models/`, `resume/`, `manifests/` y `outputs/` vacios solo se informan como advertencia.
+Dry-run:
+
+```bash
+bash infra/gcp/download-training-data.sh \
+  --component all \
+  --dry-run \
+  --env-file infra/gcp/training-vm.env
+```
+
+Ejecucion real futura, solo dentro de la VM preparada:
+
+```bash
+bash infra/gcp/download-training-data.sh \
+  --component all \
+  --execute \
+  --env-file infra/gcp/training-vm.env
+```
+
+El script nunca elimina archivos locales, no usa `--delete-unmatched-destination-objects`, no usa `gsutil` y no crea directorios en `--execute`: `prepare-training-vm.sh` debe haber preparado los destinos. `bootstrap` y `resume` pueden estar vacios; datasets requeridos no pueden estar vacios.
+
+Componentes disponibles: `spider`, `axial`, `metadata`, `bootstrap`, `resume`, `datasets`, `all`. `--require-resume` solo debe usarse cuando se espera restaurar checkpoints previos.
+
+## Restauracion de resume
+
+```bash
+bash infra/gcp/sync-training-artifacts.sh \
+  --mode pull-resume \
+  --execute \
+  --env-file infra/gcp/training-vm.env
+```
+
+Si el prefijo `resume/${PFI_RUN_ID}` esta vacio, la primera corrida sigue siendo valida y no se crean archivos locales.
+
+## Sincronizacion de checkpoints
+
+Dry-run para checkpoints de resume:
+
+```bash
+bash infra/gcp/sync-training-artifacts.sh \
+  --mode push-resume \
+  --dry-run \
+  --env-file infra/gcp/training-vm.env
+```
+
+Ejecucion real futura:
+
+```bash
+bash infra/gcp/sync-training-artifacts.sh \
+  --mode push-resume \
+  --execute \
+  --env-file infra/gcp/training-vm.env
+```
+
+Solo se consideran `*.last_checkpoint.pt`, `*.best_checkpoint.pt` y JSON de estado. Archivos recientes, temporales, ocultos, symlinks y nombres no reconocidos se omiten.
+
+## Sincronizacion final
+
+```bash
+bash infra/gcp/sync-training-artifacts.sh \
+  --mode push-final \
+  --execute \
+  --env-file infra/gcp/training-vm.env
+```
+
+Sube modelos finales permitidos, manifests y logs seleccionados hacia prefijos separados por `PFI_RUN_ID`. No sincroniza el directorio de salida completo de forma generica.
+
+## Seguridad
+
+- `PFI_SYNC_DRY_RUN=1` es el default seguro.
+- `--execute` es obligatorio para descargar o subir.
+- Cambiar `PFI_SYNC_DRY_RUN=0` no alcanza por si solo para escribir en GCS.
+- No se borra ningun destino local ni remoto.
+- No se usa `gsutil`, `gcloud storage rm`, `gcloud storage mv` ni `--delete-unmatched-destination-objects`.
+- Los artifacts quedan separados por `PFI_RUN_ID`.
+- Checkpoints recientes se omiten para evitar subir archivos en escritura.
+- La seleccion de artifacts usa staging temporal fuera del repo y fuera de `/opt/pfi`.
+- El manifest registra SHA-256, tamanio, destino y metadata minima de entorno sin credenciales ni rutas internas completas.
+- No eliminar la VM antes de verificar `models/`, `resume/` y `manifests/` en GCS.
+
 ## Trabajo pendiente
+
+Implementados:
 
 1. `prepare-training-vm.sh`
 2. `preflight-training-vm.sh`
-3. `sync-training-artifacts.sh`
-4. `train_final_models_v5_cloud_portable.ipynb`
-5. `run-final-training.sh`
-6. carga y validacion de datasets
-7. habilitacion de cuota
-8. creacion de VM
+3. `download-training-data.sh`
+4. `sync-training-artifacts.sh`
+
+Pendientes:
+
+1. `train_final_models_v5_cloud_portable.ipynb`
+2. `run-final-training.sh`
+3. carga real de datasets
+4. cuota GPU
+5. creacion de VM
 
 ## Fuente de verdad
 
