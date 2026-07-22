@@ -65,6 +65,14 @@ La descarga es atomica: primero baja a `models/.staging/sagittal_spider_final_v1
 - `sagittal_spider_multiclass_final_best.pt.manifest.json`
 - `sagittal_spider_multiclass_final_best.pt.modelcard.md`
 
+Tambien guarda provenance privada en `PFI_MODEL_DIR/.releases/sagittal_spider_final_v1/`:
+
+- `_SUCCESS.json`
+- `publish_receipt.json`
+- `release_manifest.json`
+
+Una corrida idempotente solo retorna `existing_release_verified` si esos tres documentos existen, sus SHA coinciden, el receipt corresponde a `_SUCCESS`, el release manifest no expone `sourcePath`, y el checkpoint, runtime manifest y model card locales coinciden en tamano y SHA contra el release manifest. Si falta o discrepa cualquier provenance, `force=false` retorna `local_release_mismatch_requires_force`; con `force=true` se descarga y reemplaza de forma transaccional.
+
 ## POST /pipeline/run
 
 Request sagital estricto:
@@ -101,10 +109,17 @@ La metadata observable incluye:
 - `inputShapeNative`
 - `inputShapeCanonical`
 - `inputOrientationTransform`
+- `spacingXyz`
+- `arrayAxisSpacingNative`
+- `arrayAxisSpacingCanonical`
+- `inPlaneSpacing`
+- `inPlaneSpacingUnit`
 - `sagittalAxis`
 - `selectedAxis`
 - `selectedSlice`
 - `sliceCount`
+
+Para SimpleITK, `spacingXyz=[sx,sy,sz]` y el array nativo llega como `[z,y,x]`, por lo que `arrayAxisSpacingNative=[sz,sy,sx]`. Si se aplica `move_axis_0_to_last`, el array canonico `[y,x,z]` usa `arrayAxisSpacingCanonical=[sy,sx,sz]`; con `selectedAxis=2`, `inPlaneSpacing=[sy,sx]`.
 
 ## Assets
 

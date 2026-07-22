@@ -43,8 +43,10 @@ class FakeBucket:
 class FakeClient:
     def __init__(self, blobs: dict[str, bytes]) -> None:
         self.blobs = blobs
+        self.bucket_calls = 0
 
     def bucket(self, name: str) -> FakeBucket:
+        self.bucket_calls += 1
         return FakeBucket(self.blobs)
 
 
@@ -161,6 +163,17 @@ def release_fixture(tmp_path, mutate: str | None = None):
     return config, FakeClient(blobs), files
 
 
+def provenance_dir(config: GcsReleaseConfig) -> Path:
+    return config.destination_dir / ".releases" / "sagittal_spider_final_v1"
+
+
+def install_valid_release(tmp_path):
+    config, client, files = release_fixture(tmp_path)
+    result = materialize_sagittal_gcs_release(config, client_factory=lambda _: client)
+    assert result["status"] == "synced_verified"
+    return config, client, files
+
+
 def test_parse_gs_uri_accepts_valid_uri() -> None:
     parsed = parse_gs_uri("gs://bucket/a/b/")
     assert parsed.bucket == "bucket"
@@ -178,9 +191,14 @@ def test_valid_release_downloads_and_replaces_atomically(tmp_path) -> None:
     result = materialize_sagittal_gcs_release(config, client_factory=lambda _: client)
     assert result["status"] == "synced_verified"
     assert result["filesReplaced"] == 3
+    assert result["releaseMetadataReplaced"] == 3
+    assert result["releaseMetadataVerified"] is True
     assert (config.destination_dir / SAGITTAL_MODEL_FILE).exists()
     assert (config.destination_dir / SAGITTAL_MANIFEST_FILE).exists()
     assert (config.destination_dir / SAGITTAL_MODELCARD_FILE).exists()
+    assert (provenance_dir(config) / "_SUCCESS.json").exists()
+    assert (provenance_dir(config) / "publish_receipt.json").exists()
+    assert (provenance_dir(config) / "release_manifest.json").exists()
 
 
 def test_existing_release_is_idempotent(tmp_path) -> None:
@@ -189,6 +207,59 @@ def test_existing_release_is_idempotent(tmp_path) -> None:
     result = materialize_sagittal_gcs_release(config, client_factory=lambda _: client)
     assert result["status"] == "existing_release_verified"
     assert result["filesReplaced"] == 0
+    assert result["releaseMetadataReplaced"] == 0
+    assert result["releaseMetadataVerified"] is True
+
+
+def test_idempotent_release_does_not_create_gcs_client(tmp_path) -> None:
+    config, client, _ = install_valid_release(tmp_path)
+
+    def fail_client(_project_id):
+        raise AssertionError("GCS client should not be created for verified local release")
+
+    result = materialize_sagittal_gcs_release(config, client_factory=fail_client)
+
+    assert result["status"] == "existing_release_verified"
+    assert client.bucket_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("file_name", "replacement"),
+    [
+        (SAGITTAL_MODELCARD_FILE, b"# Tampered card\n"),
+        (SAGITTAL_MODELCARD_FILE, b""),
+        (SAGITTAL_MANIFEST_FILE, b"{}"),
+    ],
+)
+def test_local_runtime_artifact_tampering_requires_force(tmp_path, file_name: str, replacement: bytes) -> None:
+    config, _client, _files = install_valid_release(tmp_path)
+    (config.destination_dir / file_name).write_bytes(replacement)
+
+    result = materialize_sagittal_gcs_release(config, client_factory=lambda _project_id: (_ for _ in ()).throw(AssertionError("no GCS")))
+
+    assert result["status"] == "local_release_mismatch_requires_force"
+    assert result["filesReplaced"] == 0
+    assert result["releaseMetadataVerified"] is False
+
+
+@pytest.mark.parametrize("file_name", ["release_manifest.json", "publish_receipt.json", "_SUCCESS.json"])
+def test_local_release_metadata_tampering_requires_force(tmp_path, file_name: str) -> None:
+    config, _client, _files = install_valid_release(tmp_path)
+    (provenance_dir(config) / file_name).write_text("{}", encoding="utf-8")
+
+    result = materialize_sagittal_gcs_release(config, client_factory=lambda _project_id: (_ for _ in ()).throw(AssertionError("no GCS")))
+
+    assert result["status"] == "local_release_mismatch_requires_force"
+    assert result["releaseMetadataVerified"] is False
+
+
+def test_missing_local_metadata_requires_force_when_artifacts_exist(tmp_path) -> None:
+    config, _client, _files = install_valid_release(tmp_path)
+    (provenance_dir(config) / "_SUCCESS.json").unlink()
+
+    result = materialize_sagittal_gcs_release(config, client_factory=lambda _project_id: (_ for _ in ()).throw(AssertionError("no GCS")))
+
+    assert result["status"] == "local_release_mismatch_requires_force"
 
 
 @pytest.mark.parametrize(
@@ -243,6 +314,46 @@ def test_local_mismatch_requires_force_and_force_replaces(tmp_path) -> None:
     replaced = materialize_sagittal_gcs_release(config, force=True, client_factory=lambda _: client)
     assert replaced["status"] == "synced_verified"
     assert replaced["filesReplaced"] == 3
+    assert replaced["releaseMetadataReplaced"] == 3
+
+
+def test_force_restores_tampered_model_card_and_metadata(tmp_path) -> None:
+    config, client, files = install_valid_release(tmp_path)
+    (config.destination_dir / SAGITTAL_MODELCARD_FILE).write_bytes(b"bad")
+    (provenance_dir(config) / "release_manifest.json").write_text("{}", encoding="utf-8")
+
+    result = materialize_sagittal_gcs_release(config, force=True, client_factory=lambda _: client)
+
+    assert result["status"] == "synced_verified"
+    assert (config.destination_dir / SAGITTAL_MODELCARD_FILE).read_bytes() == files[SAGITTAL_MODELCARD_FILE]
+    assert json.loads((provenance_dir(config) / "release_manifest.json").read_text(encoding="utf-8"))["releaseId"] == "sagittal_spider_final_v1"
+
+
+def test_replacement_error_restores_runtime_and_metadata(monkeypatch, tmp_path) -> None:
+    config, client, _files = install_valid_release(tmp_path)
+    original_card = (config.destination_dir / SAGITTAL_MODELCARD_FILE).read_bytes()
+    original_success = (provenance_dir(config) / "_SUCCESS.json").read_bytes()
+    config2, client2, files2 = release_fixture(tmp_path)
+    files2[SAGITTAL_MODELCARD_FILE] = b"# New card\n"
+    # Make the remote model card different and rebuild the fake release consistently.
+    config2, client2, _files2 = release_fixture(tmp_path)
+    replace_count = {"count": 0}
+    from pfi_ai_service import gcs_release_materializer as materializer
+    real_replace = materializer.os.replace
+
+    def fail_after_first(source, destination):
+        replace_count["count"] += 1
+        if replace_count["count"] == 3:
+            raise OSError("synthetic replacement failure")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(materializer.os, "replace", fail_after_first)
+
+    with pytest.raises(OSError, match="synthetic replacement failure"):
+        materialize_sagittal_gcs_release(config2, force=True, client_factory=lambda _: client2)
+
+    assert (config.destination_dir / SAGITTAL_MODELCARD_FILE).read_bytes() == original_card
+    assert (provenance_dir(config) / "_SUCCESS.json").read_bytes() == original_success
 
 
 def test_model_materializer_keeps_axial_legacy_path(monkeypatch, tmp_path) -> None:

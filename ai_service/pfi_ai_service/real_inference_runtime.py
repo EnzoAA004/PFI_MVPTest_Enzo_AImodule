@@ -197,6 +197,30 @@ def canonicalize_sagittal_array(array: np.ndarray, transform: str | None = None)
     raise ValueError(f"Transformacion de orientacion no soportada: {selected}")
 
 
+def array_axis_spacing_native(spacing_xyz: tuple[float, ...] | None, ndim: int) -> list[float] | None:
+    if spacing_xyz is None:
+        return None
+    if ndim == 2 and len(spacing_xyz) >= 2:
+        sx, sy = float(spacing_xyz[0]), float(spacing_xyz[1])
+        return [sy, sx]
+    if ndim == 3 and len(spacing_xyz) >= 3:
+        sx, sy, sz = float(spacing_xyz[0]), float(spacing_xyz[1]), float(spacing_xyz[2])
+        return [sz, sy, sx]
+    return None
+
+
+def canonical_axis_spacing(native_spacing: list[float] | None, transform: str) -> list[float] | None:
+    if native_spacing is None:
+        return None
+    if transform == "none":
+        return list(native_spacing)
+    if transform == "move_axis_0_to_last":
+        if len(native_spacing) != 3:
+            raise ValueError("move_axis_0_to_last requiere spacing de 3 ejes")
+        return [native_spacing[1], native_spacing[2], native_spacing[0]]
+    raise ValueError(f"Transformacion de spacing no soportada: {transform}")
+
+
 def canonicalize_loaded_input(loaded: LoadedInput, plane: str, metadata: Dict[str, Any]) -> LoadedInput:
     native_shape = [int(value) for value in loaded.array.shape]
     transform = "none"
@@ -204,8 +228,13 @@ def canonicalize_loaded_input(loaded: LoadedInput, plane: str, metadata: Dict[st
     if plane == "sagittal":
         override = metadata.get("inputOrientationTransform") or os.getenv("PFI_SAGITTAL_ORIENTATION_TRANSFORM")
         array, transform = canonicalize_sagittal_array(array, str(override) if override else None)
+    native_spacing = array_axis_spacing_native(loaded.spacing_xyz, loaded.array.ndim)
+    canonical_spacing = canonical_axis_spacing(native_spacing, transform)
     canonical_metadata = {
         **loaded.metadata,
+        "spacingXyz": [float(value) for value in loaded.spacing_xyz] if loaded.spacing_xyz is not None else None,
+        "arrayAxisSpacingNative": native_spacing,
+        "arrayAxisSpacingCanonical": canonical_spacing,
         "inputShapeNative": native_shape,
         "inputShapeCanonical": [int(value) for value in array.shape],
         "inputOrientationTransform": transform,
@@ -293,14 +322,13 @@ def select_slice(
 
 
 def in_plane_spacing(loaded: LoadedInput, selected_axis: int) -> tuple[float, float] | None:
-    spacing = loaded.spacing_xyz
-    if spacing is None:
+    axis_spacing = loaded.metadata.get("arrayAxisSpacingCanonical")
+    if axis_spacing is None:
         return None
-    if loaded.array.ndim == 2 and len(spacing) >= 2:
-        return float(spacing[1]), float(spacing[0])
-    if loaded.array.ndim == 3 and len(spacing) >= 3:
-        array_axis_spacing = (float(spacing[2]), float(spacing[1]), float(spacing[0]))
-        remaining = [value for index, value in enumerate(array_axis_spacing) if index != selected_axis]
+    if loaded.array.ndim == 2 and len(axis_spacing) >= 2:
+        return float(axis_spacing[0]), float(axis_spacing[1])
+    if loaded.array.ndim == 3 and len(axis_spacing) >= 3:
+        remaining = [float(value) for index, value in enumerate(axis_spacing) if index != selected_axis]
         if len(remaining) == 2:
             return float(remaining[0]), float(remaining[1])
     return None
@@ -479,6 +507,7 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
     outputs = save_outputs(run_id, request.plane, image, prediction, confidence)
     assets = registered_assets_for_run(run_id, request.plane)
     spacing = in_plane_spacing(loaded, selected_axis)
+    spacing_unit = "mm" if spacing else None
     masks = build_masks(request.model_key, request.plane, prediction, confidence, series_id, selected_slice)
     landmarks = build_landmarks(masks)
     measurement_values = build_measurements(request.model_key, request.plane, prediction, confidence, spacing)
@@ -499,6 +528,8 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
         "foregroundRatio": round(foreground_ratio, 6),
         "presentClasses": present_classes,
         "pixelSpacing": list(spacing) if spacing else None,
+        "inPlaneSpacing": list(spacing) if spacing else None,
+        "inPlaneSpacingUnit": spacing_unit,
         "measurementsDerivedFromPredictionMask": True,
     }
     requested_mode = str(request.metadata.get("inferenceMode", "real_baseline"))
@@ -590,6 +621,11 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
             "inputShapeNative": loaded.metadata.get("inputShapeNative"),
             "inputShapeCanonical": loaded.metadata.get("inputShapeCanonical"),
             "inputOrientationTransform": loaded.metadata.get("inputOrientationTransform"),
+            "spacingXyz": loaded.metadata.get("spacingXyz"),
+            "arrayAxisSpacingNative": loaded.metadata.get("arrayAxisSpacingNative"),
+            "arrayAxisSpacingCanonical": loaded.metadata.get("arrayAxisSpacingCanonical"),
+            "inPlaneSpacing": list(spacing) if spacing else None,
+            "inPlaneSpacingUnit": spacing_unit,
             "sourceShape": [int(value) for value in loaded.array.shape],
             "processedShape": [int(value) for value in prediction.shape],
             "inputFormat": loaded.suffix,

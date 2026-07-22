@@ -28,6 +28,7 @@ REQUIRED_RELEASE_FILES = {
     SAGITTAL_MANIFEST_FILE,
     SAGITTAL_MODELCARD_FILE,
 }
+RELEASE_METADATA_FILES = ("_SUCCESS.json", "publish_receipt.json", "release_manifest.json")
 
 
 class ReleaseValidationError(RuntimeError):
@@ -172,6 +173,14 @@ def _validate_downloaded_artifact(name: str, entry: dict[str, Any], path: Path) 
         raise ReleaseValidationError(f"SHA invalido en {name}: expected={expected_sha};actual={actual_sha}")
 
 
+def _validate_local_artifact(name: str, entry: dict[str, Any], path: Path) -> None:
+    if not path.exists() or not path.is_file():
+        raise ReleaseValidationError(f"Artifact local faltante: {name}")
+    if not path.stat().st_size:
+        raise ReleaseValidationError(f"Artifact local vacio: {name}")
+    _validate_downloaded_artifact(name, entry, path)
+
+
 def _validate_success(config: GcsReleaseConfig, success: dict[str, Any]) -> None:
     if success.get("status") != "published_and_verified":
         raise ReleaseValidationError(f"_SUCCESS.status invalido: {success.get('status')}")
@@ -251,65 +260,112 @@ def _final_paths(config: GcsReleaseConfig) -> dict[str, Path]:
     }
 
 
+def _release_metadata_dir(config: GcsReleaseConfig) -> Path:
+    return config.destination_dir / ".releases" / config.release_id
+
+
+def _release_metadata_paths(config: GcsReleaseConfig) -> dict[str, Path]:
+    root = _release_metadata_dir(config)
+    return {name: root / name for name in RELEASE_METADATA_FILES}
+
+
+def _validate_release_documents(config: GcsReleaseConfig, paths: dict[str, Path]) -> tuple[dict[str, Any], dict[str, Any], dict[str, dict[str, Any]]]:
+    for name in RELEASE_METADATA_FILES:
+        path = paths[name]
+        if not path.exists() or not path.is_file() or path.stat().st_size <= 0:
+            raise ReleaseValidationError(f"Metadata local faltante o vacia: {name}")
+    success = load_json(paths["_SUCCESS.json"])
+    receipt = load_json(paths["publish_receipt.json"])
+    release_manifest = load_json(paths["release_manifest.json"])
+    _validate_success(config, success)
+    _validate_receipt(config, receipt)
+    receipt_sha = sha256_file(paths["publish_receipt.json"])
+    if str(success.get("receiptSha256", "")).lower() != receipt_sha:
+        raise ReleaseValidationError("_SUCCESS.receiptSha256 no coincide con publish_receipt real")
+    artifacts = _validate_release_manifest(config, release_manifest, paths["release_manifest.json"])
+    if success.get("publicationArtifactCount") != len(artifacts) + 1:
+        raise ReleaseValidationError("publicationArtifactCount no coincide con artifacts mas release_manifest")
+    return success, receipt, artifacts
+
+
 def _local_release_status(config: GcsReleaseConfig) -> dict[str, Any]:
     paths = _final_paths(config)
     model_path = paths[SAGITTAL_MODEL_FILE]
     manifest_path = paths[SAGITTAL_MANIFEST_FILE]
     modelcard_path = paths[SAGITTAL_MODELCARD_FILE]
-    if not all(path.exists() and path.is_file() and path.stat().st_size > 0 for path in paths.values()):
+    if not all(path.exists() and path.is_file() for path in paths.values()):
         return {"complete": False, "reason": "missing_local_files"}
-    model_sha = sha256_file(model_path)
-    if model_sha != config.model_sha256.lower():
-        return {"complete": False, "reason": "local_model_sha_mismatch", "actualSha256": model_sha}
+    if not all(path.stat().st_size > 0 for path in paths.values()):
+        return {"complete": False, "reason": "local_release_provenance_invalid", "message": "runtime artifact local vacio"}
     try:
+        _success, _receipt, artifacts = _validate_release_documents(config, _release_metadata_paths(config))
+        for name, path in paths.items():
+            if name not in artifacts:
+                raise ReleaseValidationError(f"release_manifest local no lista {name}")
+            _validate_local_artifact(name, artifacts[name], path)
+        model_sha = sha256_file(model_path)
+        if model_sha != config.model_sha256.lower():
+            return {"complete": False, "reason": "local_model_sha_mismatch", "actualSha256": model_sha}
         manifest = load_json(manifest_path)
         validation = validate_manifest(manifest, artifact_path=model_path)
     except Exception as exc:
-        return {"complete": False, "reason": "local_manifest_invalid", "message": str(exc)}
-    if validation.get("valid") and validation.get("baselineReady") and validation.get("sha256Status") == "MATCH":
+        return {"complete": False, "reason": "local_release_provenance_invalid", "message": str(exc)}
+    if validation.get("valid") and validation.get("baselineReady") and validation.get("sha256Status") == "MATCH" and not validation.get("validationErrors"):
         return {
             "complete": True,
             "modelSha256": model_sha,
             "manifestStatus": validation.get("status"),
             "modelCardSizeBytes": modelcard_path.stat().st_size,
+            "releaseMetadataVerified": True,
         }
     return {"complete": False, "reason": "local_manifest_not_ready", "validationErrors": validation.get("validationErrors", [])}
 
 
-def _replace_final_files(config: GcsReleaseConfig, staging: Path) -> int:
-    final_paths = _final_paths(config)
-    config.destination_dir.mkdir(parents=True, exist_ok=True)
-    prepared: list[tuple[Path, Path]] = []
+def _transactional_replace(replacements: dict[str, tuple[Path, Path]]) -> int:
+    for _name, (_source, destination) in replacements.items():
+        destination.parent.mkdir(parents=True, exist_ok=True)
+    backup_root = tempfile.mkdtemp(prefix="replace-backup-", dir=str(next(iter(replacements.values()))[1].parent))
+    backup_dir = Path(backup_root)
+    prepared: list[tuple[Path, Path, Path | None]] = []
     backups: list[tuple[Path, Path | None]] = []
-    replaced_destinations: list[Path] = []
-    for name, destination in final_paths.items():
-        source = staging / name
-        tmp = destination.with_name(destination.name + ".replace")
-        shutil.copyfile(source, tmp)
-        prepared.append((tmp, destination))
+    replaced_destinations: list[tuple[Path, Path | None]] = []
     try:
-        for tmp, destination in prepared:
-            backup = destination.with_name(destination.name + ".backup")
-            if destination.exists():
+        for name, (source, destination) in replacements.items():
+            tmp = destination.with_name(destination.name + ".replace")
+            shutil.copyfile(source, tmp)
+            backup = backup_dir / name.replace("/", "__")
+            prepared.append((tmp, destination, backup if destination.exists() else None))
+        for tmp, destination, backup in prepared:
+            if backup is not None:
                 os.replace(destination, backup)
-                backups.append((destination, backup))
-            else:
-                backups.append((destination, None))
+            backups.append((destination, backup))
             os.replace(tmp, destination)
-            replaced_destinations.append(destination)
+            replaced_destinations.append((destination, backup))
     except Exception:
-        for destination in replaced_destinations:
+        for destination, backup in replaced_destinations:
             destination.unlink(missing_ok=True)
         for destination, backup in reversed(backups):
             if backup is not None and backup.exists():
                 os.replace(backup, destination)
-        for tmp, _destination in prepared:
+        for tmp, _destination, _backup in prepared:
             tmp.unlink(missing_ok=True)
+        shutil.rmtree(backup_dir, ignore_errors=True)
         raise
-    for _destination, backup in backups:
-        if backup is not None:
-            backup.unlink(missing_ok=True)
-    return len(final_paths)
+    shutil.rmtree(backup_dir, ignore_errors=True)
+    return len(replacements)
+
+
+def _replace_release_files(config: GcsReleaseConfig, staging: Path) -> tuple[int, int]:
+    final_paths = _final_paths(config)
+    metadata_paths = _release_metadata_paths(config)
+    config.destination_dir.mkdir(parents=True, exist_ok=True)
+    replacements: dict[str, tuple[Path, Path]] = {}
+    for name, destination in final_paths.items():
+        replacements[f"runtime/{name}"] = (staging / name, destination)
+    for name, destination in metadata_paths.items():
+        replacements[f"metadata/{name}"] = (staging / name, destination)
+    replaced = _transactional_replace(replacements)
+    return len(final_paths), replaced - len(final_paths)
 
 
 def materialize_sagittal_gcs_release(
@@ -336,10 +392,12 @@ def materialize_sagittal_gcs_release(
             "manifestSynced": True,
             "modelCardSynced": True,
             "filesReplaced": 0,
+            "releaseMetadataReplaced": 0,
+            "releaseMetadataVerified": True,
             "gcsReadOnly": True,
             "localValidation": local,
         }
-    if not force and local.get("reason") in {"local_model_sha_mismatch", "local_manifest_invalid", "local_manifest_not_ready"}:
+    if not force and local.get("reason") in {"local_model_sha_mismatch", "local_release_provenance_invalid", "local_manifest_not_ready"}:
         return {
             "modelKey": config.model_key,
             "source": "gcs_verified_release",
@@ -349,6 +407,8 @@ def materialize_sagittal_gcs_release(
             "manifestSynced": False,
             "modelCardSynced": False,
             "filesReplaced": 0,
+            "releaseMetadataReplaced": 0,
+            "releaseMetadataVerified": False,
             "gcsReadOnly": True,
             "localValidation": local,
         }
@@ -362,18 +422,7 @@ def materialize_sagittal_gcs_release(
         for name in ("_SUCCESS.json", "publish_receipt.json", "release_manifest.json"):
             _download_blob(bucket, parsed.prefix, name, staging / name)
 
-        success = load_json(staging / "_SUCCESS.json")
-        receipt = load_json(staging / "publish_receipt.json")
-        release_manifest = load_json(staging / "release_manifest.json")
-        _validate_success(config, success)
-        _validate_receipt(config, receipt)
-        receipt_sha = sha256_file(staging / "publish_receipt.json")
-        if str(success.get("receiptSha256", "")).lower() != receipt_sha:
-            raise ReleaseValidationError("_SUCCESS.receiptSha256 no coincide con publish_receipt real")
-
-        artifacts = _validate_release_manifest(config, release_manifest, staging / "release_manifest.json")
-        if success.get("publicationArtifactCount") != len(artifacts) + 1:
-            raise ReleaseValidationError("publicationArtifactCount no coincide con artifacts mas release_manifest")
+        _success, _receipt, artifacts = _validate_release_documents(config, {name: staging / name for name in RELEASE_METADATA_FILES})
 
         for name in sorted(artifacts):
             _download_blob(bucket, parsed.prefix, name, staging / name)
@@ -387,7 +436,7 @@ def materialize_sagittal_gcs_release(
         if not (staging / SAGITTAL_MODELCARD_FILE).stat().st_size:
             raise ReleaseValidationError("model card vacia")
 
-        files_replaced = _replace_final_files(config, staging)
+        files_replaced, metadata_replaced = _replace_release_files(config, staging)
 
     return {
         "modelKey": config.model_key,
@@ -401,6 +450,8 @@ def materialize_sagittal_gcs_release(
         "manifestSynced": True,
         "modelCardSynced": True,
         "filesReplaced": files_replaced,
+        "releaseMetadataReplaced": metadata_replaced,
+        "releaseMetadataVerified": True,
         "gcsReadOnly": True,
         "runtimeManifest": runtime_manifest,
     }
