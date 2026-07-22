@@ -15,8 +15,8 @@ def test_model_status_hashes_existing_artifact(tmp_path, monkeypatch) -> None:
 
     status = model_status("sagittal_spider", {"plane": "sagittal"})
 
-    assert status["availableForRealInference"] is True
-    assert status["readiness"] == "real_artifact_available"
+    assert status["availableForRealInference"] is False
+    assert status["readiness"] == "real_artifact_missing_manifest"
     assert status["artifactHash"] == hashlib.sha256(artifact_bytes).hexdigest()
     assert status["artifactIntegrityStatus"] == "hashed"
     assert status["artifact"]["sha256"] == status["artifactHash"]

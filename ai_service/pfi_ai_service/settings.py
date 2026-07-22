@@ -28,6 +28,11 @@ class ServiceSettings:
     sagittal_manifest_uri: str | None
     axial_manifest_uri: str | None
     model_download_token: str | None
+    gcp_project_id: str | None
+    sagittal_release_uri: str | None
+    sagittal_release_content_sha256: str | None
+    sagittal_release_manifest_sha256: str | None
+    sagittal_model_sha256: str | None
 
     e13_results_root: Path
     e14_results_root: Path
@@ -61,6 +66,11 @@ def get_settings() -> ServiceSettings:
         sagittal_manifest_uri=optional_env("PFI_SAGITTAL_MANIFEST_URI"),
         axial_manifest_uri=optional_env("PFI_AXIAL_MANIFEST_URI"),
         model_download_token=optional_env("PFI_MODEL_DOWNLOAD_TOKEN") or optional_env("HF_TOKEN"),
+        gcp_project_id=optional_env("PFI_GCP_PROJECT_ID"),
+        sagittal_release_uri=optional_env("PFI_SAGITTAL_RELEASE_URI"),
+        sagittal_release_content_sha256=optional_env("PFI_SAGITTAL_RELEASE_CONTENT_SHA256"),
+        sagittal_release_manifest_sha256=optional_env("PFI_SAGITTAL_RELEASE_MANIFEST_SHA256"),
+        sagittal_model_sha256=optional_env("PFI_SAGITTAL_MODEL_SHA256"),
         e13_results_root=results_root / "E13_multiplanar_inference_pipeline",
         e14_results_root=results_root / "E14_ai_agent_orchestrator",
     )

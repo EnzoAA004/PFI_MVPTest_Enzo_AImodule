@@ -9,3 +9,4 @@ torchvision>=0.15
 pytest>=8.0
 simpleitk>=2.3
 streamlit>=1.35
+google-cloud-storage>=2.16

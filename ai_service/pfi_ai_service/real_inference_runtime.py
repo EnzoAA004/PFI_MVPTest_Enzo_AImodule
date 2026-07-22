@@ -72,6 +72,13 @@ def runtime_status() -> Dict[str, Any]:
     }
 
 
+def metadata_bool(metadata: Dict[str, Any], key: str, default: bool) -> bool:
+    value = metadata.get(key, default)
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in {"false", "0", "no", "off"}
+
+
 def clear_model_cache() -> None:
     _MODEL_CACHE.clear()
     if torch.cuda.is_available():
@@ -169,7 +176,47 @@ def load_input(input_path: str, plane: str) -> LoadedInput:
     array = np.asarray(array)
     if array.ndim not in {2, 3}:
         raise ValueError(f"Se esperaba imagen 2D o volumen 3D; shape={array.shape}")
+    metadata["inputShapeNative"] = [int(value) for value in array.shape]
     return LoadedInput(array=array, path=path, suffix=suffix, spacing_xyz=spacing, metadata=metadata)
+
+
+def sagittal_orientation_transform(array: np.ndarray) -> str:
+    if array.ndim == 3 and array.shape[0] <= 64 and array.shape[-1] > 64:
+        return "move_axis_0_to_last"
+    return "none"
+
+
+def canonicalize_sagittal_array(array: np.ndarray, transform: str | None = None) -> tuple[np.ndarray, str]:
+    selected = transform or sagittal_orientation_transform(array)
+    if selected == "none":
+        return array, "none"
+    if selected == "move_axis_0_to_last":
+        if array.ndim != 3:
+            raise ValueError(f"Transformacion sagital requiere volumen 3D; shape={array.shape}")
+        return np.moveaxis(array, 0, -1), selected
+    raise ValueError(f"Transformacion de orientacion no soportada: {selected}")
+
+
+def canonicalize_loaded_input(loaded: LoadedInput, plane: str, metadata: Dict[str, Any]) -> LoadedInput:
+    native_shape = [int(value) for value in loaded.array.shape]
+    transform = "none"
+    array = loaded.array
+    if plane == "sagittal":
+        override = metadata.get("inputOrientationTransform") or os.getenv("PFI_SAGITTAL_ORIENTATION_TRANSFORM")
+        array, transform = canonicalize_sagittal_array(array, str(override) if override else None)
+    canonical_metadata = {
+        **loaded.metadata,
+        "inputShapeNative": native_shape,
+        "inputShapeCanonical": [int(value) for value in array.shape],
+        "inputOrientationTransform": transform,
+    }
+    return LoadedInput(
+        array=np.asarray(array),
+        path=loaded.path,
+        suffix=loaded.suffix,
+        spacing_xyz=loaded.spacing_xyz,
+        metadata=canonical_metadata,
+    )
 
 
 def robust_percentile_normalize(array: np.ndarray, p_low: float = 1.0, p_high: float = 99.0) -> np.ndarray:
@@ -406,14 +453,15 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
     if not artifact.get("availableForRealInference", False):
         raise RuntimeError(f"Modelo no habilitado para real_baseline: {request.model_key}")
 
-    loaded = load_input(request.input_path, request.plane)
+    request_metadata = dict(request.metadata or {})
+    loaded = canonicalize_loaded_input(load_input(request.input_path, request.plane), request.plane, request_metadata)
     target_size = tuple(cached.runtime_metadata.get("targetSize", (256, 256)))
     image, selected_slice, slice_count, selected_axis = select_slice(
         loaded,
         request.plane,
         cached,
         (int(target_size[0]), int(target_size[1])),
-        dict(request.metadata or {}),
+        request_metadata,
     )
     tensor = torch.from_numpy(image[None, None]).float().to(cached.device)
     with torch.inference_mode():
@@ -454,6 +502,7 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
         "measurementsDerivedFromPredictionMask": True,
     }
     requested_mode = str(request.metadata.get("inferenceMode", "real_baseline"))
+    allow_contract_fallback = metadata_bool(request.metadata, "allowContractFallback", True)
     return {
         "run_id": run_id,
         "runId": run_id,
@@ -470,6 +519,10 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
         "model_key": request.model_key,
         "modelKey": request.model_key,
         "modelVersion": artifact.get("version"),
+        "artifactHash": artifact.get("artifactHash"),
+        "inferenceMode": "real_baseline",
+        "requestedInferenceMode": requested_mode,
+        "allowContractFallback": allow_contract_fallback,
         "input_path": request.input_path,
         "inputPath": request.input_path,
         "series": [{
@@ -503,6 +556,7 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
             "description": "Salida generada por el checkpoint PyTorch real del modelo seleccionado.",
             "inferenceMode": "real_baseline",
             "requestedInferenceMode": requested_mode,
+            "artifactHash": artifact.get("artifactHash"),
             "realInferenceAvailable": True,
             "modelReadiness": artifact.get("readiness"),
             "runtime": "pytorch",
@@ -532,6 +586,10 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
             "selectedSlice": selected_slice,
             "selectedAxis": selected_axis,
             "sliceCount": slice_count,
+            "sagittalAxis": selected_axis if request.plane == "sagittal" else None,
+            "inputShapeNative": loaded.metadata.get("inputShapeNative"),
+            "inputShapeCanonical": loaded.metadata.get("inputShapeCanonical"),
+            "inputOrientationTransform": loaded.metadata.get("inputOrientationTransform"),
             "sourceShape": [int(value) for value in loaded.array.shape],
             "processedShape": [int(value) for value in prediction.shape],
             "inputFormat": loaded.suffix,

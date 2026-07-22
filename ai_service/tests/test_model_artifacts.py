@@ -12,7 +12,11 @@ def test_registry_with_artifact_status_exposes_all_models() -> None:
         assert model["key"] == model_key
         assert model["artifact"]["path"]
         assert model["artifact"]["extension"] == ".pt"
-        assert model["readiness"] in {"contract_only_missing_artifact", "real_artifact_available"}
+        assert model["readiness"] in {
+            "contract_only_missing_artifact",
+            "real_artifact_missing_manifest",
+            "real_baseline_ready",
+        }
         assert model["inferenceModes"]["contract"] is True
         assert model["inferenceModes"]["mock"] is True
         assert model["inferenceModes"]["real"] == model["availableForRealInference"]
@@ -25,6 +29,6 @@ def test_artifact_summary_is_safe_for_diagnostics() -> None:
 
     assert summary["modelsRegistered"] == len(MODEL_REGISTRY)
     assert summary["artifactsAvailable"] + summary["artifactsMissing"] == len(MODEL_REGISTRY)
-    assert summary["defaultInferenceMode"] in {"contract", "real"}
+    assert summary["defaultInferenceMode"] in {"contract", "real_baseline"}
     assert summary["humanReviewRequired"] is True
     assert summary["notClinicalDiagnosis"] is True

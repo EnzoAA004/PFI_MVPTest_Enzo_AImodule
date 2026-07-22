@@ -368,6 +368,7 @@ def run_pipeline(request: PipelineRunRequest) -> Dict[str, Any]:
         flags.append("real_inference_not_started_model_plane_mismatch")
 
     if wants_real:
+        flags.append("real_inference_requested_but_contract_mode_used")
         flags.append(f"{requested_mode}_requested_but_contract_mode_used")
 
     overlay_path = _overlay_path_for(run_id)

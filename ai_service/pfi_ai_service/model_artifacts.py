@@ -62,6 +62,8 @@ def model_artifact_path(model_key: str) -> Path | None:
 
 def model_artifact_uri(model_key: str) -> str | None:
     settings = get_settings()
+    if model_key == "sagittal_spider" and settings.sagittal_release_uri:
+        return settings.sagittal_release_uri
     attr = MODEL_URI_KEYS.get(model_key)
     return getattr(settings, attr) if attr else None
 

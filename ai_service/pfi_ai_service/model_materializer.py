@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS
+from .gcs_release_materializer import GcsReleaseConfig, materialize_sagittal_gcs_release
 from .model_artifacts import verify_model_artifacts
 from .model_manifest import manifest_path_for_artifact
 from .settings import get_settings
@@ -33,6 +34,48 @@ def sync_model_artifacts(force: bool = False) -> Dict[str, Any]:
         artifact_path: Path = getattr(settings, spec["artifact_attr"])
         artifact_uri: str | None = getattr(settings, spec["uri_attr"])
         manifest_uri: str | None = getattr(settings, spec["manifest_uri_attr"])
+        if model_key == "sagittal_spider" and settings.sagittal_release_uri:
+            if not (
+                settings.sagittal_release_content_sha256
+                and settings.sagittal_release_manifest_sha256
+                and settings.sagittal_model_sha256
+            ):
+                items.append({
+                    "modelKey": model_key,
+                    "source": "gcs_verified_release",
+                    "status": "missing_release_hash_configuration",
+                    "artifactSynced": False,
+                    "manifestSynced": False,
+                    "modelCardSynced": False,
+                    "filesReplaced": 0,
+                    "gcsReadOnly": True,
+                })
+            else:
+                try:
+                    items.append(materialize_sagittal_gcs_release(
+                        GcsReleaseConfig(
+                            project_id=settings.gcp_project_id,
+                            release_uri=settings.sagittal_release_uri,
+                            release_content_sha256=settings.sagittal_release_content_sha256,
+                            release_manifest_sha256=settings.sagittal_release_manifest_sha256,
+                            model_sha256=settings.sagittal_model_sha256,
+                            destination_dir=settings.models_root,
+                        ),
+                        force=force,
+                    ))
+                except Exception as exc:
+                    items.append({
+                        "modelKey": model_key,
+                        "source": "gcs_verified_release",
+                        "status": "sync_failed",
+                        "message": str(exc),
+                        "artifactSynced": False,
+                        "manifestSynced": False,
+                        "modelCardSynced": False,
+                        "filesReplaced": 0,
+                        "gcsReadOnly": True,
+                    })
+            continue
         items.append(sync_one_model(model_key, artifact_uri, artifact_path, manifest_uri, force, settings.model_download_token))
     verification = verify_model_artifacts()
     return {
