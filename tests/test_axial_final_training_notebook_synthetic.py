@@ -111,6 +111,8 @@ def _load_notebook_symbols(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> d
         if cell.cell_type != "code":
             continue
         source = cell.source.lstrip()
+        if source.startswith('import os\n\nos.environ["RUN_MODE"] = "full"'):
+            continue
         if source.startswith("import importlib.util"):
             continue
         if source.startswith("# Montaje idempotente"):
