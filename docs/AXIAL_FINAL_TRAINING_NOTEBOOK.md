@@ -18,6 +18,8 @@ AXIAL_MASKS_DIR=/content/drive/MyDrive/PFI_MVP/data/AXIAL_ALKAFRI
 
 El notebook monta Drive solo en Colab, solo si `PFI_USE_GOOGLE_DRIVE=True`, y solo si `/content/drive/MyDrive` no esta disponible.
 
+El codigo de `ai_service` queda fijado en `AI_SERVICE_COMMIT_SHA=285159982832abb604a176b4302ac83a837ff1c9`, commit validado para `AxialUNet2D` y los helpers de carga de checkpoints.
+
 ## Variables de entorno principales
 
 - `RUN_MODE`: `preflight`, `smoke` o `full`. Default seguro: `preflight`.
@@ -43,6 +45,10 @@ El notebook monta Drive solo en Colab, solo si `PFI_USE_GOOGLE_DRIVE=True`, y so
 
 Valida columnas E9, nulos antes de convertir a string, splits, pacientes, paths, labels permitidos, dimensiones imagen/mascara, presencia de clases en train, warnings para clases ausentes en val/test, forward pass y mosaico visual. Tambien guarda `manifests/split_snapshot.csv` como evidencia exacta del split usado.
 
+El manifest esperado conserva los 610 registros del split E9: 427 train, 81 val y 102 test. El notebook no genera splits nuevos, no filtra registros, no excluye `raw_0` en bordes y no convierte labels automaticamente.
+
+Hay seis pares conocidos del paciente `56` con imagen `(384, 384)` y mascara `(320, 320)`, misma relacion de aspecto y split `train`. El notebook los acepta como patron conocido, registra `sourceShapeMismatchCount`/`sourceShapeMismatches`/`sourceShapeWarnings`, y normaliza imagen y mascara a `(256, 256)` como el resto del pipeline. Cualquier otro mismatch de shape aborta.
+
 La deteccion de duplicados no usa solo tamano de archivo: agrupa por `kind + fileSize`, calcula SHA-256 cuando hay tamanos repetidos y conserva `sliceId` en el reporte. Las reglas son:
 
 - misma imagen SHA-256 en pacientes distintos o splits distintos: error;
@@ -52,7 +58,7 @@ La deteccion de duplicados no usa solo tamano de archivo: agrupa por `kind + fil
 
 ## Outputs
 
-El run escribe fuera del repo: `models`, `resume`, `manifests`, `metrics`, `figures`, `predictions`, `logs`, `reports`. No reemplaza `models/final`.
+El run escribe fuera del repo: `models`, `manifests`, `metrics`, `figures`, `predictions`, `logs`, `reports` y `RESUME_DIR`. No reemplaza `models/final`.
 
 ## Resume
 

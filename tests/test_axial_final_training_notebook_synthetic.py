@@ -4,6 +4,7 @@ import dataclasses
 import os
 import sys
 import types
+import warnings
 from pathlib import Path
 
 import nbformat
@@ -27,6 +28,18 @@ def _write_pair(root: Path, name: str, labels: list[int], background_only: bool 
             mask[row : row + 2, index : index + 2] = label
     image_path = root / "images" / f"{name}.npy"
     mask_path = root / "masks" / f"{name}.npy"
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+    mask_path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(image_path, image)
+    np.save(mask_path, mask)
+    return image_path, mask_path
+
+
+def _write_shape_pair(root: Path, name: str, image_shape: tuple[int, int], mask_shape: tuple[int, int]) -> tuple[Path, Path]:
+    image = np.arange(np.prod(image_shape), dtype=np.float32).reshape(image_shape)
+    mask = np.full(mask_shape, 250, dtype=np.int16)
+    image_path = root / "images" / f"{name}_image.npy"
+    mask_path = root / "masks" / f"{name}_mask.npy"
     image_path.parent.mkdir(parents=True, exist_ok=True)
     mask_path.parent.mkdir(parents=True, exist_ok=True)
     np.save(image_path, image)
@@ -91,7 +104,9 @@ def _load_notebook_symbols(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> d
         monkeypatch.setitem(sys.modules, "matplotlib.pyplot", pyplot)
 
     nb = nbformat.read(NOTEBOOK, as_version=4)
-    symbols: dict[str, object] = {}
+    symbols: dict[str, object] = {
+        "AI_SERVICE_COMMIT_SHA": "285159982832abb604a176b4302ac83a837ff1c9",
+    }
     for cell in nb.cells:
         if cell.cell_type != "code":
             continue
@@ -99,6 +114,8 @@ def _load_notebook_symbols(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> d
         if source.startswith("import importlib.util"):
             continue
         if source.startswith("# Montaje idempotente"):
+            continue
+        if source.startswith("# Commit validado"):
             continue
         if source.startswith("def select_preflight_examples"):
             continue
@@ -118,7 +135,7 @@ def test_axial_final_notebook_synthetic_flow(monkeypatch: pytest.MonkeyPatch, tm
     duplicate_df = ns["compute_duplicate_report"](records, full_hash=False)
     assert int(duplicate_df["fileSize"].duplicated().sum()) > 0
     assert int(duplicate_df["sha256"].notna().sum()) == len(duplicate_df)
-    with pytest.warns(UserWarning, match="misma mascara SHA-256"):
+    with pytest.warns(UserWarning, match="grupos de mascaras"):
         duplicate_report = ns["validate_no_duplicate_leakage"](duplicate_df)
     assert duplicate_report["duplicateLeakage"] is False
     assert duplicate_report["duplicateImages"] == []
@@ -233,3 +250,81 @@ def test_axial_final_notebook_synthetic_flow(monkeypatch: pytest.MonkeyPatch, tm
         torch.randn(1, 1, *ns["CFG"].TARGET_SIZE),
     )
     assert shape == [1, 6, 256, 256]
+
+
+def test_axial_final_notebook_structure_is_reproducible() -> None:
+    nb = nbformat.read(NOTEBOOK, as_version=4)
+    text = "\n".join(cell.source for cell in nb.cells)
+    code_text = "\n".join(cell.source for cell in nb.cells if cell.cell_type == "code")
+
+    cfg_index = code_text.index("CFG = TrainConfig()")
+    first_cfg_use = code_text.index("CFG.")
+    assert cfg_index < first_cfg_use
+    assert text.count("def scan_labels_and_shapes") == 1
+    assert text.count("def build_model") == 1
+    assert text.count("def preflight") == 1
+    assert "filter_known_corrupt_records" not in text
+    assert "KNOWN_CORRUPT_SOURCE_PAIRS" not in text
+    assert 'OUTPUT_DIRS["resume"]' not in text
+    assert "shape_mismatch_df" not in text
+    assert "all_border_df" not in text
+    assert "target_slice_id" not in text
+    assert "print_medical_geometry" not in text
+    assert "run_records = build_records_from_split_manifest()" in text
+    assert "records = build_records_from_split_manifest()" in text
+    for cell in nb.cells:
+        if cell.cell_type == "code":
+            assert cell.outputs == []
+            assert cell.execution_count is None
+            compile(cell.source, "notebook_cell", "exec")
+
+
+def test_known_patient_56_shape_mismatch_policy(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    ns = _load_notebook_symbols(monkeypatch, tmp_path)
+    records = ns["build_records_from_split_manifest"]()
+    record_cls = ns["AxialRecord"]
+
+    image_path, mask_path = _write_shape_pair(tmp_path / "known", "patient56", (384, 384), (320, 320))
+    known_record = record_cls(
+        str(image_path),
+        str(mask_path),
+        "56",
+        "study_56",
+        "known_patient_56",
+        "train",
+        image_path.name,
+        mask_path.name,
+    )
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        report = ns["scan_labels_and_shapes"]([*records, known_record])
+    assert report["shapeMismatchCount"] == 1
+    assert any("patron conocido del paciente 56" in str(item.message) for item in captured)
+
+    other_image, other_mask = _write_shape_pair(tmp_path / "bad_patient", "patient57", (384, 384), (320, 320))
+    bad_patient_record = record_cls(
+        str(other_image),
+        str(other_mask),
+        "57",
+        "study_57",
+        "bad_patient",
+        "train",
+        other_image.name,
+        other_mask.name,
+    )
+    with pytest.raises(ValueError, match="mismatch image/mask no autorizado"):
+        ns["scan_labels_and_shapes"]([*records, bad_patient_record])
+
+    ratio_image, ratio_mask = _write_shape_pair(tmp_path / "bad_ratio", "patient56_ratio", (384, 320), (320, 320))
+    bad_ratio_record = record_cls(
+        str(ratio_image),
+        str(ratio_mask),
+        "56",
+        "study_56_ratio",
+        "bad_ratio",
+        "train",
+        ratio_image.name,
+        ratio_mask.name,
+    )
+    with pytest.raises(ValueError, match="mismatch image/mask no autorizado"):
+        ns["scan_labels_and_shapes"]([*records, bad_ratio_record])

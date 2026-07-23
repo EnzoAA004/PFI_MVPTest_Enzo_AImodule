@@ -32,7 +32,7 @@ REQUIRED = [
     "duplicatePairs",
     "repeatedMasks",
     "maskOnlyWarnings",
-    "misma mascara SHA-256 asociada a imagenes diferentes",
+    "grupos de mascaras",
     "save_split_snapshot",
     "split_snapshot.csv",
     "required_cell_value",
@@ -56,6 +56,13 @@ REQUIRED = [
     '"artifactFile": artifact_path.name',
     'f"{artifact_path.name}.manifest.json"',
     'f"{artifact_path.name}.modelcard.md"',
+    "AI_SERVICE_COMMIT_SHA",
+    "aiServiceCommit",
+    "sourceShapeMismatchCount",
+    "sourceShapeMismatches",
+    "sourceShapeWarnings",
+    "patron conocido del paciente 56",
+    "mismatch image/mask no autorizado",
 ]
 
 FORBIDDEN = [
@@ -71,6 +78,21 @@ FORBIDDEN = [
     r"np\.rot90",
     r'"dicePerClass":\s*\{\s*\}',
     r'"iouPerClass":\s*\{\s*\}',
+    r"KNOWN_CORRUPT_SOURCE_PAIRS",
+    r"filter_known_corrupt_records",
+    r"excluded_corrupt_axial_records",
+    r'OUTPUT_DIRS\[[\"\']resume[\"\']\]',
+    r'print\([\"\']scan_labels_and_shapes redefinida',
+    r"shape_mismatch_df",
+    r"all_border_df",
+    r"target_slice_id",
+    r"print_medical_geometry",
+]
+
+UNIQUE_DEFINITIONS = [
+    "scan_labels_and_shapes",
+    "build_model",
+    "preflight",
 ]
 
 
@@ -79,6 +101,7 @@ def main() -> int:
     nbformat.validate(nb)
     ids = []
     text = ""
+    cfg_seen = False
     for index, cell in enumerate(nb.cells):
         if not cell.get("id"):
             raise AssertionError(f"cell {index} sin id")
@@ -89,11 +112,26 @@ def main() -> int:
             if cell.get("execution_count") is not None:
                 raise AssertionError(f"cell {index} tiene execution_count")
             compile(cell.source, f"cell_{index}", "exec")
+            for line_number, line in enumerate(cell.source.splitlines(), 1):
+                stripped = line.strip()
+                if stripped.startswith("CFG = TrainConfig()"):
+                    cfg_seen = True
+                    continue
+                if not cfg_seen and "CFG." in line:
+                    raise AssertionError(
+                        f"uso de CFG antes de CFG = TrainConfig(): cell {index} line {line_number}"
+                    )
         if cell.cell_type == "markdown" and ("outputs" in cell or "execution_count" in cell):
             raise AssertionError(f"markdown cell {index} tiene campos de ejecucion")
         text += "\n" + cell.source
+    if not cfg_seen:
+        raise AssertionError("no se encontro CFG = TrainConfig()")
     if len(ids) != len(set(ids)):
         raise AssertionError("ids duplicados")
+    for name in UNIQUE_DEFINITIONS:
+        count = len(re.findall(rf"^\s*def\s+{name}\s*\(", text, flags=re.MULTILINE))
+        if count != 1:
+            raise AssertionError(f"definicion esperada exactamente una vez: {name} count={count}")
     for item in REQUIRED:
         if item not in text:
             raise AssertionError(f"falta contenido requerido: {item}")
