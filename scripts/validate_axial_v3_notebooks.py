@@ -64,6 +64,8 @@ def validate_notebook(path: Path) -> None:
         raise AssertionError("notebook 51 debe orquestar run_iteration_a")
     if path.name.startswith("52_") and "run_training" not in code_text:
         raise AssertionError("notebook 52 debe orquestar runner real B")
+    if path.name.startswith("52_") and ("from_env" not in code_text or "calibrate" not in code_text):
+        raise AssertionError("notebook 52 debe usar from_env y soportar calibrate")
     if path.name.startswith("53_") and "require_reliable_slice_order" not in code_text:
         raise AssertionError("notebook 53 debe mantener blocking rule 2.5D")
     if path.name.startswith("54_") and "planned_architecture_metadata" not in code_text:
@@ -99,7 +101,7 @@ def validate_config_and_registry_schema() -> None:
     expanded = expand_low_cost_experiments(payload)
     if len(expanded) < 7:
         raise AssertionError("expansion B0-B6 incompleta")
-    with tempfile.TemporaryDirectory(dir=ROOT) as temp_dir:
+    with tempfile.TemporaryDirectory() as temp_dir:
         registry_path = Path(temp_dir) / "experiment_registry.csv"
         row = registry_row_from_config(
             {

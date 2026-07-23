@@ -195,6 +195,38 @@ def slice_audit_frame(rows: Iterable[Raw0SliceAudit]) -> pd.DataFrame:
             payload[f"centroid_{key}"] = value
         payload["otherClassesPresent"] = ";".join(str(value) for value in payload["otherClassesPresent"])
         payload["classPresenceVector"] = json.dumps(payload["classPresenceVector"], sort_keys=True)
+        payload["raw0PixelCountOriginal"] = payload["raw0PixelCount"]
+        payload["raw0AreaRatioOriginal"] = payload["raw0AreaRatio"]
+        payload["minDistanceToBorderOriginal"] = payload["minDistanceToBorder"]
+        payload["touchesBorderOriginal"] = payload["touchesBorder"]
+        payload["connectedComponentsOriginal"] = payload["connectedComponents"]
+        payload["largestComponentAreaOriginal"] = payload["largestComponentArea"]
+        payload["largestComponentRatioOriginal"] = payload["largestComponentRatio"]
+        payload["boundingBoxOriginal"] = json.dumps(
+            {key.replace("bbox_", ""): payload.get(key) for key in ["bbox_minRow", "bbox_minCol", "bbox_maxRow", "bbox_maxCol"]},
+            sort_keys=True,
+        )
+        payload["centroidOriginal"] = json.dumps(
+            {key.replace("centroid_", ""): payload.get(key) for key in ["centroid_row", "centroid_col"]},
+            sort_keys=True,
+        )
+        payload["resizedHeight"] = payload["maskHeight"]
+        payload["resizedWidth"] = payload["maskWidth"]
+        resized = getattr(row, "resizedMetrics", None)
+        if resized is not None:
+            payload["raw0PixelCountResized"] = resized.raw0PixelCount
+            payload["raw0AreaRatioResized"] = resized.raw0AreaRatio
+            payload["connectedComponentsResized"] = resized.connectedComponents
+            payload["largestComponentAreaResized"] = resized.largestComponentArea
+            payload["touchesBorderResized"] = resized.touchesBorder
+            payload["resizedHeight"] = resized.maskHeight
+            payload["resizedWidth"] = resized.maskWidth
+        else:
+            payload["raw0PixelCountResized"] = payload["raw0PixelCount"]
+            payload["raw0AreaRatioResized"] = payload["raw0AreaRatio"]
+            payload["connectedComponentsResized"] = payload["connectedComponents"]
+            payload["largestComponentAreaResized"] = payload["largestComponentArea"]
+            payload["touchesBorderResized"] = payload["touchesBorder"]
         flattened.append(payload)
     return pd.DataFrame(flattened)
 

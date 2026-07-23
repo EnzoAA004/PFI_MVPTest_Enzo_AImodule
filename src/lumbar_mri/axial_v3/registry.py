@@ -119,7 +119,33 @@ def read_registry(path: Path) -> list[dict[str, str]]:
     if not path.exists():
         return []
     with path.open(newline="", encoding="utf-8") as handle:
-        return list(csv.DictReader(handle))
+        return [_typed_registry_row(row) for row in csv.DictReader(handle)]
+
+
+def _typed_registry_row(row: dict[str, str]) -> dict[str, Any]:
+    bool_columns = {"smokeOnly", "guardrailPassed"}
+    int_columns = {"seed", "selectedEpoch", "validationRaw0FalsePositivePixels", "validationRaw0PredictedInGtAbsentCases"}
+    float_columns = {
+        "validationDiceMacroForeground",
+        "validationRaw0Dice",
+        "validationRaw0Precision",
+        "validationRaw0Recall",
+        "validationDiceMacroExcludingRaw0",
+        "durationSeconds",
+    }
+    typed: dict[str, Any] = {}
+    for key, value in row.items():
+        if value in {"", "None", "none", "null"}:
+            typed[key] = None
+        elif key in bool_columns:
+            typed[key] = str(value).lower() == "true"
+        elif key in int_columns:
+            typed[key] = int(float(value))
+        elif key in float_columns:
+            typed[key] = float(value)
+        else:
+            typed[key] = value
+    return typed
 
 
 def write_registry_atomic(path: Path, rows: list[ExperimentRegistryRow]) -> None:

@@ -25,6 +25,7 @@ class LowCostExperiment:
     tverskyAlpha: float | None = None
     tverskyBeta: float | None = None
     focalGamma: float | None = None
+    raw0TverskyWeight: float = 1.0
     raw0FpPenaltyWeight: float = 0.0
     minProbability: float | None = None
     minMargin: float | None = None
@@ -35,6 +36,8 @@ class LowCostExperiment:
     monitorMetric: str = "dice_macro_foreground"
     maxEpochs: int = 80
     earlyStoppingPatience: int = 12
+    parentExperimentId: str | None = None
+    parentRunId: str | None = None
 
 
 def _slug(value: float) -> str:
@@ -89,11 +92,11 @@ def expand_low_cost_experiments(config_json: dict[str, Any]) -> list[LowCostExpe
     for value in by_id["B2"]["maxClassWeightRatioGrid"]:
         expanded.append(LowCostExperiment(f"B2-cap-{_slug(value)}", "B", "B2", f"axial-v3-B2-cap-{_slug(value)}", maxClassWeightRatio=float(value)))
     tv = by_id["B3"]["tversky"]
-    expanded.append(LowCostExperiment("B3-tversky-a0p7-b0p3", "B", "B3", "axial-v3-B3-tversky-a0p7-b0p3", lossName="tversky", tverskyAlpha=float(tv["alpha"]), tverskyBeta=float(tv["beta"])))
+    expanded.append(LowCostExperiment("B3-tversky-a0p7-b0p3", "B", "B3", "axial-v3-B3-tversky-a0p7-b0p3", lossName="tversky_raw0", tverskyAlpha=float(tv["alpha"]), tverskyBeta=float(tv["beta"]), raw0TverskyWeight=1.0, raw0FpPenaltyWeight=0.0))
     calib = by_id["B4"]["raw0Calibration"]
     for threshold in calib["minProbabilityGrid"]:
         for margin in calib["minMarginGrid"]:
-            expanded.append(LowCostExperiment(f"B4-thr-{_slug(threshold)}-margin-{_slug(margin)}", "B", "B4", f"axial-v3-B4-thr-{_slug(threshold)}-margin-{_slug(margin)}", minProbability=float(threshold), minMargin=float(margin)))
+                expanded.append(LowCostExperiment(f"B4-thr-{_slug(threshold)}-margin-{_slug(margin)}", "B", "B4", f"axial-v3-B4-thr-{_slug(threshold)}-margin-{_slug(margin)}", minProbability=float(threshold), minMargin=float(margin), parentExperimentId="B0", parentRunId="axial-v3-B0"))
     for value in by_id["B5"]["presenceHead"]["lambdaPresenceGrid"]:
         expanded.append(LowCostExperiment(f"B5-presence-lambda-{_slug(value)}", "B", "B5", f"axial-v3-B5-presence-lambda-{_slug(value)}", presenceHeadEnabled=True, lambdaPresence=float(value)))
     for value in by_id["B6"]["raw0BalancedSampler"]["positiveFractionGrid"]:

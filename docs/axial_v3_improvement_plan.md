@@ -259,3 +259,87 @@ No implica aprobacion clinica ni exito test.
 - Usar un smoke run como candidato.
 - Cambiar el quality gate para declarar exito.
 - Inferir anatomia de etiquetas raw.
+
+## 25. Correcciones posteriores al commit 908e69f
+
+- `AXIAL_V2_CHECKPOINT_PATH` usa sentinel `None`; una variable vacia no intenta cargar `Path(".")`.
+- Notebook 51 incluye bootstrap para Colab nuevo: dependencias, Drive seguro, validacion de `MyDrive/PFI_MVP`, repo configurable y `PFI_REPO_REF`.
+- La auditoria A separa mascara original mapeada de mascara resized 256x256.
+- El checkpoint v2 se valida antes de la auditoria probabilistica y registra metadata faltante/validada.
+- La auditoria probabilistica cachea probabilidades validation y aplica la grilla threshold/margin sin reinferir por combinacion.
+- B3 esta conectado mediante `tversky_raw0` sobre la perdida baseline v2.
+- B4 es calibracion post-hoc sobre checkpoint parent; no reentrena.
+- B5 conecta `raw0_presence_logits` con BCE y `lambdaPresence`.
+- El entrenamiento recarga el best checkpoint antes de reportar metricas finales.
+- AMP queda conectado con fallback CPU.
+- El registry se escribe desde el runner y se lee con tipos.
+- `summarize` genera ranking validation-only.
+- Iteracion C corrige `validated_filename_index` mediante flag explicito de informe previo.
+
+Estado esperado:
+
+| Componente | Estado |
+|---|---|
+| A | ready_to_run |
+| B0-B2/B6 | framework_ready |
+| B3 | framework_ready |
+| B4 | calibration_framework_ready |
+| B5 | framework_ready |
+| C | planned_or_blocked |
+| D | planned |
+
+## 26. Instrucciones Colab actualizadas
+
+Iteracion A:
+
+```bash
+export PFI_USE_GOOGLE_DRIVE=1
+export PFI_REPO_REF=<sha_del_commit_resultante>
+export PFI_REPO_ROOT=/content/PFI_MVPTest_Enzo_AImodule
+export PFI_DATASET_ROOT=/content/drive/MyDrive/PFI_MVP
+export AXIAL_E9_CURATED_SPLIT_CSV=/content/drive/MyDrive/PFI_MVP/results/E9_alkafri_axial_t2_final_labels_baseline/E9_t2_final_labels_curated_split.csv
+export AXIAL_V2_CHECKPOINT_PATH=/content/drive/MyDrive/PFI_MVP/outputs/axial_final_v2_training/resume/axial_t2_alkafri_v2.best_checkpoint.pt
+export PFI_OUTPUT_ROOT=/content/drive/MyDrive/PFI_MVP/outputs
+export PFI_MASK_LABEL_MODE=raw
+export PFI_RUN_AXIAL_V3_AUDIT=1
+```
+
+B0 preflight:
+
+```bash
+export RUN_MODE=preflight
+export PFI_AXIAL_V3_EXPERIMENT_ID=B0
+```
+
+B0 smoke:
+
+```bash
+export RUN_MODE=smoke
+export PFI_AXIAL_V3_EXPERIMENT_ID=B0
+export PFI_RUN_AXIAL_V3_EXPERIMENT=1
+```
+
+B1 smoke:
+
+```bash
+export RUN_MODE=smoke
+export PFI_AXIAL_V3_EXPERIMENT_ID=B1-raw0w-0p25
+export PFI_RUN_AXIAL_V3_EXPERIMENT=1
+```
+
+B4 calibrate:
+
+```bash
+export RUN_MODE=calibrate
+export PFI_AXIAL_V3_EXPERIMENT_ID=B4-thr-0p5-margin-0p1
+export PFI_AXIAL_V3_PARENT_CHECKPOINT=/content/drive/MyDrive/PFI_MVP/outputs/axial_v3/iteration_b/axial-v3-B0/checkpoints/best_checkpoint.pt
+export PFI_RUN_AXIAL_V3_EXPERIMENT=1
+```
+
+B5 smoke:
+
+```bash
+export RUN_MODE=smoke
+export PFI_AXIAL_V3_EXPERIMENT_ID=B5-presence-lambda-0p25
+export PFI_RUN_AXIAL_V3_EXPERIMENT=1
+```

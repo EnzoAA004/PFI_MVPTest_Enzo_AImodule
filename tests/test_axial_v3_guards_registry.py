@@ -8,7 +8,7 @@ import pytest
 from lumbar_mri.axial_v3.guards import find_forbidden_test_references, reject_test_paths, require_train_val_only
 from lumbar_mri.axial_v3.experiments import estimate_run_count, expand_low_cost_experiments, validate_low_cost_grid
 from lumbar_mri.axial_v3.low_cost import SelectionGuardrail, apply_raw0_effective_weight, cap_class_weight_ratio, evaluate_other_class_guardrail, passes_other_class_guardrail, validation_ranking_key
-from lumbar_mri.axial_v3.registry import REGISTRY_COLUMNS, ExperimentRegistryRow, append_registry_row, registry_row_from_config
+from lumbar_mri.axial_v3.registry import REGISTRY_COLUMNS, ExperimentRegistryRow, append_registry_row, read_registry, registry_row_from_config
 
 
 def test_require_train_val_only_rejects_test() -> None:
@@ -55,6 +55,9 @@ def test_registry_schema_and_append(tmp_path: Path) -> None:
     assert rows[0]["experimentId"] == "B0-001"
     assert rows[0]["notes"] == "synthetic"
     assert set(REGISTRY_COLUMNS).issubset(rows[0].keys())
+    typed = read_registry(path)
+    assert typed[0]["smokeOnly"] is False
+    assert typed[0]["selectedEpoch"] is None
 
 
 def test_registry_requires_core_fields() -> None:

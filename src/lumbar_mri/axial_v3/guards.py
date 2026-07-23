@@ -89,9 +89,10 @@ def find_forbidden_test_references(text: str) -> list[str]:
         r"\bDataLoader\([^)]*test",
         r"\bsplit\s*==\s*[\"']test[\"']",
         r"\bsplit\s*=\s*[\"']test[\"']",
-        r"\.unlink\(",
-        r"\bos\.remove\(",
-        r"\bshutil\.rmtree\(",
+        r"(test_evaluated_once|test_evaluation_in_progress|test_metrics|test_predictions|final_artifact_verification).*\.unlink\(",
+        r"\bos\.remove\([^)]*(test_evaluated_once|test_evaluation_in_progress|test_metrics|test_predictions|final_artifact_verification)",
+        r"\bshutil\.rmtree\([^)]*(axial_final_v2|axial-final-v2)",
+        r"(test_evaluated_once|test_metrics|test_predictions|final_artifact_verification).*write_(text|bytes)\(",
     ]
     for pattern in regexes:
         if re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL):

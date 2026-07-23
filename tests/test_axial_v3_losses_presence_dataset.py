@@ -6,7 +6,7 @@ import torch
 
 from lumbar_mri.axial_v3.architectures import ArchitectureConfig, build_axial_v3_model, convert_first_conv_1ch_to_3ch
 from lumbar_mri.axial_v3.dataset25d import AxialSegmentationDataset25D, SliceRecord25D, neighbor_indices, require_reliable_slice_order
-from lumbar_mri.axial_v3.losses import combined_segmentation_loss, tversky_loss
+from lumbar_mri.axial_v3.losses import combined_segmentation_loss, soft_dice_loss_multiclass, tversky_loss
 from lumbar_mri.axial_v3.losses import v2_baseline_segmentation_loss
 from lumbar_mri.axial_v3.presence import Raw0PresenceHead, presence_targets, total_loss_with_presence
 
@@ -33,6 +33,23 @@ def test_tversky_loss_and_presence_head_are_finite() -> None:
     b0_total, ce, dice = v2_baseline_segmentation_loss(logits.detach(), target)
     assert torch.isfinite(b0_total)
     assert b0_total == ce + dice
+
+
+def test_soft_dice_is_per_sample_class_not_global() -> None:
+    logits = torch.full((2, 2, 4, 4), -6.0)
+    target = torch.zeros(2, 4, 4, dtype=torch.long)
+    target[0, 0, 0] = 1
+    target[1, :, :] = 1
+    logits[:, 0] = 2.0
+    logits[0, 1, 0, 0] = 4.0
+    logits[1, 1] = 4.0
+    loss = soft_dice_loss_multiclass(logits, target, include_background=False)
+    probs = torch.softmax(logits, dim=1)[:, 1]
+    truth = (target == 1).float()
+    per_sample = 1 - (2 * (probs * truth).sum((1, 2)) + 1e-6) / (probs.sum((1, 2)) + truth.sum((1, 2)) + 1e-6)
+    global_loss = 1 - (2 * (probs * truth).sum() + 1e-6) / (probs.sum() + truth.sum() + 1e-6)
+    assert loss.item() == pytest.approx(per_sample.mean().item())
+    assert loss.item() != pytest.approx(global_loss.item())
 
 
 def test_25d_dataset_edges_and_cross_patient_protection() -> None:
@@ -70,6 +87,9 @@ def test_25d_blocks_unknown_or_duplicated_order() -> None:
         require_reliable_slice_order(duplicated)
     with pytest.raises(ValueError, match="unreliable order source"):
         require_reliable_slice_order([SliceRecord25D("a", "m", "train", "p", "s", "0", 0, "lexicographic_filename")])
+    with pytest.raises(ValueError, match="requires prior validation report"):
+        require_reliable_slice_order([SliceRecord25D("a", "m", "train", "p", "s", "0", 0, "validated_filename_index")])
+    require_reliable_slice_order([SliceRecord25D("a", "m", "train", "p", "s", "0", 0, "validated_filename_index")], validated_filename_report=True)
 
 
 def test_model_runtime_shape_and_first_conv_conversion() -> None:

@@ -40,9 +40,9 @@ def validate_slice_order_source(record: SliceRecord25D, *, validated_filename_re
         raise ValueError("Iteration C blocked: validated_filename_index requires prior validation report")
 
 
-def require_reliable_slice_order(records: Sequence[SliceRecord25D]) -> None:
+def require_reliable_slice_order(records: Sequence[SliceRecord25D], *, validated_filename_report: bool = False) -> None:
     for record in records:
-        validate_slice_order_source(record)
+        validate_slice_order_source(record, validated_filename_report=validated_filename_report)
     missing = [record.slice_id for record in records if record.order_index is None]
     if missing:
         raise ValueError(f"Iteration C blocked: missing reliable slice order for {len(missing)} slices")
@@ -91,8 +91,10 @@ class AxialSegmentationDataset25D:
         records: Sequence[SliceRecord25D],
         image_loader: Callable[[SliceRecord25D], np.ndarray],
         mask_loader: Callable[[SliceRecord25D], np.ndarray],
+        *,
+        validated_filename_report: bool = False,
     ) -> None:
-        require_reliable_slice_order(records)
+        require_reliable_slice_order(records, validated_filename_report=validated_filename_report)
         self.records = list(records)
         self.image_loader = image_loader
         self.mask_loader = mask_loader
