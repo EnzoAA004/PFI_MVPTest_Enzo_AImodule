@@ -60,6 +60,20 @@ def function_counts(source_text: str) -> dict[str, int]:
     return counts
 
 
+def function_source(source_text: str, function_name: str) -> str:
+    tree = ast.parse(source_text)
+    lines = source_text.splitlines()
+    matches = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == function_name
+    ]
+    if len(matches) != 1:
+        raise AssertionError(f"Se esperaba una funcion {function_name}, hay {len(matches)}")
+    node = matches[0]
+    return "\n".join(lines[node.lineno - 1 : node.end_lineno])
+
+
 def assert_order(source_text: str, first: str, second: str, label: str) -> None:
     first_pos = source_text.find(first)
     second_pos = source_text.find(second)
@@ -172,12 +186,23 @@ def validate_49(source_text: str) -> None:
 def validate_50(source_text: str) -> None:
     assert_cfg_before_use(source_text)
     counts = function_counts(source_text)
-    for name in ["evaluate_test_once", "test_once_pipeline", "quality_gate", "round_trip_model_from_manifest"]:
+    for name in [
+        "metrics_from_predictions",
+        "metrics_from_confusion",
+        "_case_metric_row",
+        "_predict_case_rows",
+        "evaluate_test_once",
+        "quality_gate",
+        "round_trip_model_from_manifest",
+        "test_once_pipeline",
+    ]:
         if counts.get(name) != 1:
             raise AssertionError(f"notebook 50 debe definir {name} una vez, tiene {counts.get(name)}")
+    pipeline_source = function_source(source_text, "test_once_pipeline")
     assert_contains(
         source_text,
         [
+            "def require_test_confirmation",
             "AxialSegmentationDataset",
             "DataLoader",
             "torch.inference_mode",
@@ -190,6 +215,15 @@ def validate_50(source_text: str) -> None:
             "confirmationTokenHash",
             '"status": "in_progress"',
             '"status": "completed"',
+            '"schemaVersion": "axial-final-v2-test-once-v1"',
+            '"testEvaluatedOnce": False',
+            '"testEvaluatedOnce": True',
+            "checkpointPath",
+            "artifactFile",
+            "artifactSha256",
+            "manifestFile",
+            "manifestSha256",
+            "modelCardFile",
             "test_metrics.json",
             "test_case_metrics.csv",
             "test_metrics_per_class.csv",
@@ -202,6 +236,16 @@ def validate_50(source_text: str) -> None:
             "bool(torch.isfinite(output).all().item())",
             "runtime_verification",
             "quality_gate(test_metrics, integrity, runtime_verification)",
+            "_select_preview_slice_ids",
+            "plt.subplots(len(selected), 5",
+            "raw0Precision",
+            "raw0Recall",
+            "precision_raw_0",
+            "recall_raw_0",
+            "falsePositivePixels_raw_0",
+            "falseNegativePixels_raw_0",
+            'checkpoint["bestEpoch"]',
+            'checkpoint["bestValidationMetric"]',
             "AXIAL_FINAL_TEST_CONFIRMATION",
             "axial-final-v2",
             "axial_t2_alkafri_v2.best_checkpoint.pt",
@@ -209,8 +253,7 @@ def validate_50(source_text: str) -> None:
             "axial_t2_alkafri_final_v2_candidate.pt",
             "artifact_path.name",
             "final_artifact_verification.json",
-            "The held-out test partition was previously evaluated for the axial-full-v1",
-            "fully untouched external validation.",
+            "The held-out test partition was previously evaluated for the axial-full-v1 baseline. This v2 evaluation is comparative and should not be interpreted as a fully untouched external validation.",
         ],
         "notebook 50",
     )
@@ -225,14 +268,28 @@ def validate_50(source_text: str) -> None:
             "runtime_shape = [1, 6, 256, 256]",
             "runtimeFinite\": True",
             "max(0, pred_present_cases - gt_present_cases)",
+            '"bestEpoch": None',
+            "evaluable_cases",
+            "gt_present_cases",
+            "pred_present_cases",
+            "gt_absent_cases",
+            "path.unlink(missing_ok=True)\n    for path in final_artifacts",
             "PFI_EXECUTE_NOTEBOOK",
         ],
         "notebook 50",
     )
     assert_no_constant_runtime_finite(source_text)
-    assert_order(source_text, "runtime_verification = round_trip_model_from_manifest", "gate = quality_gate", "notebook 50")
-    assert_order(source_text, "gate = quality_gate", "artifact_path = select_artifact_path", "notebook 50")
-    assert_order(source_text, "generate_manifest_and_model_card", '"status": "completed"', "notebook 50")
+    assert_order(pipeline_source, "mkdirs_for_run()", "token = require_test_confirmation()", "notebook 50 pipeline")
+    assert_order(pipeline_source, "token = require_test_confirmation()", "if marker.exists()", "notebook 50 pipeline")
+    assert_order(pipeline_source, "load_validated_test_checkpoint", "write_in_progress_marker", "notebook 50 pipeline")
+    assert_order(pipeline_source, "write_in_progress_marker", "records = build_records_from_split_manifest()", "notebook 50 pipeline")
+    assert_order(pipeline_source, "records = build_records_from_split_manifest()", "integrity = validate_split_integrity", "notebook 50 pipeline")
+    assert_order(pipeline_source, "save_checkpoint(temp_artifact", "runtime_verification = round_trip_model_from_manifest", "notebook 50 pipeline")
+    assert_order(pipeline_source, "runtime_verification = round_trip_model_from_manifest", "gate = quality_gate", "notebook 50 pipeline")
+    assert_order(pipeline_source, "gate = quality_gate", "artifact_path = select_artifact_path", "notebook 50 pipeline")
+    assert_order(pipeline_source, "generate_manifest_and_model_card", "final_artifact_verification.json", "notebook 50 pipeline")
+    assert_order(pipeline_source, "final_artifact_verification.json", '"status": "completed"', "notebook 50 pipeline")
+    assert_order(pipeline_source, "validate_completed_marker", "in_progress.unlink", "notebook 50 pipeline")
 
 
 def main() -> int:

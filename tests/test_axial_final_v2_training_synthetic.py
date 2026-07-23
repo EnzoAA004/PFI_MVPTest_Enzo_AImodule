@@ -95,6 +95,9 @@ def _exec_notebook(path: Path, *, skip_run: bool = True) -> dict[str, object]:
             def set_title(self, *args, **kwargs):
                 return None
 
+            def set_ylabel(self, *args, **kwargs):
+                return None
+
             def axis(self, *args, **kwargs):
                 return None
 
@@ -285,9 +288,62 @@ def test_notebook_50_test_once_and_artifact(monkeypatch: pytest.MonkeyPatch, tmp
 
     monkeypatch.setenv("RUN_MODE", "evaluate")
     ns50 = _exec_notebook(NOTEBOOK_50)
+    called_records = {"value": False}
+    original_build_records = ns50["build_records_from_split_manifest"]
+
+    def _record_build_guard():
+        called_records["value"] = True
+        return original_build_records()
+
+    ns50["build_records_from_split_manifest"] = _record_build_guard
     with pytest.raises(RuntimeError, match="AXIAL_FINAL_TEST_CONFIRMATION"):
-        ns50["evaluate_test_once"](records)
+        ns50["test_once_pipeline"]()
+    assert called_records["value"] is False
+    assert not (ns50["OUTPUT_DIRS"]["metrics"] / "test_evaluation_in_progress.json").exists()
+    ns50["build_records_from_split_manifest"] = original_build_records
+
+    checkpoint_smoke = torch.load(best_path, map_location="cpu", weights_only=False)
+    checkpoint_smoke["smokeOnly"] = True
+    torch.save(checkpoint_smoke, best_path)
     monkeypatch.setenv("AXIAL_FINAL_TEST_CONFIRMATION", "axial-final-v2")
+    with pytest.raises(ValueError, match="smokeOnly"):
+        ns50["test_once_pipeline"]()
+    assert not (ns50["OUTPUT_DIRS"]["metrics"] / "test_evaluation_in_progress.json").exists()
+    checkpoint_smoke["smokeOnly"] = False
+    checkpoint_smoke["raw0Boost"] = 3.0
+    torch.save(checkpoint_smoke, best_path)
+    with pytest.raises(ValueError, match="raw0Boost"):
+        ns50["test_once_pipeline"]()
+    checkpoint_smoke["raw0Boost"] = 1.0
+    checkpoint_smoke["monitorMetric"] = "dice_macro_excluding_raw0"
+    torch.save(checkpoint_smoke, best_path)
+    with pytest.raises(ValueError, match="monitorMetric"):
+        ns50["test_once_pipeline"]()
+    checkpoint_smoke["monitorMetric"] = "dice_macro_foreground"
+    checkpoint_smoke["aiServiceCommit"] = "other"
+    torch.save(checkpoint_smoke, best_path)
+    with pytest.raises(ValueError, match="aiServiceCommit"):
+        ns50["test_once_pipeline"]()
+    checkpoint_smoke["aiServiceCommit"] = ns50["AI_SERVICE_COMMIT_SHA"]
+    checkpoint_smoke["splitSha256"] = "bad"
+    torch.save(checkpoint_smoke, best_path)
+    with pytest.raises(ValueError, match="splitSha256"):
+        ns50["test_once_pipeline"]()
+    checkpoint_smoke["splitSha256"] = ns50["split_sha256"]()
+    torch.save(checkpoint_smoke, best_path)
+
+    ns50_fail = _exec_notebook(NOTEBOOK_50)
+    monkeypatch.setenv("AXIAL_FINAL_TEST_CONFIRMATION", "axial-final-v2")
+    ns50_fail["round_trip_model_from_manifest"] = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("roundtrip boom"))
+    with pytest.raises(RuntimeError, match="roundtrip boom"):
+        ns50_fail["test_once_pipeline"]()
+    assert (ns50_fail["OUTPUT_DIRS"]["metrics"] / "test_evaluation_in_progress.json").exists()
+    assert not (ns50_fail["OUTPUT_DIRS"]["metrics"] / "test_evaluated_once.json").exists()
+    (ns50_fail["OUTPUT_DIRS"]["metrics"] / "test_evaluation_in_progress.json").unlink()
+    for tmp_artifact in ns50_fail["OUTPUT_DIRS"]["models"].glob("axial_t2_alkafri_final_v2.*.tmp.pt"):
+        tmp_artifact.unlink()
+
+    ns50 = _exec_notebook(NOTEBOOK_50)
     result = ns50["test_once_pipeline"]()
     assert result["testMetrics"]["dice_macro_foreground"] is not None
     assert "raw0Precision" in result["testMetrics"]
@@ -304,12 +360,22 @@ def test_notebook_50_test_once_and_artifact(monkeypatch: pytest.MonkeyPatch, tmp
     assert manifest["artifactSha256"] == ns50["sha256_stream"](ns50["select_artifact_path"](result["qualityGate"]["qualityGatePassed"]))
     assert "runtimeVerification" in manifest
     assert "checkpointSha256" in manifest
+    assert manifest["bestEpoch"] == checkpoint_smoke["bestEpoch"]
+    assert manifest["bestValidationMetric"] == checkpoint_smoke["bestValidationMetric"]
+    warning = "The held-out test partition was previously evaluated for the axial-full-v1 baseline. This v2 evaluation is comparative and should not be interpreted as a fully untouched external validation."
+    assert manifest["heldOutReuseWarning"] == warning
+    model_card_text = ns50["model_card_path_for"](ns50["select_artifact_path"](result["qualityGate"]["qualityGatePassed"])).read_text(encoding="utf-8")
+    assert warning in model_card_text
     assert len(pd.read_csv(ns50["OUTPUT_DIRS"]["metrics"] / "test_case_metrics.csv")) == len([r for r in records if r.split == "test"])
     assert len(pd.read_csv(ns50["OUTPUT_DIRS"]["metrics"] / "test_metrics_per_class.csv")) == 6
+    test_cases = pd.read_csv(ns50["OUTPUT_DIRS"]["metrics"] / "test_case_metrics.csv")
+    assert {"raw0Precision", "raw0Recall", "precision_raw_0", "recall_raw_0", "falsePositivePixels_raw_0", "falseNegativePixels_raw_0"}.issubset(test_cases.columns)
     assert (ns50["OUTPUT_DIRS"]["figures"] / "test_predictions.png").exists()
     completed = json.loads((ns50["OUTPUT_DIRS"]["metrics"] / "test_evaluated_once.json").read_text(encoding="utf-8"))
     assert completed["status"] == "completed"
-    assert {"checkpointSha256", "splitSha256", "confirmationTokenHash", "artifactPath", "manifestPath", "verificationPath"}.issubset(completed)
+    assert {"schemaVersion", "runId", "testEvaluatedOnce", "checkpointPath", "checkpointSha256", "splitSha256", "confirmationTokenHash", "artifactFile", "artifactSha256", "manifestFile", "manifestSha256", "modelCardFile", "qualityGatePassed", "runtimeShape", "runtimeFinite"}.issubset(completed)
+    assert completed["confirmationTokenHash"] == ns50["_confirmation_hash"]("axial-final-v2")
+    assert completed["confirmationTokenHash"] != "axial-final-v2"
     assert not (ns50["OUTPUT_DIRS"]["metrics"] / "test_evaluation_in_progress.json").exists()
     assert not ((ns50["OUTPUT_DIRS"]["models"] / "axial_t2_alkafri_final_v2_best.pt").exists() and (ns50["OUTPUT_DIRS"]["models"] / "axial_t2_alkafri_final_v2_candidate.pt").exists())
     assert ns50["round_trip_model_from_manifest"](ns50["select_artifact_path"](result["qualityGate"]["qualityGatePassed"]), manifest, torch.randn(1, 1, 256, 256)) == {"shape": [1, 6, 256, 256], "finite": True}
@@ -318,16 +384,19 @@ def test_notebook_50_test_once_and_artifact(monkeypatch: pytest.MonkeyPatch, tmp
     assert ns50["quality_gate"](passing_metrics, {"patientHeldout": True}, {"shape": [1, 6, 256, 256], "finite": True})["qualityGatePassed"] is True
     assert ns50["quality_gate"](passing_metrics, {"patientHeldout": True}, {"shape": [1, 6, 128, 128], "finite": True})["qualityGatePassed"] is False
     assert ns50["quality_gate"](passing_metrics, {"patientHeldout": True}, {"shape": [1, 6, 256, 256], "finite": False})["qualityGatePassed"] is False
+    low_dice = dict(passing_metrics)
+    low_dice["dice_macro_foreground"] = 0.2
+    assert ns50["quality_gate"](low_dice, {"patientHeldout": True}, {"shape": [1, 6, 256, 256], "finite": True})["qualityGatePassed"] is False
 
-    with pytest.raises(RuntimeError, match="evaluado"):
-        ns50["evaluate_test_once"](records)
+    with pytest.raises(RuntimeError, match="test_evaluated_once"):
+        ns50["test_once_pipeline"]()
     in_progress = ns50["OUTPUT_DIRS"]["metrics"] / "test_evaluation_in_progress.json"
     marker = ns50["OUTPUT_DIRS"]["metrics"] / "test_evaluated_once.json"
     marker.unlink()
     ns50["TEST_EVALUATED_IN_MEMORY"] = False
     in_progress.write_text("{}", encoding="utf-8")
     with pytest.raises(RuntimeError, match="in_progress"):
-        ns50["evaluate_test_once"](records)
+        ns50["test_once_pipeline"]()
 
 
 def test_static_separation_and_no_placeholders() -> None:
@@ -341,6 +410,12 @@ def test_static_separation_and_no_placeholders() -> None:
     assert ".backward(" not in source50
     assert "max(0, pred_present_cases - gt_present_cases)" not in source49 + source50
     assert '"runtimeFinite": True' not in source50
+    assert source50.count("def metrics_from_predictions") == 1
+    assert source50.count("def metrics_from_confusion") == 1
+    assert source50.count("def _case_metric_row") == 1
+    assert source50.count("def evaluate_test_once") == 1
+    assert "evaluable_cases" not in source50
+    assert "gt_present_cases" not in source50
     for nb in [nbformat.read(NOTEBOOK_49, as_version=4), nbformat.read(NOTEBOOK_50, as_version=4)]:
         for cell in nb.cells:
             if cell.cell_type == "code":
