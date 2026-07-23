@@ -25,6 +25,8 @@ El notebook monta Drive solo en Colab, solo si `PFI_USE_GOOGLE_DRIVE=True`, y so
 - `PFI_OUTPUT_ROOT`: carpeta externa para outputs.
 - `RESUME_MODE`: `auto`, `off` o `required`.
 - `AXIAL_RAW0_WEIGHT_BOOST`: boost configurable para `raw_0`.
+- `ENABLE_SPATIAL_AUGMENTATION`: default `false`; no se aplican rotaciones espaciales por defecto.
+- `ENABLE_HORIZONTAL_FLIP`: default `false`; solo habilitar tras revisar lateralidad axial.
 
 ## Orden recomendado en Colab
 
@@ -39,7 +41,9 @@ El notebook monta Drive solo en Colab, solo si `PFI_USE_GOOGLE_DRIVE=True`, y so
 
 ## Preflight
 
-Valida columnas E9, nulos, splits, pacientes, duplicados, paths, labels permitidos, dimensiones imagen/mascara, presencia de clases en train, warnings para clases ausentes en val/test, forward pass y mosaico visual.
+Valida columnas E9, nulos antes de convertir a string, splits, pacientes, paths, labels permitidos, dimensiones imagen/mascara, presencia de clases en train, warnings para clases ausentes en val/test, forward pass y mosaico visual. Tambien guarda `manifests/split_snapshot.csv` como evidencia exacta del split usado.
+
+La deteccion de duplicados no usa solo tamano de archivo: agrupa por `kind + fileSize`, calcula SHA-256 cuando hay tamanos repetidos y solo marca leakage si el mismo contenido real aparece cruzando splits o pacientes.
 
 ## Outputs
 
@@ -47,7 +51,9 @@ El run escribe fuera del repo: `models`, `resume`, `manifests`, `metrics`, `figu
 
 ## Resume
 
-El checkpoint `.last_checkpoint.pt` guarda modelo, optimizer, scheduler, scaler, historia, patience, seed, modelKey, arquitectura, mapping, hash de split, preprocessing y run ID. En `auto`, un checkpoint incompatible se ignora con warning; en `required`, aborta.
+El checkpoint `.last_checkpoint.pt` guarda modelo, optimizer, scheduler, scaler, historia, patience, seed, modelKey, arquitectura, mapping, hash de split, preprocessing y run ID. En `auto`, si no existe o es incompatible se empieza desde cero con warning. En `required`, aborta si falta o no coincide.
+
+Para reanudar una sesion distinta de Colab se debe reutilizar el mismo `PFI_RUN_ID` y mantener estable `PFI_OUTPUT_ROOT`/`PFI_RESUME_ROOT`; si cambia el run ID, el notebook lo trata como otra corrida.
 
 ## Criterios de aceptacion
 

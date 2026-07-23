@@ -23,6 +23,27 @@ REQUIRED = [
     "round_trip_model_from_manifest",
     "humanReviewRequired",
     "notClinicalDiagnosis",
+    "fileSize",
+    "resolvedPath",
+    "sameSizeRows",
+    "sha256_stream(Path(df.at[idx, \"resolvedPath\"]))",
+    "save_split_snapshot",
+    "split_snapshot.csv",
+    "required_cell_value",
+    "slice_id_from_paths",
+    "metrics_from_predictions",
+    "_merge_class_counts",
+    "confusionMatrix",
+    "\"dicePerClass\": {k: v.get(\"dice\")",
+    "\"iouPerClass\": {k: v.get(\"iou\")",
+    "return manifest",
+    "checkpoint_compatibility_errors",
+    "RESUME_MODE=auto",
+    "dice_macro_excluding_raw0 no es evaluable",
+    "ENABLE_SPATIAL_AUGMENTATION",
+    "ENABLE_HORIZONTAL_FLIP",
+    "AUGMENTATION_EPOCH",
+    "smoke selection",
 ]
 
 FORBIDDEN = [
@@ -35,6 +56,9 @@ FORBIDDEN = [
     r"huggingface_hub",
     r"hf_hub_upload",
     r"RUN_MODE\s*=\s*[\"']full[\"']",
+    r"np\.rot90",
+    r'"dicePerClass":\s*\{\s*\}',
+    r'"iouPerClass":\s*\{\s*\}',
 ]
 
 
