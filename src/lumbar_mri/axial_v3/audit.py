@@ -11,6 +11,8 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
+from .labels import CLASS_INDEX_TO_NAME
+
 
 @dataclass(frozen=True)
 class Raw0SliceAudit:
@@ -32,7 +34,14 @@ class Raw0SliceAudit:
     imageWidth: int
     maskHeight: int
     maskWidth: int
+    originalImageHeight: int
+    originalImageWidth: int
+    originalMaskHeight: int
+    originalMaskWidth: int
     otherClassesPresent: list[int]
+    classPresenceVector: dict[str, bool]
+    sourceImage: str = ""
+    sourceMask: str = ""
 
 
 def _connected_component_areas(binary_mask: np.ndarray) -> list[int]:
@@ -65,8 +74,12 @@ def audit_raw0_slice(
     study_id: str,
     slice_id: str,
     image_shape: tuple[int, int] | None = None,
+    original_image_shape: tuple[int, int] | None = None,
+    original_mask_shape: tuple[int, int] | None = None,
     raw0_value: int = 1,
     background_value: int = 0,
+    source_image: str = "",
+    source_mask: str = "",
 ) -> Raw0SliceAudit:
     """Compute one train/validation raw_0 audit row without assigning anatomy."""
 
@@ -74,6 +87,8 @@ def audit_raw0_slice(
     if mask_array.ndim != 2:
         raise ValueError(f"mask must be 2D, got shape={mask_array.shape}")
     image_height, image_width = image_shape or mask_array.shape
+    original_image_height, original_image_width = original_image_shape or image_shape or mask_array.shape
+    original_mask_height, original_mask_width = original_mask_shape or mask_array.shape
     raw0 = mask_array == raw0_value
     rows, cols = np.where(raw0)
     count = int(raw0.sum())
@@ -83,6 +98,7 @@ def audit_raw0_slice(
         for value in np.unique(mask_array)
         if int(value) not in {int(raw0_value), int(background_value)}
     )
+    class_presence = {CLASS_INDEX_TO_NAME.get(index, str(index)): bool((mask_array == index).any()) for index in sorted(CLASS_INDEX_TO_NAME)}
     if count == 0:
         bbox = {"minRow": None, "minCol": None, "maxRow": None, "maxCol": None}
         centroid = {"row": None, "col": None}
@@ -123,21 +139,31 @@ def audit_raw0_slice(
         imageWidth=int(image_width),
         maskHeight=int(mask_array.shape[0]),
         maskWidth=int(mask_array.shape[1]),
+        originalImageHeight=int(original_image_height),
+        originalImageWidth=int(original_image_width),
+        originalMaskHeight=int(original_mask_height),
+        originalMaskWidth=int(original_mask_width),
         otherClassesPresent=other,
+        classPresenceVector=class_presence,
+        sourceImage=source_image,
+        sourceMask=source_mask,
     )
 
 
 def summarize_raw0_by_patient(rows: Iterable[Raw0SliceAudit]) -> list[dict[str, Any]]:
-    grouped: dict[str, list[Raw0SliceAudit]] = {}
+    grouped: dict[tuple[str, str], list[Raw0SliceAudit]] = {}
     for row in rows:
-        grouped.setdefault(row.patientId, []).append(row)
+        grouped.setdefault((row.patientId, row.split), []).append(row)
     summary: list[dict[str, Any]] = []
-    for patient_id, patient_rows in sorted(grouped.items()):
+    for (patient_id, split), patient_rows in sorted(grouped.items()):
         positive_areas = [row.raw0PixelCount for row in patient_rows if row.raw0Present]
         components = [row.connectedComponents for row in patient_rows]
+        border_count = sum(row.touchesBorder for row in patient_rows)
+        largest_ratios = [row.largestComponentRatio for row in patient_rows if row.largestComponentRatio is not None]
         summary.append(
             {
                 "patientId": patient_id,
+                "split": split,
                 "sliceCount": len(patient_rows),
                 "raw0SliceCount": len(positive_areas),
                 "raw0SliceRatio": len(positive_areas) / len(patient_rows) if patient_rows else 0.0,
@@ -146,7 +172,12 @@ def summarize_raw0_by_patient(rows: Iterable[Raw0SliceAudit]) -> list[dict[str, 
                 "raw0AreaMin": int(min(positive_areas)) if positive_areas else 0,
                 "raw0AreaMax": int(max(positive_areas)) if positive_areas else 0,
                 "componentCountMean": float(np.mean(components)) if components else 0.0,
+                "componentCountMedian": float(np.median(components)) if components else 0.0,
                 "raw0AreaStd": float(np.std(positive_areas)) if positive_areas else 0.0,
+                "borderContactSliceCount": int(border_count),
+                "borderContactRatio": border_count / len(patient_rows) if patient_rows else 0.0,
+                "largestComponentRatioMean": float(np.mean(largest_ratios)) if largest_ratios else 0.0,
+                "largestComponentRatioMedian": float(np.median(largest_ratios)) if largest_ratios else 0.0,
             }
         )
     return summary
@@ -163,8 +194,19 @@ def slice_audit_frame(rows: Iterable[Raw0SliceAudit]) -> pd.DataFrame:
         for key, value in centroid.items():
             payload[f"centroid_{key}"] = value
         payload["otherClassesPresent"] = ";".join(str(value) for value in payload["otherClassesPresent"])
+        payload["classPresenceVector"] = json.dumps(payload["classPresenceVector"], sort_keys=True)
         flattened.append(payload)
     return pd.DataFrame(flattened)
+
+
+def sha256_file(path: Path) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def write_audit_outputs(rows: Iterable[Raw0SliceAudit], output_dir: Path) -> dict[str, Any]:
@@ -173,9 +215,13 @@ def write_audit_outputs(rows: Iterable[Raw0SliceAudit], output_dir: Path) -> dic
     slice_df = slice_audit_frame(row_list)
     patient_summary = summarize_raw0_by_patient(row_list)
     patient_df = pd.DataFrame(patient_summary)
-    slice_csv = output_dir / "raw0_slice_audit.csv"
-    patient_csv = output_dir / "raw0_patient_audit.csv"
-    summary_json = output_dir / "raw0_audit_summary.json"
+    tables_dir = output_dir / "tables"
+    metrics_dir = output_dir / "metrics"
+    tables_dir.mkdir(parents=True, exist_ok=True)
+    metrics_dir.mkdir(parents=True, exist_ok=True)
+    slice_csv = tables_dir / "raw0_slice_audit.csv"
+    patient_csv = tables_dir / "raw0_patient_audit.csv"
+    summary_json = metrics_dir / "raw0_audit_summary.json"
     slice_df.to_csv(slice_csv, index=False)
     patient_df.to_csv(patient_csv, index=False)
     summary = {
@@ -191,4 +237,9 @@ def write_audit_outputs(rows: Iterable[Raw0SliceAudit], output_dir: Path) -> dic
         "humanReviewPending": True,
     }
     summary_json.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
+    summary["artifactSha256"] = {
+        "sliceCsv": sha256_file(slice_csv),
+        "patientCsv": sha256_file(patient_csv),
+        "summaryJson": sha256_file(summary_json),
+    }
     return summary

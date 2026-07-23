@@ -8,6 +8,16 @@ from typing import Callable, Sequence
 import numpy as np
 
 
+ALLOWED_ORDER_SOURCES = {
+    "InstanceNumber",
+    "ImagePositionPatient",
+    "SliceLocation",
+    "curated_index",
+    "validated_filename_index",
+}
+BLOCKED_ORDER_SOURCES = {"lexicographic_filename", "inferred", "unknown", None}
+
+
 @dataclass(frozen=True)
 class SliceRecord25D:
     image_path: str
@@ -17,18 +27,39 @@ class SliceRecord25D:
     study_id: str
     slice_id: str
     order_index: int | None = None
+    order_source: str | None = None
+    order_value_original: str | int | float | None = None
+
+
+def validate_slice_order_source(record: SliceRecord25D, *, validated_filename_report: bool = False) -> None:
+    if record.order_source in BLOCKED_ORDER_SOURCES:
+        raise ValueError(f"Iteration C blocked: unreliable order source {record.order_source!r}")
+    if record.order_source not in ALLOWED_ORDER_SOURCES:
+        raise ValueError(f"Iteration C blocked: unsupported order source {record.order_source!r}")
+    if record.order_source == "validated_filename_index" and not validated_filename_report:
+        raise ValueError("Iteration C blocked: validated_filename_index requires prior validation report")
 
 
 def require_reliable_slice_order(records: Sequence[SliceRecord25D]) -> None:
+    for record in records:
+        validate_slice_order_source(record)
     missing = [record.slice_id for record in records if record.order_index is None]
     if missing:
         raise ValueError(f"Iteration C blocked: missing reliable slice order for {len(missing)} slices")
-    grouped: dict[tuple[str, str], list[int]] = {}
+    split_by_study: dict[tuple[str, str], set[str]] = {}
+    grouped: dict[tuple[str, str, str], list[int]] = {}
     for record in records:
-        grouped.setdefault((record.patient_id, record.study_id), []).append(int(record.order_index))
+        split_by_study.setdefault((record.patient_id, record.study_id), set()).add(record.split)
+        grouped.setdefault((record.patient_id, record.study_id, record.split), []).append(int(record.order_index))
+    for key, splits in split_by_study.items():
+        if len(splits) > 1:
+            raise ValueError(f"Iteration C blocked: patient/study crosses splits {key}")
     for key, values in grouped.items():
         if len(values) != len(set(values)):
             raise ValueError(f"Iteration C blocked: duplicated order index for patient/study {key}")
+        ordered = sorted(values)
+        if any(b <= a for a, b in zip(ordered, ordered[1:])):
+            raise ValueError(f"Iteration C blocked: order is not strictly increasing for {key}")
 
 
 def neighbor_indices(records: Sequence[SliceRecord25D], center: int) -> tuple[int, int, int]:
@@ -38,6 +69,7 @@ def neighbor_indices(records: Sequence[SliceRecord25D], center: int) -> tuple[in
         (index, record)
         for index, record in enumerate(records)
         if record.patient_id == center_record.patient_id and record.study_id == center_record.study_id
+        and record.split == center_record.split
     ]
     same_study.sort(key=lambda item: int(item[1].order_index))
     positions = [index for index, _ in same_study]

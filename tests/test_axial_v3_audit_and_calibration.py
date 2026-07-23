@@ -5,7 +5,8 @@ import pytest
 
 from lumbar_mri.axial_v3.audit import audit_raw0_slice, summarize_raw0_by_patient
 from lumbar_mri.axial_v3.audit import write_audit_outputs
-from lumbar_mri.axial_v3.calibration import apply_raw0_threshold, raw0_presence_metrics
+from lumbar_mri.axial_v3.calibration import apply_raw0_slice_presence_gate, apply_raw0_threshold, raw0_metrics_from_predictions, raw0_presence_metrics
+from lumbar_mri.axial_v3.labels import mask_to_class_indices, map_raw_mask_to_class_indices, validate_indexed_mask_labels, validate_raw_mask_labels
 
 
 def test_raw0_slice_audit_positive_negative_border_and_components() -> None:
@@ -62,9 +63,9 @@ def test_write_audit_outputs(tmp_path) -> None:
     ]
     summary = write_audit_outputs(rows, tmp_path)
     assert summary["schemaVersion"] == "axial-v3-raw0-audit-v1"
-    assert (tmp_path / "raw0_slice_audit.csv").exists()
-    assert (tmp_path / "raw0_patient_audit.csv").exists()
-    assert (tmp_path / "raw0_audit_summary.json").exists()
+    assert (tmp_path / "tables" / "raw0_slice_audit.csv").exists()
+    assert (tmp_path / "tables" / "raw0_patient_audit.csv").exists()
+    assert (tmp_path / "metrics" / "raw0_audit_summary.json").exists()
 
 
 def test_raw0_threshold_reassigns_to_second_class_and_metrics() -> None:
@@ -85,3 +86,42 @@ def test_raw0_threshold_reassigns_to_second_class_and_metrics() -> None:
     assert metrics["falsePositivePixels"] == 0
     assert metrics["falseNegativePixels"] == 0
     assert metrics["predictedInGtAbsentCases"] == 0
+
+
+def test_label_mapping_requires_explicit_mode() -> None:
+    raw = np.array([[250, 0, 50], [100, 150, 200]], dtype=np.int16)
+    mapped = map_raw_mask_to_class_indices(raw)
+    assert mapped.tolist() == [[0, 1, 2], [3, 4, 5]]
+    validate_raw_mask_labels(raw)
+    validate_indexed_mask_labels(mapped)
+    assert mask_to_class_indices(raw, mode="raw")[0, 1] == 1
+    assert mask_to_class_indices(mapped, mode="indexed")[0, 1] == 1
+    with pytest.raises(ValueError, match="unexpected raw"):
+        validate_raw_mask_labels(np.array([[999]]))
+    with pytest.raises(ValueError, match="unknown mask label mode"):
+        mask_to_class_indices(raw, mode="auto")
+
+
+def test_raw0_threshold_batch_and_presence_gate() -> None:
+    probs = np.zeros((2, 3, 2, 2), dtype=np.float32)
+    probs[:, 1] = 0.6
+    probs[:, 2] = 0.4
+    gated = apply_raw0_threshold(probs, min_probability=0.5, min_margin=0.3)
+    assert gated.shape == (2, 2, 2)
+    assert np.all(gated == 2)
+    presence_gated = apply_raw0_slice_presence_gate(probs, np.array([0.2, 0.9]), 0.5)
+    assert np.all(presence_gated[0] == 2)
+    assert np.all(presence_gated[1] == 1)
+
+
+def test_raw0_metrics_counts_cases_per_slice() -> None:
+    pred = np.zeros((2, 3, 3), dtype=np.int64)
+    target = np.zeros((2, 3, 3), dtype=np.int64)
+    pred[0, 0, 0] = 1
+    target[1, 0, 0] = 1
+    raw0 = raw0_metrics_from_predictions(pred, target)
+    assert raw0["evaluableCases"] == 2
+    assert raw0["gtPresentCases"] == 1
+    assert raw0["gtAbsentCases"] == 1
+    assert raw0["predPresentCases"] == 1
+    assert raw0["predictedInGtAbsentCases"] == 1

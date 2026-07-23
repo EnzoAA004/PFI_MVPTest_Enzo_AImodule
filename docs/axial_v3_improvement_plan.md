@@ -199,3 +199,63 @@ Estados permitidos: `planned`, `ready`, `running`, `completed`, `blocked`, `disc
 ## 17. Recomendacion final para el alcance del PFI
 
 Para el PFI conviene priorizar A y B como alcance principal: diagnostico reproducible de `raw_0`, guardias tecnicas de no acceso a test, y una grilla acotada de mejoras de bajo costo. C debe quedar condicionado a orden confiable de slices. D debe mantenerse como evaluacion secundaria o futura, salvo que B/C no mejoren validation y exista presupuesto real de computo.
+
+## 18. Estado de implementacion
+
+| Bloque | Estado | Nota |
+|---|---|---|
+| Iteracion A | ready_to_run | Ejecutable con `run_iteration_a()`, manifest train/validation, mapping explicito y auditoria probabilistica validation-only si se configura checkpoint v2. |
+| Iteracion B | framework_ready | Runner modular para preflight/smoke/train, B0-B6 expandibles, B0 con CE ponderada + Soft Dice foreground como v2. |
+| Iteracion C | planned_or_blocked_pending_order_audit | Bloqueada si no existe `order_source` confiable y validado. |
+| Iteracion D | planned | Metadata de arquitecturas; alternativas no implementadas siguen deshabilitadas. |
+
+No se marca A como `completed` porque no se ejecuto sobre el dataset real en este commit. No se declara ninguna mejora de axial v3.
+
+## 19. Correcciones posteriores al commit dba7dad
+
+- El validador axial v3 ya no depende de `outputs/axial_v3/experiment_registry.csv`; valida el registry con un CSV temporal.
+- Se agrego mapping explicito en `labels.py`: raw `250, 0, 50, 100, 150, 200` a indices `0..5`.
+- Notebook 51 ahora orquesta un runner real de Iteracion A, sin ejecutar por defecto.
+- Notebook 52 ahora orquesta un runner real B0-B6, sin ejecutar por defecto.
+- B0 usa perdida baseline compatible con v2: CrossEntropy ponderada + Soft Dice multicategoria foreground.
+- La calibracion de `raw_0` soporta `[C,H,W]` y `[N,C,H,W]`.
+- El ranking validation-only preserva ceros como valores validos.
+- El guardrail de otras clases falla cerrado ante metricas ausentes.
+- La cabeza de presencia se integra mediante wrapper y usa bottleneck features.
+- B6 cuenta con sampler balanceado train-only.
+- C exige `order_source` confiable.
+
+## 20. Protocolo de Iteracion A
+
+Configurar variables de entorno: `PFI_REPO_ROOT`, `PFI_DATASET_ROOT`, `AXIAL_E9_CURATED_SPLIT_CSV`, `PFI_OUTPUT_ROOT`, `PFI_MASK_LABEL_MODE=raw` y opcionalmente `AXIAL_V2_CHECKPOINT_PATH` para auditoria probabilistica validation-only.
+
+Ejecutar notebook 51 con `PFI_RUN_AXIAL_V3_AUDIT=1`. El runner valida storage, filtra train/validation, mapea mascaras crudas explicitamente, genera tablas estructurales, figuras basicas y reportes. Si se define checkpoint v2, carga `axial_t2_alkafri_v2.best_checkpoint.pt` solo para validation.
+
+## 21. Protocolo de Iteracion B
+
+Configurar `PFI_AXIAL_V3_EXPERIMENT_ID` para un experimento atomico. Usar `RUN_MODE=preflight`, `smoke`, `train` o `summarize`. Para ejecutar, definir ademas `PFI_RUN_AXIAL_V3_EXPERIMENT=1`.
+
+B0 reproduce la configuracion train/validation v2 desde cero. B1-B6 se expanden de forma independiente; no se crea un producto cartesiano grande.
+
+## 22. Politica de congelamiento de axial v3
+
+Un modelo axial v3 solo puede congelarse despues de ejecutar train/validation real, registrar configuracion, seed, commit, split SHA-256, metricas validation y guardrail. Hasta entonces el mejor resultado solo puede llamarse `validation_candidate`.
+
+## 23. Definicion de validation_candidate
+
+`validation_candidate` es el run completo no-smoke que pasa guardrails y queda primero por politica validation-only:
+
+1. mayor `dice_macro_foreground`;
+2. menor `raw0PredictedInGtAbsentCases`;
+3. mayor `raw0Precision`;
+4. mayor `dice_macro_excluding_raw0`.
+
+No implica aprobacion clinica ni exito test.
+
+## 24. Que no constituye mejora valida
+
+- Mejorar `raw_0` degradando materialmente `raw_50`, `raw_100`, `raw_150` o `raw_200`.
+- Usar test historico para elegir thresholds, pesos, checkpoints, arquitectura o postprocesamiento.
+- Usar un smoke run como candidato.
+- Cambiar el quality gate para declarar exito.
+- Inferir anatomia de etiquetas raw.

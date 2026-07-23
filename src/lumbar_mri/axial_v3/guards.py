@@ -19,6 +19,18 @@ FORBIDDEN_TEST_TOKENS = (
     "build_eval_loaders",
     'loaders["test"]',
     "evaluate_test_once",
+    "test_evaluation_in_progress.json",
+)
+PROTECTED_V2_ARTIFACTS = (
+    "test_evaluated_once.json",
+    "test_metrics.json",
+    "test_case_metrics.csv",
+    "test_metrics_per_class.csv",
+    "test_confusion_matrix.csv",
+    "test_predictions.png",
+    "axial_t2_alkafri_final_v2_candidate.pt",
+    "final_artifact_verification.json",
+    "axial_t2_alkafri_v2.best_checkpoint.pt",
 )
 
 
@@ -46,6 +58,25 @@ def reject_test_paths(paths: Iterable[str | Path], *, context: str = "axial_v3")
             raise ValueError(f"{context}: test artifact access is forbidden: {path}")
 
 
+def assert_no_test_records(records: Iterable[object], *, context: str = "axial_v3") -> None:
+    splits = []
+    for record in records:
+        split = getattr(record, "split", None)
+        if split is None and isinstance(record, dict):
+            split = record.get("split")
+        splits.append(str(split))
+    require_train_val_only(splits, context=context)
+
+
+def reject_protected_v2_paths(paths: Iterable[str | Path], *, write: bool = False, context: str = "axial_v3") -> None:
+    for path in paths:
+        text = str(path).replace("\\", "/")
+        name = Path(text).name
+        if name in PROTECTED_V2_ARTIFACTS:
+            action = "write" if write else "read"
+            raise ValueError(f"{context}: protected v2 artifact {action} is forbidden: {path}")
+
+
 def find_forbidden_test_references(text: str) -> list[str]:
     """Find static references that should not appear in axial v3 iteration notebooks."""
 
@@ -58,6 +89,9 @@ def find_forbidden_test_references(text: str) -> list[str]:
         r"\bDataLoader\([^)]*test",
         r"\bsplit\s*==\s*[\"']test[\"']",
         r"\bsplit\s*=\s*[\"']test[\"']",
+        r"\.unlink\(",
+        r"\bos\.remove\(",
+        r"\bshutil\.rmtree\(",
     ]
     for pattern in regexes:
         if re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL):

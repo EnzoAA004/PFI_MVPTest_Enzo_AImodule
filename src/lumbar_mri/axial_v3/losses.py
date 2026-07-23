@@ -66,3 +66,39 @@ def combined_segmentation_loss(
     if raw0_fp_penalty_weight:
         loss = loss + raw0_fp_penalty_weight * raw0_false_positive_penalty(logits, target, raw0_index=1)
     return loss
+
+
+def soft_dice_loss_multiclass(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    include_background: bool = False,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """Foreground soft Dice loss matching the axial v2 baseline convention."""
+
+    if logits.ndim != 4:
+        raise ValueError(f"logits must be [N,C,H,W], got {tuple(logits.shape)}")
+    if target.shape != logits.shape[:1] + logits.shape[2:]:
+        raise ValueError(f"target shape {tuple(target.shape)} incompatible with logits {tuple(logits.shape)}")
+    probs = torch.softmax(logits, dim=1)
+    one_hot = F.one_hot(target.long(), num_classes=logits.shape[1]).permute(0, 3, 1, 2).to(dtype=probs.dtype)
+    start = 0 if include_background else 1
+    dims = (0, 2, 3)
+    intersection = (probs[:, start:] * one_hot[:, start:]).sum(dim=dims)
+    denominator = probs[:, start:].sum(dim=dims) + one_hot[:, start:].sum(dim=dims)
+    dice = (2 * intersection + eps) / (denominator + eps)
+    return 1 - dice.mean()
+
+
+def v2_baseline_segmentation_loss(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    class_weights: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return total, CE and soft-Dice for B0 v2 reproduction."""
+
+    ce = F.cross_entropy(logits, target.long(), weight=class_weights)
+    dice = soft_dice_loss_multiclass(logits, target, include_background=False)
+    return ce + dice, ce, dice
