@@ -19,6 +19,7 @@ from .audit import audit_raw0_slice, sha256_file, slice_audit_frame, summarize_r
 from .calibration import apply_raw0_threshold
 from .guards import assert_no_test_records, require_train_val_only
 from .labels import mask_to_class_indices
+from .low_cost import metric_or_default
 from .metrics import metrics_from_predictions
 from .training import AxialV3Record, open_2d_array, resize_bilinear, resize_nearest, robust_normalize
 
@@ -191,7 +192,7 @@ def run_structural_audit(config: AxialV3AuditConfig, records: list[AxialV3Record
     return {"rows": rows, "summary": summary}
 
 
-def _save_basic_figures(config: AxialV3AuditConfig, rows: list[Any]) -> list[Path]:
+def _save_structural_figures(config: AxialV3AuditConfig, rows: list[Any]) -> list[Path]:
     figures = config.OUTPUT_ROOT / config.RUN_ID / "figures"
     figures.mkdir(parents=True, exist_ok=True)
     df = slice_audit_frame(rows)
@@ -205,8 +206,6 @@ def _save_basic_figures(config: AxialV3AuditConfig, rows: list[Any]) -> list[Pat
         ("raw0_area_ratio_histogram.png", "raw0AreaRatio"),
         ("raw0_components_histogram.png", "connectedComponents"),
         ("raw0_distance_to_border_histogram.png", "minDistanceToBorder"),
-        ("raw0_false_positive_pixels_histogram.png", "raw0PixelCount"),
-        ("raw0_predicted_area_histogram.png", "raw0PixelCount"),
     ]
     for filename, column in specs:
         path = figures / filename
@@ -225,8 +224,6 @@ def _save_basic_figures(config: AxialV3AuditConfig, rows: list[Any]) -> list[Pat
         "raw0_border_contact_by_split.png",
         "raw0_presence_by_patient.png",
         "raw0_area_boxplot_by_split.png",
-        "raw0_probability_positive_vs_negative.png",
-        "raw0_precision_recall_presence.png",
     ]:
         path = figures / filename
         if plt is None:
@@ -243,6 +240,83 @@ def _save_basic_figures(config: AxialV3AuditConfig, rows: list[Any]) -> list[Pat
             plt.tight_layout()
             plt.savefig(path)
             plt.close()
+        created.append(path)
+    return created
+
+
+def _save_probability_figures(config: AxialV3AuditConfig) -> list[Path]:
+    figures = config.OUTPUT_ROOT / config.RUN_ID / "figures"
+    tables = config.OUTPUT_ROOT / config.RUN_ID / "tables"
+    probability_csv = tables / "raw0_validation_probability_audit.csv"
+    grid_csv = tables / "raw0_threshold_margin_grid.csv"
+    created: list[Path] = []
+    for filename in [
+        "raw0_false_positive_pixels_histogram.png",
+        "raw0_predicted_area_histogram.png",
+        "raw0_probability_positive_vs_negative.png",
+        "raw0_precision_recall_presence.png",
+    ]:
+        path = figures / filename
+        if not probability_csv.exists():
+            _write_text_png(path, [filename.replace(".png", ""), "Probability audit skipped."])
+            created.append(path)
+            continue
+        df = pd.read_csv(probability_csv)
+        try:
+            import matplotlib.pyplot as plt
+        except ModuleNotFoundError:
+            plt = None
+        if filename == "raw0_false_positive_pixels_histogram.png":
+            values = pd.to_numeric(df["raw0FalsePositivePixels"], errors="coerce").dropna()
+            if plt is None:
+                _write_text_png(path, ["raw0 false positive pixels", f"count={len(values)}", f"max={int(values.max()) if len(values) else 'n/a'}"])
+            else:
+                plt.figure()
+                values.hist(bins=config.PROBABILITY_HIST_BINS)
+                plt.title("raw0FalsePositivePixels")
+                plt.tight_layout()
+                plt.savefig(path)
+                plt.close()
+        elif filename == "raw0_predicted_area_histogram.png":
+            values = pd.to_numeric(df["raw0PredictedAreaPixels"], errors="coerce").dropna()
+            if plt is None:
+                _write_text_png(path, ["raw0 predicted area pixels", f"count={len(values)}", f"max={int(values.max()) if len(values) else 'n/a'}"])
+            else:
+                plt.figure()
+                values.hist(bins=config.PROBABILITY_HIST_BINS)
+                plt.title("raw0PredictedAreaPixels")
+                plt.tight_layout()
+                plt.savefig(path)
+                plt.close()
+        elif filename == "raw0_probability_positive_vs_negative.png":
+            if plt is None:
+                positives = df[df["raw0GtPresent"] == True]["raw0MaxProbability"]  # noqa: E712
+                negatives = df[df["raw0GtPresent"] == False]["raw0MaxProbability"]  # noqa: E712
+                _write_text_png(path, ["raw0 max probability", f"gt+ median={float(positives.median()) if len(positives) else 'n/a'}", f"gt- median={float(negatives.median()) if len(negatives) else 'n/a'}"])
+            else:
+                plt.figure()
+                df.boxplot(column="raw0MaxProbability", by="raw0GtPresent")
+                plt.suptitle("")
+                plt.title("raw0MaxProbability by GT presence")
+                plt.tight_layout()
+                plt.savefig(path)
+                plt.close()
+        else:
+            if not grid_csv.exists():
+                _write_text_png(path, ["raw0 precision/recall", "Threshold grid missing."])
+            else:
+                grid = pd.read_csv(grid_csv)
+                if plt is None or grid.empty:
+                    _write_text_png(path, ["raw0 precision/recall", f"grid rows={len(grid)}"])
+                else:
+                    plt.figure()
+                    plt.scatter(grid["raw0Recall"], grid["raw0Precision"], c=grid["dice_macro_foreground"])
+                    plt.xlabel("raw0Recall")
+                    plt.ylabel("raw0Precision")
+                    plt.title("raw0 threshold precision/recall")
+                    plt.tight_layout()
+                    plt.savefig(path)
+                    plt.close()
         created.append(path)
     return created
 
@@ -268,7 +342,17 @@ def _record_raw0_audit(record: AxialV3Record, config: AxialV3AuditConfig) -> Any
 
 
 def _preview_overlay(image: np.ndarray, mask: np.ndarray) -> np.ndarray:
-    normalized = robust_normalize(image)
+    normalized = resize_bilinear(robust_normalize(image), (256, 256))
+    mask = resize_nearest(mask, (256, 256))
+    rgb = np.repeat(normalized[..., None], 3, axis=2)
+    raw0 = mask == 1
+    rgb[raw0, 0] = 1.0
+    rgb[raw0, 1] *= 0.2
+    rgb[raw0, 2] *= 0.2
+    return rgb
+
+
+def _overlay_raw0_on_normalized(normalized: np.ndarray, mask: np.ndarray) -> np.ndarray:
     rgb = np.repeat(normalized[..., None], 3, axis=2)
     raw0 = mask == 1
     rgb[raw0, 0] = 1.0
@@ -365,7 +449,6 @@ def _save_previews(config: AxialV3AuditConfig, records: list[AxialV3Record]) -> 
         ("raw0_border_contact_examples.png", border, "raw_0 border contact examples"),
         ("raw0_smallest_annotations.png", [record for record, _ in positive_sorted], "smallest raw_0 annotations"),
         ("raw0_largest_annotations.png", [record for record, _ in reversed(positive_sorted)], "largest raw_0 annotations"),
-        ("raw0_probability_discordant_examples.png", positives[: config.MAX_PREVIEW_CASES] + negatives[: config.MAX_PREVIEW_CASES], "probability review candidates"),
     ]
     created: list[Path] = []
     for filename, selected, title in preview_specs:
@@ -373,6 +456,59 @@ def _save_previews(config: AxialV3AuditConfig, records: list[AxialV3Record]) -> 
         _render_preview(path, selected, config, title)
         created.append(path)
     return created
+
+
+def _save_probability_discordant_preview(config: AxialV3AuditConfig, records: list[AxialV3Record]) -> Path:
+    from PIL import Image, ImageDraw
+
+    output_dir = config.OUTPUT_ROOT / config.RUN_ID
+    path = output_dir / "previews" / "raw0_probability_discordant_examples.png"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    probability_csv = output_dir / "tables" / "raw0_validation_probability_audit.csv"
+    cache_path = output_dir / "cache" / "validation_probabilities.npz"
+    if not probability_csv.exists() or not cache_path.exists():
+        _write_text_png(path, ["raw0 probability discordant examples", "Probability audit skipped."])
+        return path
+
+    df = pd.read_csv(probability_csv).reset_index().rename(columns={"index": "probabilityIndex"})
+    df["areaDisagreement"] = (pd.to_numeric(df["raw0PredictedAreaPixels"], errors="coerce") - pd.to_numeric(df["raw0TrueAreaPixels"], errors="coerce")).abs()
+    candidates = pd.concat(
+        [
+            df[df["raw0GtPresent"] == False].sort_values("raw0MaxProbability", ascending=False).head(config.MAX_PREVIEW_CASES),  # noqa: E712
+            df[df["raw0GtPresent"] == True].sort_values("raw0MaxProbability", ascending=True).head(config.MAX_PREVIEW_CASES),  # noqa: E712
+            df.sort_values("raw0FalsePositivePixels", ascending=False).head(config.MAX_PREVIEW_CASES),
+            df.sort_values("areaDisagreement", ascending=False).head(config.MAX_PREVIEW_CASES),
+        ],
+        ignore_index=True,
+    ).drop_duplicates(subset=["probabilityIndex"]).head(config.MAX_PREVIEW_CASES)
+    val_records = [record for record in records if record.split == "val"]
+    cache = np.load(cache_path)
+    probabilities = cache["probabilities"]
+    tile = 160
+    label_h = 54
+    cols = 2
+    rows = max(1, len(candidates))
+    canvas = Image.new("RGB", (cols * tile, rows * (tile + label_h) + 28), "white")
+    draw = ImageDraw.Draw(canvas)
+    draw.text((8, 8), "raw0 probability discordant examples: GT left, prediction right", fill=(20, 20, 20))
+    for row_idx, item in enumerate(candidates.itertuples(index=False)):
+        prob_index = int(item.probabilityIndex)
+        if prob_index >= len(val_records) or prob_index >= len(probabilities):
+            continue
+        record = val_records[prob_index]
+        image = resize_bilinear(robust_normalize(open_2d_array(Path(record.image_path))), config.TARGET_SIZE)
+        target = resize_nearest(mask_to_class_indices(open_2d_array(Path(record.mask_path)), mode=config.MASK_LABEL_MODE), config.TARGET_SIZE)
+        pred = np.argmax(probabilities[prob_index], axis=0)
+        gt_tile = Image.fromarray((_overlay_raw0_on_normalized(image, target) * 255).astype(np.uint8)).resize((tile, tile), resample=Image.Resampling.NEAREST)
+        pred_tile = Image.fromarray((_overlay_raw0_on_normalized(image, pred) * 255).astype(np.uint8)).resize((tile, tile), resample=Image.Resampling.NEAREST)
+        y = 28 + row_idx * (tile + label_h)
+        canvas.paste(gt_tile, (0, y))
+        canvas.paste(pred_tile, (tile, y))
+        label = f"{record.patientId} | maxP={float(item.raw0MaxProbability):.3f} | fpPx={int(item.raw0FalsePositivePixels)}"
+        draw.text((4, y + tile + 4), label[:58], fill=(20, 20, 20))
+        draw.text((4, y + tile + 24), record.sliceId[:58], fill=(20, 20, 20))
+    canvas.save(path)
+    return path
 
 
 def _write_human_review_candidates(config: AxialV3AuditConfig, rows: list[Any]) -> Path:
@@ -483,7 +619,15 @@ def run_validation_probability_audit(config: AxialV3AuditConfig, records: list[A
                 gated = apply_raw0_threshold(stacked_probabilities, min_probability=threshold, min_margin=margin)
                 metric = metrics_from_predictions(gated, stacked_targets)
                 grid_rows.append({"minProbability": threshold, "minMargin": margin, **{k: v for k, v in metric.items() if k != "perClass"}})
-        grid_rows.sort(key=lambda row: (row.get("dice_macro_foreground") or -1, -(row.get("raw0PredictedInGtAbsentCases") or 10**9), row.get("raw0Precision") or -1, row.get("dice_macro_excluding_raw0") or -1), reverse=True)
+        grid_rows.sort(
+            key=lambda row: (
+                metric_or_default(row, "dice_macro_foreground", -1.0),
+                -metric_or_default(row, "raw0PredictedInGtAbsentCases", 10**9),
+                metric_or_default(row, "raw0Precision", -1.0),
+                metric_or_default(row, "dice_macro_excluding_raw0", -1.0),
+            ),
+            reverse=True,
+        )
     grid_csv = tables / "raw0_threshold_margin_grid.csv"
     pd.DataFrame(grid_rows).to_csv(grid_csv, index=False)
     summary = {
@@ -544,9 +688,7 @@ def validate_v2_checkpoint_metadata(checkpoint: Any, config: AxialV3AuditConfig)
             raise ValueError("v2 checkpoint SHA-256 mismatch")
         validated.append("checkpointSha256")
     if missing and not config.PFI_ALLOW_INCOMPLETE_V2_CHECKPOINT_METADATA:
-        critical_present = [field for field in ("runId", "smokeOnly", "num_classes", "base_channels", "target_size") if field in checkpoint]
-        if not critical_present:
-            raise ValueError(f"v2 checkpoint metadata is incomplete: {missing}")
+        raise ValueError(f"v2 checkpoint metadata is incomplete: {missing}")
     return {"missingMetadataFields": missing, "validatedMetadataFields": validated}
 
 
@@ -575,10 +717,12 @@ def run_iteration_a(config: AxialV3AuditConfig | None = None) -> dict[str, Any]:
     require_train_val_only(["train", "val"], context="iteration_a")
     records = build_records(cfg)
     structural = run_structural_audit(cfg, records)
-    figure_paths = _save_basic_figures(cfg, structural["rows"])
-    preview_paths = _save_previews(cfg, records)
+    _save_structural_figures(cfg, structural["rows"])
+    _save_previews(cfg, records)
     human_review_path = _write_human_review_candidates(cfg, structural["rows"])
     probability = run_validation_probability_audit(cfg, records)
+    _save_probability_figures(cfg)
+    _save_probability_discordant_preview(cfg, records)
     report_dir = cfg.OUTPUT_ROOT / cfg.RUN_ID / "reports"
     manifests_dir = cfg.OUTPUT_ROOT / cfg.RUN_ID / "manifests"
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -607,8 +751,6 @@ def run_iteration_a(config: AxialV3AuditConfig | None = None) -> dict[str, Any]:
     (report_dir / "iteration_a_report.md").write_text(render_iteration_a_markdown(result, cfg, records), encoding="utf-8")
     artifacts_path = manifests_dir / "iteration_a_artifacts.json"
     artifacts_path.write_text(json.dumps(_artifact_manifest(cfg.OUTPUT_ROOT / cfg.RUN_ID), indent=2, sort_keys=True), encoding="utf-8")
-    result["artifactManifestSha256"] = sha256_file(artifacts_path)
-    (report_dir / "iteration_a_report.json").write_text(json.dumps(result, indent=2, default=str, sort_keys=True), encoding="utf-8")
     return result
 
 

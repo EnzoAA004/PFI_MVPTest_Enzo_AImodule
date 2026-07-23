@@ -62,8 +62,8 @@ def require_reliable_slice_order(records: Sequence[SliceRecord25D], *, validated
             raise ValueError(f"Iteration C blocked: order is not strictly increasing for {key}")
 
 
-def neighbor_indices(records: Sequence[SliceRecord25D], center: int) -> tuple[int, int, int]:
-    require_reliable_slice_order(records)
+def neighbor_indices(records: Sequence[SliceRecord25D], center: int, *, validated_filename_report: bool = False) -> tuple[int, int, int]:
+    require_reliable_slice_order(records, validated_filename_report=validated_filename_report)
     center_record = records[center]
     same_study = [
         (index, record)
@@ -98,12 +98,13 @@ class AxialSegmentationDataset25D:
         self.records = list(records)
         self.image_loader = image_loader
         self.mask_loader = mask_loader
+        self.validated_filename_report = validated_filename_report
 
     def __len__(self) -> int:
         return len(self.records)
 
     def __getitem__(self, index: int) -> dict[str, np.ndarray | str]:
-        prev_index, center_index, next_index = neighbor_indices(self.records, index)
+        prev_index, center_index, next_index = neighbor_indices(self.records, index, validated_filename_report=self.validated_filename_report)
         neighbors = [self.records[prev_index], self.records[center_index], self.records[next_index]]
         images = [np.asarray(self.image_loader(record), dtype=np.float32) for record in neighbors]
         if len({image.shape for image in images}) != 1:

@@ -131,7 +131,7 @@ class SegmentationLossFactory(nn.Module):
     def forward(self, logits: torch.Tensor, target: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         total, ce, dice = v2_baseline_segmentation_loss(logits, target, class_weights=self.class_weights)
         components = {"segmentationLoss": total, "crossEntropy": ce, "softDiceLoss": dice}
-        if self.loss_name == "baseline_v2":
+        if self.loss_name in {"baseline_v2", "cross_entropy_plus_soft_dice"}:
             return total, components
         if self.loss_name == "tversky_raw0":
             tv = tversky_loss(logits, target, class_index=1, alpha=self.tversky_alpha, beta=self.tversky_beta)

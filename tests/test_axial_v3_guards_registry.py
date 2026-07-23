@@ -101,4 +101,5 @@ def test_experiment_expansion_from_config() -> None:
     experiments = expand_low_cost_experiments(config)
     assert estimate_run_count(config) == len(experiments)
     assert len({item.experimentId for item in experiments}) == len(experiments)
-    assert any(item.experimentId == "B0" for item in experiments)
+    assert any(item.experimentId == "B0" and item.lossName == "baseline_v2" for item in experiments)
+    assert all(item.lossName in {"baseline_v2", "tversky_raw0"} for item in experiments)

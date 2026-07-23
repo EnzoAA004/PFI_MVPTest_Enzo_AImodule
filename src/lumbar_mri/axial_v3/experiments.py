@@ -21,7 +21,7 @@ class LowCostExperiment:
     architecture: str = "axial_unet2d"
     raw0EffectiveWeightMultiplier: float = 1.0
     maxClassWeightRatio: float | None = None
-    lossName: str = "cross_entropy_plus_soft_dice"
+    lossName: str = "baseline_v2"
     tverskyAlpha: float | None = None
     tverskyBeta: float | None = None
     focalGamma: float | None = None

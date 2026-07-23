@@ -91,6 +91,18 @@ def test_25d_blocks_unknown_or_duplicated_order() -> None:
         require_reliable_slice_order([SliceRecord25D("a", "m", "train", "p", "s", "0", 0, "validated_filename_index")])
     require_reliable_slice_order([SliceRecord25D("a", "m", "train", "p", "s", "0", 0, "validated_filename_index")], validated_filename_report=True)
 
+    valid_filename_records = [
+        SliceRecord25D("a", "m", "train", "p", "s", "0", 0, "validated_filename_index"),
+        SliceRecord25D("b", "m", "train", "p", "s", "1", 1, "validated_filename_index"),
+    ]
+    dataset = AxialSegmentationDataset25D(
+        valid_filename_records,
+        lambda record: np.zeros((4, 4), dtype=np.float32),
+        lambda record: np.zeros((4, 4), dtype=np.int64),
+        validated_filename_report=True,
+    )
+    assert dataset[0]["image"].shape == (3, 4, 4)
+
 
 def test_model_runtime_shape_and_first_conv_conversion() -> None:
     model = build_axial_v3_model(ArchitectureConfig(in_channels=3))

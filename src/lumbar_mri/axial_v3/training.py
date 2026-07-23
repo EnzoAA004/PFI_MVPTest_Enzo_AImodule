@@ -7,6 +7,7 @@ import json
 import math
 import os
 import random
+import subprocess
 import time
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -20,7 +21,7 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
 from .architectures import ArchitectureConfig, build_axial_v3_model
-from .calibration import apply_raw0_threshold
+from .calibration import apply_raw0_slice_presence_gate, apply_raw0_threshold
 from .guards import assert_no_test_records, require_train_val_only
 from .labels import CLASS_INDEX_TO_NAME, mask_to_class_indices
 from .losses import build_segmentation_loss
@@ -89,6 +90,8 @@ class AxialV3TrainConfig:
     PRESENCE_THRESHOLD: float = 0.5
     RAW0_BALANCED_SAMPLER_ENABLED: bool = False
     POSITIVE_FRACTION: float = 0.5
+    PARENT_EXPERIMENT_ID: str | None = None
+    PARENT_RUN_ID: str | None = None
     SMOKE_MAX_RECORDS_PER_SPLIT: int = 8
     MAX_WEIGHT_RECORDS: int = 256
     RESUME_MODE: str = "auto"
@@ -141,6 +144,8 @@ class AxialV3TrainConfig:
             SPLIT_COL=os.getenv("AXIAL_SPLIT_COL", "split"),
             SLICE_COL=os.getenv("AXIAL_SLICE_COL") or None,
             RESUME_MODE=os.getenv("RESUME_MODE", "auto"),
+            PARENT_EXPERIMENT_ID=os.getenv("PFI_PARENT_EXPERIMENT_ID") or None,
+            PARENT_RUN_ID=os.getenv("PFI_PARENT_RUN_ID") or None,
         )
 
 
@@ -399,10 +404,19 @@ def _presence_logits(output: torch.Tensor | dict[str, torch.Tensor]) -> torch.Te
     return output.get("raw0_presence_logits") if isinstance(output, dict) else None
 
 
-def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim.Optimizer, class_weights: torch.Tensor, config: AxialV3TrainConfig, device: torch.device) -> dict[str, float]:
+def train_one_epoch(
+    model: nn.Module,
+    loader: DataLoader,
+    optimizer: torch.optim.Optimizer,
+    class_weights: torch.Tensor,
+    config: AxialV3TrainConfig,
+    device: torch.device,
+    scaler: torch.cuda.amp.GradScaler | None = None,
+) -> dict[str, float]:
     model.train()
     amp_enabled = config.AMP and device.type == "cuda"
-    scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled)
+    if scaler is None:
+        scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled)
     loss_fn = build_segmentation_loss(config, class_weights.to(device))
     totals: dict[str, list[float]] = {"totalLoss": [], "segmentationLoss": [], "presenceLoss": []}
     for batch in loader:
@@ -437,9 +451,22 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim
     return {key: float(np.mean(values)) if values else math.inf for key, values in totals.items()}
 
 
-def evaluate_validation(model: nn.Module, loader: DataLoader, device: torch.device) -> dict[str, Any]:
+def _binary_auroc(scores: np.ndarray, truth: np.ndarray) -> float | None:
+    positives = scores[truth]
+    negatives = scores[~truth]
+    if len(positives) == 0 or len(negatives) == 0:
+        return None
+    wins = 0.0
+    for value in positives:
+        wins += float((value > negatives).sum())
+        wins += 0.5 * float((value == negatives).sum())
+    return wins / float(len(positives) * len(negatives))
+
+
+def evaluate_validation(model: nn.Module, loader: DataLoader, device: torch.device, config: AxialV3TrainConfig | None = None) -> dict[str, Any]:
     model.eval()
     predictions: list[np.ndarray] = []
+    probabilities: list[np.ndarray] = []
     targets: list[np.ndarray] = []
     presence_scores: list[np.ndarray] = []
     with torch.inference_mode():
@@ -448,6 +475,7 @@ def evaluate_validation(model: nn.Module, loader: DataLoader, device: torch.devi
             logits = _extract_logits(output)
             if _presence_logits(output) is not None:
                 presence_scores.append(torch.sigmoid(_presence_logits(output)).cpu().numpy())
+            probabilities.append(torch.softmax(logits, dim=1).cpu().numpy())
             predictions.append(torch.argmax(logits, dim=1).cpu().numpy())
             targets.append(batch["mask"].cpu().numpy())
     if not predictions:
@@ -455,8 +483,10 @@ def evaluate_validation(model: nn.Module, loader: DataLoader, device: torch.devi
     metrics = metrics_from_predictions(np.concatenate(predictions), np.concatenate(targets))
     if presence_scores:
         scores = np.concatenate(presence_scores)
-        truth = (np.concatenate(targets) == 1).reshape(len(scores), -1).any(axis=1)
-        pred_present = scores >= 0.5
+        target_stack = np.concatenate(targets)
+        truth = (target_stack == 1).reshape(len(scores), -1).any(axis=1)
+        threshold = config.PRESENCE_THRESHOLD if config is not None else 0.5
+        pred_present = scores >= threshold
         tp = int(np.logical_and(pred_present, truth).sum())
         fp = int(np.logical_and(pred_present, ~truth).sum())
         tn = int(np.logical_and(~pred_present, ~truth).sum())
@@ -473,8 +503,12 @@ def evaluate_validation(model: nn.Module, loader: DataLoader, device: torch.devi
             "falseNegative": fn,
             "gtPresentCases": int(truth.sum()),
             "gtAbsentCases": int((~truth).sum()),
-            "auroc": None,
+            "threshold": threshold,
+            "auroc": _binary_auroc(scores, truth),
         }
+        if config is not None and config.PRESENCE_HEAD_ENABLED:
+            gated = apply_raw0_slice_presence_gate(np.concatenate(probabilities), scores, threshold)
+            metrics["presenceGatedSegmentation"] = metrics_from_predictions(gated, target_stack)
     return metrics
 
 
@@ -497,6 +531,11 @@ def _checkpoint_payload(
     best_metric: float,
     history: list[dict[str, Any]],
     split_sha256: str,
+    patience_left: int,
+    config_sha256: str,
+    git_commit: str,
+    ai_service_commit: str,
+    scaler: torch.cuda.amp.GradScaler | None = None,
 ) -> dict[str, Any]:
     return {
         "schemaVersion": "axial-v3-train-validation-v1",
@@ -511,6 +550,11 @@ def _checkpoint_payload(
         "bestValidationMetric": best_metric,
         "config": asdict(config),
         "splitSha256": split_sha256,
+        "configSha256": config_sha256,
+        "gitCommit": git_commit,
+        "aiServiceCommit": ai_service_commit,
+        "patienceLeft": patience_left,
+        "scaler_state_dict": scaler.state_dict() if scaler is not None else None,
         "history": history,
     }
 
@@ -519,6 +563,7 @@ def _load_resume_checkpoint(
     path: Path,
     model: nn.Module,
     optimizer: torch.optim.Optimizer,
+    scaler: torch.cuda.amp.GradScaler | None,
     config: AxialV3TrainConfig,
     *,
     smoke: bool,
@@ -538,7 +583,16 @@ def _load_resume_checkpoint(
     model.load_state_dict(checkpoint["model_state_dict"], strict=True)
     if "optimizer_state_dict" in checkpoint:
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    if scaler is not None and checkpoint.get("scaler_state_dict"):
+        scaler.load_state_dict(checkpoint["scaler_state_dict"])
     return checkpoint
+
+
+def _git_commit(root: Path) -> str:
+    try:
+        return subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
+    except Exception:
+        return "unknown"
 
 
 def runtime_shape_smoke(model: nn.Module, config: AxialV3TrainConfig, device: torch.device) -> dict[str, Any]:
@@ -562,6 +616,7 @@ def _run_dirs(config: AxialV3TrainConfig, smoke: bool) -> dict[str, Path]:
         "checkpoints": base / "checkpoints",
         "reports": base / "reports",
         "manifests": base / "manifests",
+        "cache": base / "cache",
     }
 
 
@@ -570,6 +625,44 @@ def _write_json(path: Path, payload: Any) -> None:
     temp = path.with_suffix(path.suffix + ".tmp")
     temp.write_text(json.dumps(payload, indent=2, default=str, sort_keys=True), encoding="utf-8")
     os.replace(temp, path)
+
+
+def _upsert_registry_status(
+    config: AxialV3TrainConfig,
+    *,
+    dirs: dict[str, Path],
+    status: str,
+    smoke: bool,
+    split_hash: str,
+    config_hash: str,
+    git_commit: str,
+    ai_service_commit: str,
+    started: float,
+    notes: str,
+) -> None:
+    upsert_registry_row(
+        config.REGISTRY_PATH,
+        ExperimentRegistryRow(
+            experimentId=config.EXPERIMENT_ID,
+            iteration="B",
+            experimentType=config.EXPERIMENT_TYPE,
+            runId=config.RUN_ID,
+            createdAtUtc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started)),
+            updatedAtUtc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            gitCommit=git_commit,
+            aiServiceCommit=ai_service_commit,
+            seed=config.SEED,
+            configPath=str(dirs["config"] / "run_config.json"),
+            configSha256=config_hash,
+            splitSha256=split_hash,
+            trainingStatus=status,
+            smokeOnly=smoke,
+            selectedEpoch=None,
+            monitorMetric=config.MONITOR_METRIC,
+            durationSeconds=time.time() - started,
+            notes=notes,
+        ),
+    )
 
 
 def run_preflight(config: AxialV3TrainConfig, experiment: object | None = None) -> dict[str, Any]:
@@ -600,47 +693,132 @@ def run_preflight(config: AxialV3TrainConfig, experiment: object | None = None) 
 
 
 def run_calibration(config: AxialV3TrainConfig, *, parent_checkpoint_path: Path) -> dict[str, Any]:
+    started = time.time()
     if not parent_checkpoint_path.is_file():
         raise FileNotFoundError(parent_checkpoint_path)
+    if config.EXPERIMENT_TYPE != "B4" and not config.EXPERIMENT_ID.startswith("B4"):
+        raise ValueError("run_calibration is only valid for B4 experiments")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     loaders, _ = build_train_val_loaders(config, smoke=False)
     model = build_axial_v3_model(ArchitectureConfig(base_channels=config.BASE_CHANNELS)).to(device)
     checkpoint = torch.load(parent_checkpoint_path, map_location=device, weights_only=False)
+    parent_sha = sha256_file(parent_checkpoint_path)
+    if config.PARENT_EXPERIMENT_ID and checkpoint.get("experimentId") != config.PARENT_EXPERIMENT_ID:
+        raise ValueError(f"parent experiment mismatch: {checkpoint.get('experimentId')!r} != {config.PARENT_EXPERIMENT_ID!r}")
+    if config.PARENT_RUN_ID and checkpoint.get("runId") != config.PARENT_RUN_ID:
+        raise ValueError(f"parent run mismatch: {checkpoint.get('runId')!r} != {config.PARENT_RUN_ID!r}")
+    split_hash = sha256_file(config.SPLIT_MANIFEST_PATH)
+    if checkpoint.get("splitSha256") != split_hash:
+        raise ValueError("parent checkpoint splitSha256 does not match current validation split")
+    parent_config = checkpoint.get("config", {})
+    if parent_config and int(parent_config.get("BASE_CHANNELS", config.BASE_CHANNELS)) != config.BASE_CHANNELS:
+        raise ValueError("parent checkpoint architecture does not match BASE_CHANNELS")
     model.load_state_dict(checkpoint["model_state_dict"], strict=True)
     model.eval()
-    probabilities: list[np.ndarray] = []
-    targets: list[np.ndarray] = []
-    with torch.inference_mode():
-        for batch in loaders["val"]:
-            logits = _extract_logits(model(batch["image"].to(device)))
-            probabilities.append(torch.softmax(logits, dim=1).cpu().numpy())
-            targets.append(batch["mask"].cpu().numpy())
-    probs = np.concatenate(probabilities)
-    truth = np.concatenate(targets)
+    cache_dir = config.OUTPUT_ROOT / "calibration_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = cache_dir / f"{parent_sha}_validation_probabilities.npz"
+    if cache_path.exists():
+        cache = np.load(cache_path)
+        probs = cache["probabilities"]
+        truth = cache["targets"]
+    else:
+        probabilities: list[np.ndarray] = []
+        targets: list[np.ndarray] = []
+        with torch.inference_mode():
+            for batch in loaders["val"]:
+                logits = _extract_logits(model(batch["image"].to(device)))
+                probabilities.append(torch.softmax(logits, dim=1).cpu().numpy())
+                targets.append(batch["mask"].cpu().numpy())
+        probs = np.concatenate(probabilities)
+        truth = np.concatenate(targets)
+        np.savez_compressed(cache_path, probabilities=probs, targets=truth, parentCheckpointSha256=parent_sha)
     if config.MIN_PROBABILITY is None or config.MIN_MARGIN is None:
         raise ValueError("B4 calibrate requires MIN_PROBABILITY and MIN_MARGIN")
     pred = apply_raw0_threshold(probs, min_probability=config.MIN_PROBABILITY, min_margin=config.MIN_MARGIN)
     metrics = metrics_from_predictions(pred, truth)
     dirs = _run_dirs(config, smoke=False)
-    _write_json(
-        dirs["reports"] / "calibration_report.json",
-        {
-            "experimentId": config.EXPERIMENT_ID,
-            "parentCheckpointPath": str(parent_checkpoint_path),
-            "parentCheckpointSha256": sha256_file(parent_checkpoint_path),
-            "minProbability": config.MIN_PROBABILITY,
-            "minMargin": config.MIN_MARGIN,
-            "validationMetrics": metrics,
-        },
+    for path in dirs.values():
+        path.mkdir(parents=True, exist_ok=True)
+    _write_json(dirs["config"] / "run_config.json", asdict(config))
+    config_hash = sha256_file(dirs["config"] / "run_config.json")
+    git_commit = _git_commit(config.REPO_ROOT)
+    ai_service_commit = os.getenv("PFI_AI_SERVICE_COMMIT", git_commit)
+    _upsert_registry_status(
+        config,
+        dirs=dirs,
+        status="running",
+        smoke=smoke,
+        split_hash=split_hash,
+        config_hash=config_hash,
+        git_commit=git_commit,
+        ai_service_commit=ai_service_commit,
+        started=started,
+        notes="training started",
     )
-    return {"status": "calibration_completed", "validationMetrics": metrics}
+    report_payload = {
+        "status": "calibration_completed",
+        "experimentId": config.EXPERIMENT_ID,
+        "runId": config.RUN_ID,
+        "parentExperimentId": config.PARENT_EXPERIMENT_ID,
+        "parentRunId": config.PARENT_RUN_ID,
+        "parentCheckpointPath": str(parent_checkpoint_path),
+        "parentCheckpointSha256": parent_sha,
+        "parentSplitSha256": checkpoint.get("splitSha256"),
+        "splitSha256": split_hash,
+        "probabilityCachePath": str(cache_path),
+        "probabilityCacheSha256": sha256_file(cache_path),
+        "minProbability": config.MIN_PROBABILITY,
+        "minMargin": config.MIN_MARGIN,
+        "validationMetrics": metrics,
+    }
+    report_path = dirs["reports"] / "calibration_report.json"
+    _write_json(report_path, report_payload)
+    upsert_registry_row(
+        config.REGISTRY_PATH,
+        ExperimentRegistryRow(
+            experimentId=config.EXPERIMENT_ID,
+            iteration="B",
+            experimentType=config.EXPERIMENT_TYPE,
+            runId=config.RUN_ID,
+            createdAtUtc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started)),
+            updatedAtUtc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            gitCommit=git_commit,
+            aiServiceCommit=ai_service_commit,
+            seed=config.SEED,
+            configPath=str(dirs["config"] / "run_config.json"),
+            configSha256=config_hash,
+            splitSha256=split_hash,
+            trainingStatus="completed",
+            smokeOnly=False,
+            selectedEpoch=None,
+            monitorMetric=config.MONITOR_METRIC,
+            validationDiceMacroForeground=metrics.get("dice_macro_foreground"),
+            validationRaw0Dice=metrics.get("raw0Dice"),
+            validationRaw0Precision=metrics.get("raw0Precision"),
+            validationRaw0Recall=metrics.get("raw0Recall"),
+            validationRaw0FalsePositivePixels=metrics.get("raw0FalsePositivePixels"),
+            validationRaw0PredictedInGtAbsentCases=metrics.get("raw0PredictedInGtAbsentCases"),
+            validationDiceMacroExcludingRaw0=metrics.get("dice_macro_excluding_raw0"),
+            artifactPath=str(report_path),
+            artifactSha256=sha256_file(report_path),
+            checkpointPath=str(parent_checkpoint_path),
+            checkpointSha256=parent_sha,
+            durationSeconds=time.time() - started,
+            notes=f"calibration parent={config.PARENT_EXPERIMENT_ID}/{config.PARENT_RUN_ID}",
+        ),
+    )
+    return report_payload
 
 
 def summarize_validation_runs(config: AxialV3TrainConfig) -> dict[str, Any]:
-    from .low_cost import SelectionGuardrail, validation_ranking_key
+    from .low_cost import SelectionGuardrail, evaluate_other_class_guardrail, validation_ranking_key
     from .registry import read_registry
 
     rows = read_registry(config.REGISTRY_PATH)
+    report_by_key = {row.get("experimentId"): _load_run_report_per_class(row) for row in rows}
+    baseline_per_class = report_by_key.get("B0")
+    guardrail = SelectionGuardrail(protected_classes=("raw_50", "raw_100", "raw_150", "raw_200"))
     accepted = []
     discarded = []
     for row in rows:
@@ -649,8 +827,8 @@ def summarize_validation_runs(config: AxialV3TrainConfig) -> dict[str, Any]:
         reasons = []
         if smoke:
             reasons.append("smoke")
-        if status != "completed":
-            reasons.append("not_completed")
+            if status not in {"completed", "validation_candidate"}:
+                reasons.append("not_completed")
         metrics = {
             "dice_macro_foreground": _parse_float(row.get("validationDiceMacroForeground")),
             "raw0PredictedInGtAbsentCases": _parse_float(row.get("validationRaw0PredictedInGtAbsentCases")),
@@ -659,7 +837,14 @@ def summarize_validation_runs(config: AxialV3TrainConfig) -> dict[str, Any]:
         }
         if any(value is None or not np.isfinite(value) for value in metrics.values()):
             reasons.append("missing_or_nonfinite_metrics")
-        payload = {**row, **metrics, "discardReasons": ";".join(reasons)}
+        guardrail_report = {"passed": False, "reasons": ["baseline_per_class_missing"], "missingMetrics": []}
+        if baseline_per_class:
+            guardrail_report = evaluate_other_class_guardrail(report_by_key.get(row.get("experimentId"), {}), baseline_per_class, guardrail)
+            if not guardrail_report["passed"]:
+                reasons.extend(str(reason) for reason in guardrail_report["reasons"])
+        else:
+            reasons.append("baseline_per_class_missing")
+        payload = {**row, **metrics, "guardrail": guardrail_report, "discardReasons": ";".join(reasons)}
         if reasons:
             discarded.append(payload)
         else:
@@ -667,12 +852,38 @@ def summarize_validation_runs(config: AxialV3TrainConfig) -> dict[str, Any]:
     accepted.sort(key=validation_ranking_key, reverse=True)
     if accepted:
         accepted[0]["selectionLabel"] = "validation_candidate"
+        selected_payload = next((row for row in rows if row.get("experimentId") == accepted[0].get("experimentId") and row.get("runId") == accepted[0].get("runId")), None)
+        if selected_payload:
+            selected_payload = {**selected_payload, "trainingStatus": "validation_candidate", "guardrailPassed": True, "notes": "selected by validation-only summarize"}
+            upsert_registry_row(config.REGISTRY_PATH, ExperimentRegistryRow(**{column: selected_payload.get(column) for column in ExperimentRegistryRow.__dataclass_fields__}))
     output = config.OUTPUT_ROOT
     output.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(accepted + discarded).to_csv(output / "validation_ranking.csv", index=False)
     _write_json(output / "validation_ranking.json", {"accepted": accepted, "discarded": discarded})
     (output / "selection_report.md").write_text("# Axial v3 validation ranking\n\nValidation-only ranking. No test data read.\n", encoding="utf-8")
     return {"accepted": accepted, "discarded": discarded}
+
+
+def _load_run_report_per_class(row: dict[str, Any]) -> dict[str, Any]:
+    artifact_path = row.get("artifactPath")
+    if artifact_path and Path(str(artifact_path)).exists():
+        report_path = Path(str(artifact_path))
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+        metrics = payload.get("finalValidationMetrics") or payload.get("validationMetrics") or {}
+        per_class = metrics.get("perClass")
+        return per_class if isinstance(per_class, dict) else {}
+    checkpoint_path = row.get("checkpointPath")
+    if not checkpoint_path:
+        return {}
+    report_path = Path(str(checkpoint_path)).parent.parent / "reports" / "run_report.json"
+    if not report_path.exists():
+        report_path = Path(str(checkpoint_path)).parent.parent / "reports" / "calibration_report.json"
+    if not report_path.exists():
+        return {}
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    metrics = payload.get("finalValidationMetrics") or payload.get("validationMetrics") or {}
+    per_class = metrics.get("perClass")
+    return per_class if isinstance(per_class, dict) else {}
 
 
 def _parse_float(value: object) -> float | None:
@@ -682,12 +893,15 @@ def _parse_float(value: object) -> float | None:
 
 
 def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str, Any]:
+    if config.EXPERIMENT_TYPE == "B4" or config.EXPERIMENT_ID.startswith("B4"):
+        raise ValueError("B4 calibration experiments must use RUN_MODE=calibrate, not train")
     set_deterministic_seed(config.SEED)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     loaders, records = build_train_val_loaders(config, smoke=smoke)
     class_weights, weight_report = compute_class_weights(records, config)
     model = build_axial_v3_model(ArchitectureConfig(base_channels=config.BASE_CHANNELS, presence_head=config.PRESENCE_HEAD_ENABLED)).to(device)
     optimizer = build_optimizer(model, config)
+    scaler = torch.cuda.amp.GradScaler(enabled=config.AMP and device.type == "cuda")
     max_epochs = min(config.MAX_EPOCHS, 2) if smoke else config.MAX_EPOCHS
     split_hash = sha256_file(config.SPLIT_MANIFEST_PATH)
     best_metric = -math.inf
@@ -699,6 +913,9 @@ def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str
     for path in dirs.values():
         path.mkdir(parents=True, exist_ok=True)
     _write_json(dirs["config"] / "run_config.json", asdict(config))
+    config_hash = sha256_file(dirs["config"] / "run_config.json")
+    git_commit = _git_commit(config.REPO_ROOT)
+    ai_service_commit = os.getenv("PFI_AI_SERVICE_COMMIT", git_commit)
     resume_mode = config.RESUME_MODE.strip().lower()
     if resume_mode == "off":
         resume_mode = "never"
@@ -709,10 +926,11 @@ def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str
     start_epoch = 1
     if resume_mode in {"auto", "required"}:
         if last_checkpoint_path.exists():
-            checkpoint = _load_resume_checkpoint(last_checkpoint_path, model, optimizer, config, smoke=smoke, split_sha256=split_hash, device=device)
+            checkpoint = _load_resume_checkpoint(last_checkpoint_path, model, optimizer, scaler, config, smoke=smoke, split_sha256=split_hash, device=device)
             history = list(checkpoint.get("history", []))
             best_metric = float(checkpoint.get("bestValidationMetric", -math.inf))
             selected_epoch = int(checkpoint.get("selectedEpoch", 0))
+            patience_left = int(checkpoint.get("patienceLeft", config.EARLY_STOPPING_PATIENCE))
             start_epoch = int(checkpoint.get("epoch", 0)) + 1
             resume_status.update({"loaded": True, "startEpoch": start_epoch, "checkpointSha256": sha256_file(last_checkpoint_path)})
         elif resume_mode == "required":
@@ -720,8 +938,8 @@ def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str
     checkpoint_path = dirs["checkpoints"] / "best_checkpoint.pt"
     checkpoint_sha = sha256_file(checkpoint_path) if checkpoint_path.exists() else ""
     for epoch in range(start_epoch, max_epochs + 1):
-        train_metrics = train_one_epoch(model, loaders["train"], optimizer, class_weights, config, device)
-        val_metrics = evaluate_validation(model, loaders["val"], device)
+        train_metrics = train_one_epoch(model, loaders["train"], optimizer, class_weights, config, device, scaler)
+        val_metrics = evaluate_validation(model, loaders["val"], device, config)
         monitor = val_metrics.get(config.MONITOR_METRIC)
         improved = monitor is not None and float(monitor) > best_metric
         if improved:
@@ -730,14 +948,44 @@ def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str
             patience_left = config.EARLY_STOPPING_PATIENCE
             checkpoint_sha = save_checkpoint_atomic(
                 checkpoint_path,
-                _checkpoint_payload(model, optimizer, config, smoke=smoke, epoch=epoch, selected_epoch=epoch, best_metric=best_metric, history=history, split_sha256=split_hash),
+                _checkpoint_payload(
+                    model,
+                    optimizer,
+                    config,
+                    smoke=smoke,
+                    epoch=epoch,
+                    selected_epoch=epoch,
+                    best_metric=best_metric,
+                    history=history,
+                    split_sha256=split_hash,
+                    patience_left=patience_left,
+                    config_sha256=config_hash,
+                    git_commit=git_commit,
+                    ai_service_commit=ai_service_commit,
+                    scaler=scaler,
+                ),
             )
         else:
             patience_left -= 1
         history.append({"epoch": epoch, **{f"train_{k}": v for k, v in train_metrics.items()}, **{f"val_{k}": v for k, v in val_metrics.items() if k not in {"perClass", "confusionMatrix"}}})
         save_checkpoint_atomic(
             last_checkpoint_path,
-            _checkpoint_payload(model, optimizer, config, smoke=smoke, epoch=epoch, selected_epoch=selected_epoch, best_metric=best_metric, history=history, split_sha256=split_hash),
+            _checkpoint_payload(
+                model,
+                optimizer,
+                config,
+                smoke=smoke,
+                epoch=epoch,
+                selected_epoch=selected_epoch,
+                best_metric=best_metric,
+                history=history,
+                split_sha256=split_hash,
+                patience_left=patience_left,
+                config_sha256=config_hash,
+                git_commit=git_commit,
+                ai_service_commit=ai_service_commit,
+                scaler=scaler,
+            ),
         )
         if patience_left <= 0:
             break
@@ -745,7 +993,7 @@ def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str
     if checkpoint_sha and checkpoint_path.exists():
         checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
         model.load_state_dict(checkpoint["model_state_dict"], strict=True)
-    final_metrics = evaluate_validation(model, loaders["val"], device)
+    final_metrics = evaluate_validation(model, loaders["val"], device, config)
     pd.DataFrame(history).to_csv(dirs["metrics"] / "history.csv", index=False)
     _write_json(dirs["metrics"] / "history.json", history)
     _write_json(dirs["metrics"] / "best_validation_metrics.json", final_metrics)
@@ -779,11 +1027,11 @@ def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str
             runId=config.RUN_ID,
             createdAtUtc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started)),
             updatedAtUtc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            gitCommit="unknown",
-            aiServiceCommit="unknown",
+            gitCommit=git_commit,
+            aiServiceCommit=ai_service_commit,
             seed=config.SEED,
             configPath=str(dirs["config"] / "run_config.json"),
-            configSha256=sha256_file(dirs["config"] / "run_config.json"),
+            configSha256=config_hash,
             splitSha256=split_hash,
             trainingStatus="smoke_completed" if smoke else "completed",
             smokeOnly=smoke,

@@ -11,7 +11,7 @@ from lumbar_mri.axial_v3.audit import audit_raw0_slice, summarize_raw0_by_patien
 from lumbar_mri.axial_v3.audit import write_audit_outputs
 from lumbar_mri.axial_v3.calibration import apply_raw0_slice_presence_gate, apply_raw0_threshold, raw0_metrics_from_predictions, raw0_presence_metrics
 from lumbar_mri.axial_v3.labels import mask_to_class_indices, map_raw_mask_to_class_indices, validate_indexed_mask_labels, validate_raw_mask_labels
-from lumbar_mri.axial_v3.iteration_a import AxialV3AuditConfig, optional_env_path, run_iteration_a
+from lumbar_mri.axial_v3.iteration_a import AxialV3AuditConfig, optional_env_path, run_iteration_a, validate_v2_checkpoint_metadata
 
 
 def test_raw0_slice_audit_positive_negative_border_and_components() -> None:
@@ -114,6 +114,15 @@ def test_optional_checkpoint_env_empty_is_none(monkeypatch) -> None:
     assert cfg.V2_CHECKPOINT_PATH is None
 
 
+def test_v2_checkpoint_metadata_is_strict_by_default() -> None:
+    incomplete = {"model_state_dict": {}, "runId": "axial-final-v2"}
+    cfg = AxialV3AuditConfig(PFI_ALLOW_INCOMPLETE_V2_CHECKPOINT_METADATA=False)
+    with pytest.raises(ValueError, match="metadata is incomplete"):
+        validate_v2_checkpoint_metadata(incomplete, cfg)
+    permissive = AxialV3AuditConfig(PFI_ALLOW_INCOMPLETE_V2_CHECKPOINT_METADATA=True)
+    assert "smokeOnly" in validate_v2_checkpoint_metadata(incomplete, permissive)["missingMetadataFields"]
+
+
 def test_raw0_threshold_batch_and_presence_gate() -> None:
     probs = np.zeros((2, 3, 2, 2), dtype=np.float32)
     probs[:, 1] = 0.6
@@ -144,7 +153,7 @@ def test_iteration_a_writes_review_outputs_and_real_previews(tmp_path: Path) -> 
     data_root.mkdir()
     rows = []
     for split, patient, raw0 in [("train", "p1", True), ("train", "p2", False), ("val", "p3", True), ("val", "p4", False)]:
-        image = np.linspace(0, 1, 64, dtype=np.float32).reshape(8, 8)
+        image = np.linspace(0, 1, 144, dtype=np.float32).reshape(12, 12)
         mask = np.full((8, 8), 250, dtype=np.uint8)
         if raw0:
             mask[0:2, 1:3] = 0
