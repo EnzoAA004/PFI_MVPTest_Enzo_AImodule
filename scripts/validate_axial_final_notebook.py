@@ -27,6 +27,12 @@ REQUIRED = [
     "resolvedPath",
     "sameSizeRows",
     "sha256_stream(Path(df.at[idx, \"resolvedPath\"]))",
+    "sliceId",
+    "duplicateImages",
+    "duplicatePairs",
+    "repeatedMasks",
+    "maskOnlyWarnings",
+    "misma mascara SHA-256 asociada a imagenes diferentes",
     "save_split_snapshot",
     "split_snapshot.csv",
     "required_cell_value",
@@ -44,6 +50,12 @@ REQUIRED = [
     "ENABLE_HORIZONTAL_FLIP",
     "AUGMENTATION_EPOCH",
     "smoke selection",
+    "RESUME_DIR = CFG.RESUME_ROOT / CFG.RUN_ID",
+    "RESUME_DIR / \"axial_t2_alkafri_final.last_checkpoint.pt\"",
+    "RESUME_DIR / \"axial_t2_alkafri_final.best_checkpoint.pt\"",
+    '"artifactFile": artifact_path.name',
+    'f"{artifact_path.name}.manifest.json"',
+    'f"{artifact_path.name}.modelcard.md"',
 ]
 
 FORBIDDEN = [

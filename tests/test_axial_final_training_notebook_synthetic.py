@@ -17,13 +17,14 @@ ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOK = ROOT / "notebooks" / "48_axial_final_training_patient_split.ipynb"
 
 
-def _write_pair(root: Path, name: str, labels: list[int]) -> tuple[Path, Path]:
+def _write_pair(root: Path, name: str, labels: list[int], background_only: bool = False) -> tuple[Path, Path]:
     image_offset = sum(ord(ch) for ch in name)
     image = np.arange(16 * 16, dtype=np.float32).reshape(16, 16) + image_offset
     mask = np.full((16, 16), 250, dtype=np.int16)
-    for index, label in enumerate(labels):
-        row = (index * 3) % 16
-        mask[row : row + 2, index : index + 2] = label
+    if not background_only:
+        for index, label in enumerate(labels):
+            row = (index * 3) % 16
+            mask[row : row + 2, index : index + 2] = label
     image_path = root / "images" / f"{name}.npy"
     mask_path = root / "masks" / f"{name}.npy"
     image_path.parent.mkdir(parents=True, exist_ok=True)
@@ -42,9 +43,11 @@ def _synthetic_split(tmp_path: Path) -> Path:
         ("val_b", "val", "patient_d", [150, 200]),
         ("test_a", "test", "patient_e", [0, 150]),
         ("test_b", "test", "patient_f", [50, 200]),
+        ("test_bg_a", "test", "patient_g", []),
+        ("test_bg_b", "test", "patient_h", []),
     ]
     for name, split, patient, labels in specs:
-        image_path, mask_path = _write_pair(tmp_path, name, labels)
+        image_path, mask_path = _write_pair(tmp_path, name, labels, background_only=name.startswith("test_bg_"))
         rows.append(
             {
                 "image_file_path": str(image_path),
@@ -61,6 +64,7 @@ def _synthetic_split(tmp_path: Path) -> Path:
 def _load_notebook_symbols(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, object]:
     split_csv = _synthetic_split(tmp_path / "data")
     out_root = tmp_path / "out"
+    resume_root = tmp_path / "resume_root"
     monkeypatch.setenv("PFI_INSTALL_NOTEBOOK_DEPS", "0")
     monkeypatch.setenv("PFI_USE_GOOGLE_DRIVE", "0")
     monkeypatch.setenv("RUN_MODE", "preflight")
@@ -70,7 +74,7 @@ def _load_notebook_symbols(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> d
     monkeypatch.setenv("AXIAL_MASKS_DIR", str(tmp_path / "data" / "masks"))
     monkeypatch.setenv("AXIAL_E9_CURATED_SPLIT_CSV", str(split_csv))
     monkeypatch.setenv("PFI_OUTPUT_ROOT", str(out_root))
-    monkeypatch.setenv("PFI_RESUME_ROOT", str(out_root / "resume"))
+    monkeypatch.setenv("PFI_RESUME_ROOT", str(resume_root))
     monkeypatch.setenv("PFI_RUN_ID", "synthetic-run")
     monkeypatch.setenv("PFI_NUM_WORKERS", "0")
     monkeypatch.setenv("PFI_BATCH_SIZE", "2")
@@ -107,14 +111,20 @@ def test_axial_final_notebook_synthetic_flow(monkeypatch: pytest.MonkeyPatch, tm
     ns = _load_notebook_symbols(monkeypatch, tmp_path)
     records = ns["build_records_from_split_manifest"]()
 
-    assert len(records) == 6
+    assert len(records) == 8
     integrity = ns["validate_split_integrity"](records)
     assert integrity["patientHeldout"] is True
 
     duplicate_df = ns["compute_duplicate_report"](records, full_hash=False)
     assert int(duplicate_df["fileSize"].duplicated().sum()) > 0
     assert int(duplicate_df["sha256"].notna().sum()) == len(duplicate_df)
-    assert ns["validate_no_duplicate_leakage"](duplicate_df)["duplicateLeakage"] is False
+    with pytest.warns(UserWarning, match="misma mascara SHA-256"):
+        duplicate_report = ns["validate_no_duplicate_leakage"](duplicate_df)
+    assert duplicate_report["duplicateLeakage"] is False
+    assert duplicate_report["duplicateImages"] == []
+    assert duplicate_report["duplicatePairs"] == []
+    assert duplicate_report["repeatedMasks"]
+    assert duplicate_report["maskOnlyWarnings"]
 
     label_report = ns["scan_labels_and_shapes"](records)
     assert label_report["casePresenceBySplit"]["train"]["raw_0"] == 1
@@ -157,7 +167,9 @@ def test_axial_final_notebook_synthetic_flow(monkeypatch: pytest.MonkeyPatch, tm
         class_weights,
         True,
     )
-    resume_path = ns["OUTPUT_DIRS"]["resume"] / "axial_t2_alkafri_final.last_checkpoint.pt"
+    resume_path = ns["RESUME_DIR"] / "axial_t2_alkafri_final.last_checkpoint.pt"
+    assert ns["RESUME_DIR"].parent == tmp_path / "resume_root"
+    assert not str(ns["RESUME_DIR"]).startswith(str(ns["CFG"].OUTPUT_ROOT))
     ns["save_checkpoint"](resume_path, payload)
     start_epoch, best_metric, patience_left, restored_history = ns["load_resume_if_allowed"](
         model,
@@ -181,9 +193,10 @@ def test_axial_final_notebook_synthetic_flow(monkeypatch: pytest.MonkeyPatch, tm
         ns["load_resume_if_allowed"](model, optimizer, scheduler, None, smoke_only=True)
     ns["CFG"] = original_cfg
 
-    runtime_path = ns["OUTPUT_DIRS"]["models"] / "synthetic_axial.pt"
+    final_path = ns["OUTPUT_DIRS"]["models"] / "axial_t2_alkafri_final_best.pt"
+    candidate_path = ns["OUTPUT_DIRS"]["models"] / "axial_t2_alkafri_final_candidate.pt"
     ns["save_checkpoint"](
-        runtime_path,
+        final_path,
         {
             "model_state_dict": model.state_dict(),
             "num_classes": ns["CFG"].NUM_CLASSES,
@@ -191,14 +204,31 @@ def test_axial_final_notebook_synthetic_flow(monkeypatch: pytest.MonkeyPatch, tm
             "target_size": ns["CFG"].TARGET_SIZE,
         },
     )
-    gate = ns["quality_gate"](metrics, {"patientHeldout": True})
-    manifest = ns["generate_manifest_and_model_card"](runtime_path, metrics, gate)
+    approved_gate = {"qualityGatePassed": True}
+    manifest = ns["generate_manifest_and_model_card"](final_path, metrics, approved_gate)
     assert isinstance(manifest, dict)
+    assert manifest["artifactFile"] == "axial_t2_alkafri_final_best.pt"
     assert manifest["metrics"]["dicePerClass"]
     assert manifest["metrics"]["iouPerClass"]
+    assert (ns["OUTPUT_DIRS"]["manifests"] / "axial_t2_alkafri_final_best.pt.manifest.json").exists()
+    assert (ns["OUTPUT_DIRS"]["manifests"] / "axial_t2_alkafri_final_best.pt.modelcard.md").exists()
+
+    ns["save_checkpoint"](
+        candidate_path,
+        {
+            "model_state_dict": model.state_dict(),
+            "num_classes": ns["CFG"].NUM_CLASSES,
+            "base_channels": ns["CFG"].BASE_CHANNELS,
+            "target_size": ns["CFG"].TARGET_SIZE,
+        },
+    )
+    candidate_manifest = ns["generate_manifest_and_model_card"](candidate_path, metrics, {"qualityGatePassed": False})
+    assert candidate_manifest["artifactFile"] == "axial_t2_alkafri_final_candidate.pt"
+    assert (ns["OUTPUT_DIRS"]["manifests"] / "axial_t2_alkafri_final_candidate.pt.manifest.json").exists()
+    assert (ns["OUTPUT_DIRS"]["manifests"] / "axial_t2_alkafri_final_candidate.pt.modelcard.md").exists()
 
     shape = ns["round_trip_model_from_manifest"](
-        runtime_path,
+        final_path,
         manifest,
         torch.randn(1, 1, *ns["CFG"].TARGET_SIZE),
     )
