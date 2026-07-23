@@ -28,7 +28,7 @@ from .losses import build_segmentation_loss
 from .low_cost import apply_raw0_effective_weight, cap_class_weight_ratio
 from .metrics import metrics_from_predictions
 from .presence import presence_targets, total_loss_with_presence
-from .registry import ExperimentRegistryRow, upsert_registry_row
+from .registry import ExperimentRegistryRow, registry_row_from_config, upsert_registry_row
 
 
 @dataclass(frozen=True)
@@ -88,6 +88,7 @@ class AxialV3TrainConfig:
     PRESENCE_HEAD_ENABLED: bool = False
     LAMBDA_PRESENCE: float = 0.0
     PRESENCE_THRESHOLD: float = 0.5
+    USE_GATED_SELECTION_METRICS: bool = True
     RAW0_BALANCED_SAMPLER_ENABLED: bool = False
     POSITIVE_FRACTION: float = 0.5
     PARENT_EXPERIMENT_ID: str | None = None
@@ -136,6 +137,8 @@ class AxialV3TrainConfig:
             MONITOR_METRIC=os.getenv("AXIAL_MONITOR_METRIC", "dice_macro_foreground"),
             AMP=env_bool("PFI_USE_AMP", True),
             GRAD_CLIP_NORM=float(os.getenv("PFI_GRADIENT_CLIP_NORM", "1.0")),
+            PRESENCE_THRESHOLD=float(os.getenv("PFI_PRESENCE_THRESHOLD", "0.5")),
+            USE_GATED_SELECTION_METRICS=env_bool("PFI_USE_GATED_SELECTION_METRICS", True),
             MASK_LABEL_MODE=os.getenv("PFI_MASK_LABEL_MODE", "raw"),
             IMAGE_COL=os.getenv("AXIAL_IMAGE_COL", "image_file_path"),
             MASK_COL=os.getenv("AXIAL_MASK_COL", "final_label_file_path"),
@@ -283,6 +286,10 @@ class AxialV3SegmentationDataset(Dataset):
         require_train_val_only([split], context="AxialV3SegmentationDataset")
         self.records = [record for record in records if record.split == split]
         self.config = config
+        self.augmentation_epoch = 0
+
+    def set_epoch(self, epoch: int) -> None:
+        self.augmentation_epoch = int(epoch)
 
     def __len__(self) -> int:
         return len(self.records)
@@ -293,7 +300,7 @@ class AxialV3SegmentationDataset(Dataset):
         raw_mask = resize_nearest(open_2d_array(Path(record.mask_path)), self.config.TARGET_SIZE)
         mask = mask_to_class_indices(raw_mask, mode=self.config.MASK_LABEL_MODE)  # explicit mode, never inferred
         if self.config.ENABLE_TRAIN_AUGMENTATION and record.split == "train":
-            seed_material = f"{self.config.SEED}|{index}|{record.sliceId}"
+            seed_material = f"{self.config.SEED}|{self.augmentation_epoch}|{index}|{record.sliceId}"
             seed = int(hashlib.sha256(seed_material.encode("utf-8")).hexdigest()[:8], 16)
             image, mask = maybe_augment(image, mask, random.Random(seed), self.config)
         return {
@@ -396,6 +403,10 @@ def build_optimizer(model: nn.Module, config: AxialV3TrainConfig) -> torch.optim
     return torch.optim.AdamW(model.parameters(), lr=config.LEARNING_RATE, weight_decay=config.WEIGHT_DECAY)
 
 
+def build_scheduler(optimizer: torch.optim.Optimizer) -> torch.optim.lr_scheduler.ReduceLROnPlateau:
+    return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="max", factor=0.5, patience=4)
+
+
 def _extract_logits(output: torch.Tensor | dict[str, torch.Tensor]) -> torch.Tensor:
     return output["segmentation_logits"] if isinstance(output, dict) else output
 
@@ -461,6 +472,12 @@ def _binary_auroc(scores: np.ndarray, truth: np.ndarray) -> float | None:
         wins += float((value > negatives).sum())
         wins += 0.5 * float((value == negatives).sum())
     return wins / float(len(positives) * len(negatives))
+
+
+def selection_metrics(metrics: dict[str, Any], config: AxialV3TrainConfig) -> dict[str, Any]:
+    if config.PRESENCE_HEAD_ENABLED and config.USE_GATED_SELECTION_METRICS and isinstance(metrics.get("presenceGatedSegmentation"), dict):
+        return metrics["presenceGatedSegmentation"]
+    return metrics
 
 
 def evaluate_validation(model: nn.Module, loader: DataLoader, device: torch.device, config: AxialV3TrainConfig | None = None) -> dict[str, Any]:
@@ -535,6 +552,7 @@ def _checkpoint_payload(
     config_sha256: str,
     git_commit: str,
     ai_service_commit: str,
+    scheduler: torch.optim.lr_scheduler.ReduceLROnPlateau | None = None,
     scaler: torch.cuda.amp.GradScaler | None = None,
 ) -> dict[str, Any]:
     return {
@@ -554,6 +572,7 @@ def _checkpoint_payload(
         "gitCommit": git_commit,
         "aiServiceCommit": ai_service_commit,
         "patienceLeft": patience_left,
+        "scheduler_state_dict": scheduler.state_dict() if scheduler is not None else None,
         "scaler_state_dict": scaler.state_dict() if scaler is not None else None,
         "history": history,
     }
@@ -563,26 +582,51 @@ def _load_resume_checkpoint(
     path: Path,
     model: nn.Module,
     optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.ReduceLROnPlateau | None,
     scaler: torch.cuda.amp.GradScaler | None,
     config: AxialV3TrainConfig,
     *,
     smoke: bool,
     split_sha256: str,
+    config_sha256: str,
     device: torch.device,
 ) -> dict[str, Any]:
     checkpoint = torch.load(path, map_location=device, weights_only=False)
     expected = {
         "runId": config.RUN_ID,
         "experimentId": config.EXPERIMENT_ID,
+        "experimentType": config.EXPERIMENT_TYPE,
         "smokeOnly": smoke,
         "splitSha256": split_sha256,
+        "configSha256": config_sha256,
     }
     for field, value in expected.items():
         if checkpoint.get(field) != value:
             raise ValueError(f"resume checkpoint mismatch for {field}: {checkpoint.get(field)!r} != {value!r}")
+    checkpoint_config = checkpoint.get("config", {})
+    semantic_fields = [
+        "BASE_CHANNELS",
+        "LOSS_NAME",
+        "RAW0_WEIGHT_BOOST",
+        "MAX_CLASS_WEIGHT_RATIO",
+        "RAW0_TVERSKY_WEIGHT",
+        "RAW0_FP_PENALTY_WEIGHT",
+        "PRESENCE_HEAD_ENABLED",
+        "LAMBDA_PRESENCE",
+        "PRESENCE_THRESHOLD",
+        "RAW0_BALANCED_SAMPLER_ENABLED",
+        "POSITIVE_FRACTION",
+        "MIN_PROBABILITY",
+        "MIN_MARGIN",
+    ]
+    for field in semantic_fields:
+        if checkpoint_config and checkpoint_config.get(field) != asdict(config).get(field):
+            raise ValueError(f"resume checkpoint config mismatch for {field}")
     model.load_state_dict(checkpoint["model_state_dict"], strict=True)
     if "optimizer_state_dict" in checkpoint:
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    if scheduler is not None and checkpoint.get("scheduler_state_dict"):
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
     if scaler is not None and checkpoint.get("scaler_state_dict"):
         scaler.load_state_dict(checkpoint["scaler_state_dict"])
     return checkpoint
@@ -665,6 +709,34 @@ def _upsert_registry_status(
     )
 
 
+def _record_failed_status(config: AxialV3TrainConfig, *, smoke: bool, started: float, error: Exception) -> None:
+    try:
+        dirs = _run_dirs(config, smoke)
+        for path in dirs.values():
+            path.mkdir(parents=True, exist_ok=True)
+        config_path = dirs["config"] / "run_config.json"
+        if not config_path.exists():
+            _write_json(config_path, asdict(config))
+        split_hash = sha256_file(config.SPLIT_MANIFEST_PATH) if config.SPLIT_MANIFEST_PATH.exists() else ""
+        config_hash = sha256_file(config_path) if config_path.exists() else ""
+        git_commit = _git_commit(config.REPO_ROOT)
+        ai_service_commit = os.getenv("PFI_AI_SERVICE_COMMIT", git_commit)
+        _upsert_registry_status(
+            config,
+            dirs=dirs,
+            status="failed",
+            smoke=smoke,
+            split_hash=split_hash,
+            config_hash=config_hash,
+            git_commit=git_commit,
+            ai_service_commit=ai_service_commit,
+            started=started,
+            notes=f"{type(error).__name__}: {error}",
+        )
+    except Exception:
+        pass
+
+
 def run_preflight(config: AxialV3TrainConfig, experiment: object | None = None) -> dict[str, Any]:
     records = build_train_val_records(config)
     class_weights, class_weight_report = compute_class_weights(records, config)
@@ -692,7 +764,7 @@ def run_preflight(config: AxialV3TrainConfig, experiment: object | None = None) 
     return report
 
 
-def run_calibration(config: AxialV3TrainConfig, *, parent_checkpoint_path: Path) -> dict[str, Any]:
+def _run_calibration_impl(config: AxialV3TrainConfig, *, parent_checkpoint_path: Path) -> dict[str, Any]:
     started = time.time()
     if not parent_checkpoint_path.is_file():
         raise FileNotFoundError(parent_checkpoint_path)
@@ -713,6 +785,25 @@ def run_calibration(config: AxialV3TrainConfig, *, parent_checkpoint_path: Path)
     parent_config = checkpoint.get("config", {})
     if parent_config and int(parent_config.get("BASE_CHANNELS", config.BASE_CHANNELS)) != config.BASE_CHANNELS:
         raise ValueError("parent checkpoint architecture does not match BASE_CHANNELS")
+    dirs = _run_dirs(config, smoke=False)
+    for path in dirs.values():
+        path.mkdir(parents=True, exist_ok=True)
+    _write_json(dirs["config"] / "run_config.json", asdict(config))
+    config_hash = sha256_file(dirs["config"] / "run_config.json")
+    git_commit = _git_commit(config.REPO_ROOT)
+    ai_service_commit = os.getenv("PFI_AI_SERVICE_COMMIT", git_commit)
+    _upsert_registry_status(
+        config,
+        dirs=dirs,
+        status="running",
+        smoke=False,
+        split_hash=split_hash,
+        config_hash=config_hash,
+        git_commit=git_commit,
+        ai_service_commit=ai_service_commit,
+        started=started,
+        notes="calibration started",
+    )
     model.load_state_dict(checkpoint["model_state_dict"], strict=True)
     model.eval()
     cache_dir = config.OUTPUT_ROOT / "calibration_cache"
@@ -737,25 +828,6 @@ def run_calibration(config: AxialV3TrainConfig, *, parent_checkpoint_path: Path)
         raise ValueError("B4 calibrate requires MIN_PROBABILITY and MIN_MARGIN")
     pred = apply_raw0_threshold(probs, min_probability=config.MIN_PROBABILITY, min_margin=config.MIN_MARGIN)
     metrics = metrics_from_predictions(pred, truth)
-    dirs = _run_dirs(config, smoke=False)
-    for path in dirs.values():
-        path.mkdir(parents=True, exist_ok=True)
-    _write_json(dirs["config"] / "run_config.json", asdict(config))
-    config_hash = sha256_file(dirs["config"] / "run_config.json")
-    git_commit = _git_commit(config.REPO_ROOT)
-    ai_service_commit = os.getenv("PFI_AI_SERVICE_COMMIT", git_commit)
-    _upsert_registry_status(
-        config,
-        dirs=dirs,
-        status="running",
-        smoke=smoke,
-        split_hash=split_hash,
-        config_hash=config_hash,
-        git_commit=git_commit,
-        ai_service_commit=ai_service_commit,
-        started=started,
-        notes="training started",
-    )
     report_payload = {
         "status": "calibration_completed",
         "experimentId": config.EXPERIMENT_ID,
@@ -811,6 +883,15 @@ def run_calibration(config: AxialV3TrainConfig, *, parent_checkpoint_path: Path)
     return report_payload
 
 
+def run_calibration(config: AxialV3TrainConfig, *, parent_checkpoint_path: Path) -> dict[str, Any]:
+    started = time.time()
+    try:
+        return _run_calibration_impl(config, parent_checkpoint_path=parent_checkpoint_path)
+    except Exception as exc:
+        _record_failed_status(config, smoke=False, started=started, error=exc)
+        raise
+
+
 def summarize_validation_runs(config: AxialV3TrainConfig) -> dict[str, Any]:
     from .low_cost import SelectionGuardrail, evaluate_other_class_guardrail, validation_ranking_key
     from .registry import read_registry
@@ -827,13 +908,13 @@ def summarize_validation_runs(config: AxialV3TrainConfig) -> dict[str, Any]:
         reasons = []
         if smoke:
             reasons.append("smoke")
-            if status not in {"completed", "validation_candidate"}:
-                reasons.append("not_completed")
+        if status not in {"completed", "validation_candidate"}:
+            reasons.append("not_completed")
         metrics = {
-            "dice_macro_foreground": _parse_float(row.get("validationDiceMacroForeground")),
-            "raw0PredictedInGtAbsentCases": _parse_float(row.get("validationRaw0PredictedInGtAbsentCases")),
-            "raw0Precision": _parse_float(row.get("validationRaw0Precision")),
-            "dice_macro_excluding_raw0": _parse_float(row.get("validationDiceMacroExcludingRaw0")),
+            "dice_macro_foreground": _first_metric(row, "validationGatedDiceMacroForeground", "validationDiceMacroForeground"),
+            "raw0PredictedInGtAbsentCases": _first_metric(row, "validationGatedRaw0PredictedInGtAbsentCases", "validationRaw0PredictedInGtAbsentCases"),
+            "raw0Precision": _first_metric(row, "validationGatedRaw0Precision", "validationRaw0Precision"),
+            "dice_macro_excluding_raw0": _first_metric(row, "validationGatedDiceMacroExcludingRaw0", "validationDiceMacroExcludingRaw0"),
         }
         if any(value is None or not np.isfinite(value) for value in metrics.values()):
             reasons.append("missing_or_nonfinite_metrics")
@@ -852,10 +933,16 @@ def summarize_validation_runs(config: AxialV3TrainConfig) -> dict[str, Any]:
     accepted.sort(key=validation_ranking_key, reverse=True)
     if accepted:
         accepted[0]["selectionLabel"] = "validation_candidate"
+        selected_key = (accepted[0].get("experimentId"), accepted[0].get("runId"))
+        for row in rows:
+            row_key = (row.get("experimentId"), row.get("runId"))
+            if row.get("trainingStatus") == "validation_candidate" and row_key != selected_key:
+                demoted = {**row, "trainingStatus": "completed", "guardrailPassed": True, "notes": "demoted by latest validation-only summarize"}
+                upsert_registry_row(config.REGISTRY_PATH, registry_row_from_config(demoted))
         selected_payload = next((row for row in rows if row.get("experimentId") == accepted[0].get("experimentId") and row.get("runId") == accepted[0].get("runId")), None)
         if selected_payload:
             selected_payload = {**selected_payload, "trainingStatus": "validation_candidate", "guardrailPassed": True, "notes": "selected by validation-only summarize"}
-            upsert_registry_row(config.REGISTRY_PATH, ExperimentRegistryRow(**{column: selected_payload.get(column) for column in ExperimentRegistryRow.__dataclass_fields__}))
+            upsert_registry_row(config.REGISTRY_PATH, registry_row_from_config(selected_payload))
     output = config.OUTPUT_ROOT
     output.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(accepted + discarded).to_csv(output / "validation_ranking.csv", index=False)
@@ -892,7 +979,12 @@ def _parse_float(value: object) -> float | None:
     return float(value)
 
 
-def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str, Any]:
+def _first_metric(row: dict[str, Any], preferred: str, fallback: str) -> float | None:
+    preferred_value = _parse_float(row.get(preferred))
+    return preferred_value if preferred_value is not None else _parse_float(row.get(fallback))
+
+
+def _run_training_impl(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str, Any]:
     if config.EXPERIMENT_TYPE == "B4" or config.EXPERIMENT_ID.startswith("B4"):
         raise ValueError("B4 calibration experiments must use RUN_MODE=calibrate, not train")
     set_deterministic_seed(config.SEED)
@@ -901,6 +993,7 @@ def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str
     class_weights, weight_report = compute_class_weights(records, config)
     model = build_axial_v3_model(ArchitectureConfig(base_channels=config.BASE_CHANNELS, presence_head=config.PRESENCE_HEAD_ENABLED)).to(device)
     optimizer = build_optimizer(model, config)
+    scheduler = build_scheduler(optimizer)
     scaler = torch.cuda.amp.GradScaler(enabled=config.AMP and device.type == "cuda")
     max_epochs = min(config.MAX_EPOCHS, 2) if smoke else config.MAX_EPOCHS
     split_hash = sha256_file(config.SPLIT_MANIFEST_PATH)
@@ -916,6 +1009,18 @@ def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str
     config_hash = sha256_file(dirs["config"] / "run_config.json")
     git_commit = _git_commit(config.REPO_ROOT)
     ai_service_commit = os.getenv("PFI_AI_SERVICE_COMMIT", git_commit)
+    _upsert_registry_status(
+        config,
+        dirs=dirs,
+        status="running",
+        smoke=smoke,
+        split_hash=split_hash,
+        config_hash=config_hash,
+        git_commit=git_commit,
+        ai_service_commit=ai_service_commit,
+        started=started,
+        notes="training started",
+    )
     resume_mode = config.RESUME_MODE.strip().lower()
     if resume_mode == "off":
         resume_mode = "never"
@@ -926,7 +1031,7 @@ def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str
     start_epoch = 1
     if resume_mode in {"auto", "required"}:
         if last_checkpoint_path.exists():
-            checkpoint = _load_resume_checkpoint(last_checkpoint_path, model, optimizer, scaler, config, smoke=smoke, split_sha256=split_hash, device=device)
+            checkpoint = _load_resume_checkpoint(last_checkpoint_path, model, optimizer, scheduler, scaler, config, smoke=smoke, split_sha256=split_hash, config_sha256=config_hash, device=device)
             history = list(checkpoint.get("history", []))
             best_metric = float(checkpoint.get("bestValidationMetric", -math.inf))
             selected_epoch = int(checkpoint.get("selectedEpoch", 0))
@@ -938,9 +1043,13 @@ def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str
     checkpoint_path = dirs["checkpoints"] / "best_checkpoint.pt"
     checkpoint_sha = sha256_file(checkpoint_path) if checkpoint_path.exists() else ""
     for epoch in range(start_epoch, max_epochs + 1):
+        train_dataset = getattr(loaders["train"], "dataset", None)
+        if hasattr(train_dataset, "set_epoch"):
+            train_dataset.set_epoch(epoch)
         train_metrics = train_one_epoch(model, loaders["train"], optimizer, class_weights, config, device, scaler)
         val_metrics = evaluate_validation(model, loaders["val"], device, config)
-        monitor = val_metrics.get(config.MONITOR_METRIC)
+        selected_metrics = selection_metrics(val_metrics, config)
+        monitor = selected_metrics.get(config.MONITOR_METRIC)
         improved = monitor is not None and float(monitor) > best_metric
         if improved:
             best_metric = float(monitor)
@@ -962,11 +1071,14 @@ def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str
                     config_sha256=config_hash,
                     git_commit=git_commit,
                     ai_service_commit=ai_service_commit,
+                    scheduler=scheduler,
                     scaler=scaler,
                 ),
             )
         else:
             patience_left -= 1
+        if monitor is not None and np.isfinite(float(monitor)):
+            scheduler.step(float(monitor))
         history.append({"epoch": epoch, **{f"train_{k}": v for k, v in train_metrics.items()}, **{f"val_{k}": v for k, v in val_metrics.items() if k not in {"perClass", "confusionMatrix"}}})
         save_checkpoint_atomic(
             last_checkpoint_path,
@@ -984,6 +1096,7 @@ def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str
                 config_sha256=config_hash,
                 git_commit=git_commit,
                 ai_service_commit=ai_service_commit,
+                scheduler=scheduler,
                 scaler=scaler,
             ),
         )
@@ -994,6 +1107,8 @@ def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str
         checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
         model.load_state_dict(checkpoint["model_state_dict"], strict=True)
     final_metrics = evaluate_validation(model, loaders["val"], device, config)
+    final_selection_metrics = selection_metrics(final_metrics, config)
+    gated_metrics = final_metrics.get("presenceGatedSegmentation") if isinstance(final_metrics.get("presenceGatedSegmentation"), dict) else {}
     pd.DataFrame(history).to_csv(dirs["metrics"] / "history.csv", index=False)
     _write_json(dirs["metrics"] / "history.json", history)
     _write_json(dirs["metrics"] / "best_validation_metrics.json", final_metrics)
@@ -1006,6 +1121,7 @@ def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str
         "monitorMetric": config.MONITOR_METRIC,
         "bestValidationMetric": best_metric,
         "finalValidationMetrics": final_metrics,
+        "selectionValidationMetrics": final_selection_metrics,
         "classWeightReport": weight_report,
         "history": history,
         "durationSeconds": duration,
@@ -1037,13 +1153,18 @@ def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str
             smokeOnly=smoke,
             selectedEpoch=selected_epoch,
             monitorMetric=config.MONITOR_METRIC,
-            validationDiceMacroForeground=final_metrics.get("dice_macro_foreground"),
-            validationRaw0Dice=final_metrics.get("raw0Dice"),
-            validationRaw0Precision=final_metrics.get("raw0Precision"),
-            validationRaw0Recall=final_metrics.get("raw0Recall"),
-            validationRaw0FalsePositivePixels=final_metrics.get("raw0FalsePositivePixels"),
-            validationRaw0PredictedInGtAbsentCases=final_metrics.get("raw0PredictedInGtAbsentCases"),
-            validationDiceMacroExcludingRaw0=final_metrics.get("dice_macro_excluding_raw0"),
+            validationDiceMacroForeground=final_selection_metrics.get("dice_macro_foreground"),
+            validationRaw0Dice=final_selection_metrics.get("raw0Dice"),
+            validationRaw0Precision=final_selection_metrics.get("raw0Precision"),
+            validationRaw0Recall=final_selection_metrics.get("raw0Recall"),
+            validationRaw0FalsePositivePixels=final_selection_metrics.get("raw0FalsePositivePixels"),
+            validationRaw0PredictedInGtAbsentCases=final_selection_metrics.get("raw0PredictedInGtAbsentCases"),
+            validationDiceMacroExcludingRaw0=final_selection_metrics.get("dice_macro_excluding_raw0"),
+            validationGatedDiceMacroForeground=gated_metrics.get("dice_macro_foreground"),
+            validationGatedRaw0Precision=gated_metrics.get("raw0Precision"),
+            validationGatedRaw0FalsePositivePixels=gated_metrics.get("raw0FalsePositivePixels"),
+            validationGatedRaw0PredictedInGtAbsentCases=gated_metrics.get("raw0PredictedInGtAbsentCases"),
+            validationGatedDiceMacroExcludingRaw0=gated_metrics.get("dice_macro_excluding_raw0"),
             checkpointPath=str(checkpoint_path) if checkpoint_sha else "",
             checkpointSha256=checkpoint_sha,
             durationSeconds=duration,
@@ -1051,3 +1172,12 @@ def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str
         ),
     )
     return result_payload
+
+
+def run_training(config: AxialV3TrainConfig, *, smoke: bool = False) -> dict[str, Any]:
+    started = time.time()
+    try:
+        return _run_training_impl(config, smoke=smoke)
+    except Exception as exc:
+        _record_failed_status(config, smoke=smoke, started=started, error=exc)
+        raise

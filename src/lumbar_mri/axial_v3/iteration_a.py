@@ -18,7 +18,7 @@ import torch
 from .audit import audit_raw0_slice, sha256_file, slice_audit_frame, summarize_raw0_by_patient, write_audit_outputs
 from .calibration import apply_raw0_threshold
 from .guards import assert_no_test_records, require_train_val_only
-from .labels import mask_to_class_indices
+from .labels import CLASS_INDEX_TO_NAME, RAW_TO_CLASS_INDEX, mask_to_class_indices
 from .low_cost import metric_or_default
 from .metrics import metrics_from_predictions
 from .training import AxialV3Record, open_2d_array, resize_bilinear, resize_nearest, robust_normalize
@@ -55,7 +55,7 @@ class AxialV3AuditConfig:
     MARGIN_GRID: tuple[float, ...] = tuple(float(v) for v in os.getenv("PFI_MARGIN_GRID", "0.0,0.05,0.1,0.2").split(","))
     MASK_LABEL_MODE: str = os.getenv("PFI_MASK_LABEL_MODE", "raw")
     EXPECTED_V2_RUN_ID: str = os.getenv("AXIAL_EXPECTED_V2_RUN_ID", "axial-final-v2")
-    EXPECTED_AI_SERVICE_COMMIT: str | None = os.getenv("AXIAL_EXPECTED_AI_SERVICE_COMMIT") or None
+    EXPECTED_AI_SERVICE_COMMIT: str | None = os.getenv("AXIAL_EXPECTED_AI_SERVICE_COMMIT", "285159") or None
     EXPECTED_SPLIT_SHA256: str | None = os.getenv("AXIAL_EXPECTED_SPLIT_SHA256") or None
     EXPECTED_CHECKPOINT_SHA256: str | None = os.getenv("AXIAL_EXPECTED_CHECKPOINT_SHA256") or None
     PFI_ALLOW_INCOMPLETE_V2_CHECKPOINT_METADATA: bool = os.getenv("PFI_ALLOW_INCOMPLETE_V2_CHECKPOINT_METADATA", "0") == "1"
@@ -235,7 +235,9 @@ def _save_structural_figures(config: AxialV3AuditConfig, rows: list[Any]) -> lis
             elif filename == "raw0_presence_by_patient.png":
                 df.groupby("patientId")["raw0Present"].mean().head(config.MAX_PREVIEW_CASES).plot(kind="bar")
             else:
-                pd.to_numeric(df["raw0PixelCount"], errors="coerce").dropna().plot(kind="box")
+                plot_df = df.assign(raw0PixelCount=pd.to_numeric(df["raw0PixelCount"], errors="coerce"))
+                plot_df.boxplot(column="raw0PixelCount", by="split")
+                plt.suptitle("")
             plt.title(filename.replace(".png", ""))
             plt.tight_layout()
             plt.savefig(path)
@@ -665,6 +667,8 @@ def validate_v2_checkpoint_metadata(checkpoint: Any, config: AxialV3AuditConfig)
         value = checkpoint[field]
         if field == "target_size":
             ok = tuple(value) == tuple(expected)
+        elif field == "aiServiceCommit" and expected:
+            ok = str(value).startswith(str(expected))
         else:
             ok = value == expected
         if not ok:
@@ -678,10 +682,35 @@ def validate_v2_checkpoint_metadata(checkpoint: Any, config: AxialV3AuditConfig)
     check_optional("target_size", config.TARGET_SIZE)
     check_optional("monitorMetric", "dice_macro_foreground")
     check_optional("raw0Boost", 1.0)
-    if config.EXPECTED_AI_SERVICE_COMMIT:
-        check_optional("aiServiceCommit", config.EXPECTED_AI_SERVICE_COMMIT)
-    if config.EXPECTED_SPLIT_SHA256:
-        check_optional("splitSha256", config.EXPECTED_SPLIT_SHA256)
+    check_optional("architecture", "AxialUNet2D")
+    check_optional("aiServiceCommit", config.EXPECTED_AI_SERVICE_COMMIT)
+    expected_split_sha = config.EXPECTED_SPLIT_SHA256 or (sha256_file(config.SPLIT_MANIFEST_PATH) if config.SPLIT_MANIFEST_PATH.exists() else None)
+    if expected_split_sha:
+        check_optional("splitSha256", expected_split_sha)
+    else:
+        missing.append("splitSha256")
+    if "rawToClassIndex" in checkpoint:
+        normalized_mapping = {int(key): int(value) for key, value in dict(checkpoint["rawToClassIndex"]).items()}
+        if normalized_mapping != RAW_TO_CLASS_INDEX:
+            raise ValueError("v2 checkpoint rawToClassIndex mismatch")
+        validated.append("rawToClassIndex")
+    else:
+        missing.append("rawToClassIndex")
+    if "labelMapping" in checkpoint:
+        mapping = checkpoint["labelMapping"]
+        values = set(mapping.values()) if isinstance(mapping, dict) else set(mapping)
+        if not set(CLASS_INDEX_TO_NAME.values()).issubset({str(value) for value in values}):
+            raise ValueError("v2 checkpoint labelMapping mismatch")
+        validated.append("labelMapping")
+    else:
+        missing.append("labelMapping")
+    if "preprocessingConfig" in checkpoint:
+        preprocessing = checkpoint["preprocessingConfig"]
+        if isinstance(preprocessing, dict) and "targetSize" in preprocessing and tuple(preprocessing["targetSize"]) != tuple(config.TARGET_SIZE):
+            raise ValueError("v2 checkpoint preprocessingConfig targetSize mismatch")
+        validated.append("preprocessingConfig")
+    else:
+        missing.append("preprocessingConfig")
     if config.EXPECTED_CHECKPOINT_SHA256 and config.V2_CHECKPOINT_PATH is not None:
         actual = sha256_file(config.V2_CHECKPOINT_PATH)
         if actual != config.EXPECTED_CHECKPOINT_SHA256:

@@ -6,12 +6,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 
 from lumbar_mri.axial_v3.audit import audit_raw0_slice, summarize_raw0_by_patient
 from lumbar_mri.axial_v3.audit import write_audit_outputs
+from lumbar_mri.axial_v3.architectures import ArchitectureConfig, build_axial_v3_model
 from lumbar_mri.axial_v3.calibration import apply_raw0_slice_presence_gate, apply_raw0_threshold, raw0_metrics_from_predictions, raw0_presence_metrics
 from lumbar_mri.axial_v3.labels import mask_to_class_indices, map_raw_mask_to_class_indices, validate_indexed_mask_labels, validate_raw_mask_labels
 from lumbar_mri.axial_v3.iteration_a import AxialV3AuditConfig, optional_env_path, run_iteration_a, validate_v2_checkpoint_metadata
+from lumbar_mri.axial_v3.registry import read_registry
+from lumbar_mri.axial_v3.training import AxialV3TrainConfig, run_calibration, sha256_file
 
 
 def test_raw0_slice_audit_positive_negative_border_and_components() -> None:
@@ -191,3 +195,63 @@ def test_iteration_a_writes_review_outputs_and_real_previews(tmp_path: Path) -> 
     assert probability_summary["status"] == "skipped"
     manifest_rows = json.loads((output_dir / "manifests" / "iteration_a_artifacts.json").read_text(encoding="utf-8"))
     assert any(item["relativePath"] == "tables/raw0_human_review_candidates.csv" for item in manifest_rows)
+
+
+def test_run_calibration_registers_b4_without_smoke_name_error(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    rows = []
+    for split, patient, raw0 in [("train", "p1", True), ("train", "p2", False), ("val", "p3", True), ("val", "p4", False)]:
+        image = np.linspace(0, 1, 64, dtype=np.float32).reshape(8, 8)
+        mask = np.full((8, 8), 250, dtype=np.uint8)
+        if raw0:
+            mask[2:4, 2:4] = 0
+        image_path = data_root / f"{patient}_img.npy"
+        mask_path = data_root / f"{patient}_mask.npy"
+        np.save(image_path, image)
+        np.save(mask_path, mask)
+        rows.append(
+            {
+                "image_file_path": image_path.name,
+                "final_label_file_path": mask_path.name,
+                "case_id_norm": patient,
+                "study_id": patient,
+                "split": split,
+            }
+        )
+    manifest = tmp_path / "split.csv"
+    pd.DataFrame(rows).to_csv(manifest, index=False)
+    parent = tmp_path / "parent.pt"
+    model = build_axial_v3_model(ArchitectureConfig(base_channels=2))
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "experimentId": "B0",
+            "runId": "axial-v3-B0",
+            "smokeOnly": False,
+            "splitSha256": sha256_file(manifest),
+            "config": {"BASE_CHANNELS": 2},
+        },
+        parent,
+    )
+    cfg = AxialV3TrainConfig(
+        RUN_ID="axial-v3-B4-test",
+        EXPERIMENT_ID="B4-test",
+        EXPERIMENT_TYPE="B4",
+        DATASET_ROOT=data_root,
+        SPLIT_MANIFEST_PATH=manifest,
+        OUTPUT_ROOT=tmp_path / "outputs",
+        REGISTRY_PATH=tmp_path / "registry.csv",
+        BASE_CHANNELS=2,
+        BATCH_SIZE=1,
+        MIN_PROBABILITY=0.5,
+        MIN_MARGIN=0.0,
+        PARENT_EXPERIMENT_ID="B0",
+        PARENT_RUN_ID="axial-v3-B0",
+    )
+    result = run_calibration(cfg, parent_checkpoint_path=parent)
+    assert result["status"] == "calibration_completed"
+    assert (cfg.OUTPUT_ROOT / "axial-v3-B4-test" / "reports" / "calibration_report.json").exists()
+    registry = read_registry(cfg.REGISTRY_PATH)
+    assert registry[0]["trainingStatus"] == "completed"
+    assert registry[0]["smokeOnly"] is False

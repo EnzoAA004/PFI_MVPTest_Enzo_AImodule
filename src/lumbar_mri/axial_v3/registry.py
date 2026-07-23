@@ -44,6 +44,11 @@ REGISTRY_COLUMNS = [
     "validationRaw0FalsePositivePixels",
     "validationRaw0PredictedInGtAbsentCases",
     "validationDiceMacroExcludingRaw0",
+    "validationGatedDiceMacroForeground",
+    "validationGatedRaw0Precision",
+    "validationGatedRaw0FalsePositivePixels",
+    "validationGatedRaw0PredictedInGtAbsentCases",
+    "validationGatedDiceMacroExcludingRaw0",
     "guardrailPassed",
     "artifactPath",
     "artifactSha256",
@@ -79,6 +84,11 @@ class ExperimentRegistryRow:
     validationRaw0FalsePositivePixels: int | None = None
     validationRaw0PredictedInGtAbsentCases: int | None = None
     validationDiceMacroExcludingRaw0: float | None = None
+    validationGatedDiceMacroForeground: float | None = None
+    validationGatedRaw0Precision: float | None = None
+    validationGatedRaw0FalsePositivePixels: int | None = None
+    validationGatedRaw0PredictedInGtAbsentCases: int | None = None
+    validationGatedDiceMacroExcludingRaw0: float | None = None
     guardrailPassed: bool | None = None
     artifactPath: str = ""
     artifactSha256: str = ""
@@ -124,13 +134,23 @@ def read_registry(path: Path) -> list[dict[str, str]]:
 
 def _typed_registry_row(row: dict[str, str]) -> dict[str, Any]:
     bool_columns = {"smokeOnly", "guardrailPassed"}
-    int_columns = {"seed", "selectedEpoch", "validationRaw0FalsePositivePixels", "validationRaw0PredictedInGtAbsentCases"}
+    int_columns = {
+        "seed",
+        "selectedEpoch",
+        "validationRaw0FalsePositivePixels",
+        "validationRaw0PredictedInGtAbsentCases",
+        "validationGatedRaw0FalsePositivePixels",
+        "validationGatedRaw0PredictedInGtAbsentCases",
+    }
     float_columns = {
         "validationDiceMacroForeground",
         "validationRaw0Dice",
         "validationRaw0Precision",
         "validationRaw0Recall",
         "validationDiceMacroExcludingRaw0",
+        "validationGatedDiceMacroForeground",
+        "validationGatedRaw0Precision",
+        "validationGatedDiceMacroExcludingRaw0",
         "durationSeconds",
     }
     typed: dict[str, Any] = {}
