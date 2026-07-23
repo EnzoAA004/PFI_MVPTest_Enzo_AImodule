@@ -189,12 +189,45 @@ def test_notebook_49_real_train_validation_smoke(monkeypatch: pytest.MonkeyPatch
     with torch.inference_mode():
         metrics_val = ns["run_epoch"](model, loaders["val"], ce, None, None)
     assert metrics_val["dice_macro_foreground"] is not None
+    assert "precision_macro_foreground" in metrics_val
+    assert "recall_macro_foreground" in metrics_val
+    assert "raw0PredictedInGtAbsentCases" in metrics_val
 
     report = ns["train_model"](records, smoke_only=True)
     assert report["history"]
     assert report["testEvaluated"] is False
+    history = pd.read_csv(ns["OUTPUT_DIRS"]["metrics"] / "training_history.csv")
+    assert {"durationSeconds", "monitorMetric", "monitorValue", "val_raw0PredictedInGtAbsentCases"}.issubset(history.columns)
+    validation_cases = pd.read_csv(ns["OUTPUT_DIRS"]["metrics"] / "validation_case_metrics.csv")
+    assert len(validation_cases) == len([r for r in ns["limit_records_for_smoke"](records) if r.split == "val"])
+    assert "dice_raw_0" in validation_cases.columns
+    assert len(pd.read_csv(ns["OUTPUT_DIRS"]["metrics"] / "validation_metrics_per_class_best.csv")) == 6
+    assert (ns["OUTPUT_DIRS"]["metrics"] / "validation_metrics_last.json").exists()
+    assert (ns["OUTPUT_DIRS"]["metrics"] / "validation_confusion_matrix_best.csv").exists()
+    assert (ns["OUTPUT_DIRS"]["figures"] / "validation_predictions_best.png").exists()
     assert (ns["RESUME_DIR"] / "axial_t2_alkafri_v2.best_checkpoint.pt").exists()
     assert (ns["RESUME_DIR"] / "axial_t2_alkafri_v2.last_checkpoint.pt").exists()
+
+
+def test_raw0_slice_presence_and_precision_recall(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _prepare_env(monkeypatch, tmp_path, notebook="49")
+    ns = _exec_notebook(NOTEBOOK_49)
+    truth = np.zeros((3, 4, 4), dtype=np.int64)
+    pred = np.zeros((3, 4, 4), dtype=np.int64)
+    truth[0, 0, 0] = 1
+    pred[0, 0, 0] = 1
+    pred[1, 0, 0] = 1
+    truth[2, 0, 0] = 1
+    metrics = ns["metrics_from_predictions"](pred, truth)
+    raw0 = metrics["perClass"]["raw_0"]
+    assert raw0["gtPresentCases"] == 2
+    assert raw0["predPresentCases"] == 2
+    assert raw0["predictedInGtAbsentCases"] == 1
+    assert raw0["truePositivePixels"] == 1
+    assert raw0["falsePositivePixels"] == 1
+    assert raw0["falseNegativePixels"] == 1
+    assert raw0["precision"] == pytest.approx(0.5)
+    assert raw0["recall"] == pytest.approx(0.5)
 
 
 def test_notebook_49_resume_incompatibilities(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -206,7 +239,9 @@ def test_notebook_49_resume_incompatibilities(monkeypatch: pytest.MonkeyPatch, t
     model = ns["build_model"]()
     opt = torch.optim.AdamW(model.parameters(), lr=0.001)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode="max")
-    payload = ns["checkpoint_payload"](model, opt, scheduler, None, 1, 0.1, 2, [], ns["estimate_class_weights"](records), smoke_only=True)
+    class_weight_payload = ns["class_weight_report"](records)
+    class_weights = ns["estimate_class_weights"](records)
+    payload = ns["checkpoint_payload"](model, opt, scheduler, None, 1, 0.1, 2, [], class_weights, class_weight_payload, True, 1, ns["utc_now"]())
     payload["runId"] = "wrong-run"
     ns["save_checkpoint"](ns["RESUME_DIR"] / "axial_t2_alkafri_v2.last_checkpoint.pt", payload)
     with pytest.raises(ValueError, match="Resume incompatible"):
@@ -216,6 +251,25 @@ def test_notebook_49_resume_incompatibilities(monkeypatch: pytest.MonkeyPatch, t
     ns["save_checkpoint"](ns["RESUME_DIR"] / "axial_t2_alkafri_v2.last_checkpoint.pt", payload)
     with pytest.raises(ValueError, match="Resume incompatible"):
         ns["load_resume_if_allowed"](model, opt, scheduler, None, smoke_only=True)
+    payload["smokeOnly"] = True
+    payload["raw0Boost"] = 3.0
+    ns["save_checkpoint"](ns["RESUME_DIR"] / "axial_t2_alkafri_v2.last_checkpoint.pt", payload)
+    with pytest.raises(ValueError, match="raw0Boost"):
+        ns["load_resume_if_allowed"](model, opt, scheduler, None, smoke_only=True)
+    payload["raw0Boost"] = 1.0
+    payload["monitorMetric"] = "dice_macro_excluding_raw0"
+    ns["save_checkpoint"](ns["RESUME_DIR"] / "axial_t2_alkafri_v2.last_checkpoint.pt", payload)
+    with pytest.raises(ValueError, match="monitorMetric"):
+        ns["load_resume_if_allowed"](model, opt, scheduler, None, smoke_only=True)
+    payload["monitorMetric"] = "dice_macro_foreground"
+    payload["aiServiceCommit"] = "other"
+    ns["save_checkpoint"](ns["RESUME_DIR"] / "axial_t2_alkafri_v2.last_checkpoint.pt", payload)
+    with pytest.raises(ValueError, match="aiServiceCommit"):
+        ns["load_resume_if_allowed"](model, opt, scheduler, None, smoke_only=True)
+    payload["aiServiceCommit"] = ns["AI_SERVICE_COMMIT_SHA"]
+    ns["save_checkpoint"](ns["RESUME_DIR"] / "axial_t2_alkafri_v2.last_checkpoint.pt", payload)
+    start_epoch, *_ = ns["load_resume_if_allowed"](model, opt, scheduler, None, smoke_only=True)
+    assert start_epoch == 1
 
 
 def test_notebook_50_test_once_and_artifact(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -223,6 +277,11 @@ def test_notebook_50_test_once_and_artifact(monkeypatch: pytest.MonkeyPatch, tmp
     ns49 = _exec_notebook(NOTEBOOK_49)
     records = ns49["build_records_from_split_manifest"]()
     ns49["train_model"](records, smoke_only=True)
+    best_path = ns49["RESUME_DIR"] / "axial_t2_alkafri_v2.best_checkpoint.pt"
+    checkpoint = torch.load(best_path, map_location="cpu", weights_only=False)
+    checkpoint["smokeOnly"] = False
+    checkpoint["smoke_only"] = False
+    torch.save(checkpoint, best_path)
 
     monkeypatch.setenv("RUN_MODE", "evaluate")
     ns50 = _exec_notebook(NOTEBOOK_50)
@@ -235,12 +294,30 @@ def test_notebook_50_test_once_and_artifact(monkeypatch: pytest.MonkeyPatch, tmp
     assert "raw0Recall" in result["testMetrics"]
     assert result["verification"]["runtimeShape"] == [1, 6, 256, 256]
     assert result["verification"]["runtimeFinite"] is True
+    assert result["qualityGate"]["runtimeVerification"]["finite"] is True
+    assert result["qualityGate"]["runtimeVerification"]["shape"] == [1, 6, 256, 256]
     artifact_name = result["artifact"]
     assert artifact_name in {"axial_t2_alkafri_final_v2_best.pt", "axial_t2_alkafri_final_v2_candidate.pt"}
     manifest_path = ns50["manifest_path_for"](ns50["select_artifact_path"](result["qualityGate"]["qualityGatePassed"]))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["artifactFile"] == artifact_name
     assert manifest["artifactSha256"] == ns50["sha256_stream"](ns50["select_artifact_path"](result["qualityGate"]["qualityGatePassed"]))
+    assert "runtimeVerification" in manifest
+    assert "checkpointSha256" in manifest
+    assert len(pd.read_csv(ns50["OUTPUT_DIRS"]["metrics"] / "test_case_metrics.csv")) == len([r for r in records if r.split == "test"])
+    assert len(pd.read_csv(ns50["OUTPUT_DIRS"]["metrics"] / "test_metrics_per_class.csv")) == 6
+    assert (ns50["OUTPUT_DIRS"]["figures"] / "test_predictions.png").exists()
+    completed = json.loads((ns50["OUTPUT_DIRS"]["metrics"] / "test_evaluated_once.json").read_text(encoding="utf-8"))
+    assert completed["status"] == "completed"
+    assert {"checkpointSha256", "splitSha256", "confirmationTokenHash", "artifactPath", "manifestPath", "verificationPath"}.issubset(completed)
+    assert not (ns50["OUTPUT_DIRS"]["metrics"] / "test_evaluation_in_progress.json").exists()
+    assert not ((ns50["OUTPUT_DIRS"]["models"] / "axial_t2_alkafri_final_v2_best.pt").exists() and (ns50["OUTPUT_DIRS"]["models"] / "axial_t2_alkafri_final_v2_candidate.pt").exists())
+    assert ns50["round_trip_model_from_manifest"](ns50["select_artifact_path"](result["qualityGate"]["qualityGatePassed"]), manifest, torch.randn(1, 1, 256, 256)) == {"shape": [1, 6, 256, 256], "finite": True}
+    passing_metrics = dict(result["testMetrics"])
+    passing_metrics.update({"dice_macro_foreground": 0.8, "iou_macro_foreground": 0.7, "raw0Dice": 0.5, "raw0Precision": 0.5, "raw0Recall": 0.5})
+    assert ns50["quality_gate"](passing_metrics, {"patientHeldout": True}, {"shape": [1, 6, 256, 256], "finite": True})["qualityGatePassed"] is True
+    assert ns50["quality_gate"](passing_metrics, {"patientHeldout": True}, {"shape": [1, 6, 128, 128], "finite": True})["qualityGatePassed"] is False
+    assert ns50["quality_gate"](passing_metrics, {"patientHeldout": True}, {"shape": [1, 6, 256, 256], "finite": False})["qualityGatePassed"] is False
 
     with pytest.raises(RuntimeError, match="evaluado"):
         ns50["evaluate_test_once"](records)
@@ -262,3 +339,10 @@ def test_static_separation_and_no_placeholders() -> None:
     assert "evaluate_test_once" not in source49
     assert "def train_model" not in source50
     assert ".backward(" not in source50
+    assert "max(0, pred_present_cases - gt_present_cases)" not in source49 + source50
+    assert '"runtimeFinite": True' not in source50
+    for nb in [nbformat.read(NOTEBOOK_49, as_version=4), nbformat.read(NOTEBOOK_50, as_version=4)]:
+        for cell in nb.cells:
+            if cell.cell_type == "code":
+                assert cell.outputs == []
+                assert cell.execution_count is None

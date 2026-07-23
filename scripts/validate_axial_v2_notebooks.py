@@ -60,6 +60,25 @@ def function_counts(source_text: str) -> dict[str, int]:
     return counts
 
 
+def assert_order(source_text: str, first: str, second: str, label: str) -> None:
+    first_pos = source_text.find(first)
+    second_pos = source_text.find(second)
+    if first_pos == -1 or second_pos == -1:
+        raise AssertionError(f"{label}: no se puede verificar orden {first!r} -> {second!r}")
+    if first_pos >= second_pos:
+        raise AssertionError(f"{label}: orden invalido {first!r} debe aparecer antes de {second!r}")
+
+
+def assert_no_constant_runtime_finite(source_text: str) -> None:
+    tree = ast.parse(source_text)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                if isinstance(key, ast.Constant) and key.value in {"runtimeFinite", "finite"}:
+                    if isinstance(value, ast.Constant) and value.value is True:
+                        raise AssertionError("runtimeFinite/finite no debe estar hardcodeado a True")
+
+
 def assert_cfg_before_use(source_text: str) -> None:
     match = re.search(r"\bCFG\s*=\s*TrainConfig\(\)", source_text)
     if not match:
@@ -99,8 +118,23 @@ def validate_49(source_text: str) -> None:
             "nn.CrossEntropyLoss",
             "DataLoader",
             "validation_metrics_best.json",
+            "validation_metrics_last.json",
+            "validation_metrics_per_class_best.csv",
+            "validation_confusion_matrix_best.csv",
             "validation_case_metrics.csv",
             "validation_predictions_best.png",
+            "predictedInGtAbsentCases",
+            "pred_has_raw0",
+            "gt_has_raw0",
+            "torch.isfinite(logits)",
+            "torch.isfinite(loss)",
+            "durationSeconds",
+            "bestEpoch",
+            "monitorMetric",
+            "raw0Boost",
+            "aiServiceCommit",
+            "math.isclose",
+            "checkpoint_compatibility_errors",
             "DEVICE",
             'if self.RUN_MODE == "train" and not torch.cuda.is_available()',
             "class_weight_report(records)",
@@ -128,9 +162,11 @@ def validate_49(source_text: str) -> None:
             "AXIAL_FINAL_TEST_CONFIRMATION",
             'RUN_MODE", "full"',
             "runtime_shape = [1, 6, 256, 256]",
+            "max(0, pred_present_cases - gt_present_cases)",
         ],
         "notebook 49",
     )
+    assert_order(source_text, "def _case_metric_row", "def metrics_from_predictions", "notebook 49")
 
 
 def validate_50(source_text: str) -> None:
@@ -148,13 +184,24 @@ def validate_50(source_text: str) -> None:
             "logits",
             "torch.argmax",
             "metrics_from_predictions",
+            "checkpoint_compatibility_errors",
+            "checkpointSha256",
+            "splitSha256",
+            "confirmationTokenHash",
+            '"status": "in_progress"',
+            '"status": "completed"',
             "test_metrics.json",
             "test_case_metrics.csv",
+            "test_metrics_per_class.csv",
             "test_confusion_matrix.csv",
+            "test_predictions.png",
             "test_evaluation_in_progress.json",
             "test_evaluated_once.json",
             "torch.isfinite",
             "output.shape",
+            "bool(torch.isfinite(output).all().item())",
+            "runtime_verification",
+            "quality_gate(test_metrics, integrity, runtime_verification)",
             "AXIAL_FINAL_TEST_CONFIRMATION",
             "axial-final-v2",
             "axial_t2_alkafri_v2.best_checkpoint.pt",
@@ -162,7 +209,8 @@ def validate_50(source_text: str) -> None:
             "axial_t2_alkafri_final_v2_candidate.pt",
             "artifact_path.name",
             "final_artifact_verification.json",
-            "The held-out test partition was previously evaluated for the axial-full-v1 baseline.",
+            "The held-out test partition was previously evaluated for the axial-full-v1",
+            "fully untouched external validation.",
         ],
         "notebook 50",
     )
@@ -175,10 +223,16 @@ def validate_50(source_text: str) -> None:
             "def train_model",
             "scheduler",
             "runtime_shape = [1, 6, 256, 256]",
+            "runtimeFinite\": True",
+            "max(0, pred_present_cases - gt_present_cases)",
             "PFI_EXECUTE_NOTEBOOK",
         ],
         "notebook 50",
     )
+    assert_no_constant_runtime_finite(source_text)
+    assert_order(source_text, "runtime_verification = round_trip_model_from_manifest", "gate = quality_gate", "notebook 50")
+    assert_order(source_text, "gate = quality_gate", "artifact_path = select_artifact_path", "notebook 50")
+    assert_order(source_text, "generate_manifest_and_model_card", '"status": "completed"', "notebook 50")
 
 
 def main() -> int:
