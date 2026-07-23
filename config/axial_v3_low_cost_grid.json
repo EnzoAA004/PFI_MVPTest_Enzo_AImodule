@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "axial-v3-low-cost-grid-v1",
+  "developmentSplits": ["train", "val"],
+  "selectionPolicy": [
+    "validation.dice_macro_foreground desc",
+    "validation.raw0PredictedInGtAbsentCases asc",
+    "validation.raw0Precision desc",
+    "validation.dice_macro_excluding_raw0 desc"
+  ],
+  "guardrails": {
+    "maxOtherClassDiceDrop": 0.05,
+    "appliesTo": ["raw_50", "raw_100", "raw_150", "raw_200"],
+    "baseline": "axial-final-v2 validation"
+  },
+  "experiments": [
+    {
+      "id": "B0",
+      "description": "Reproduce axial-final-v2 train/validation baseline without test access.",
+      "architecture": "axial_unet2d",
+      "raw0EffectiveWeightMultiplier": 1.0,
+      "maxClassWeightRatio": null,
+      "loss": "cross_entropy_plus_soft_dice",
+      "raw0Calibration": {"enabled": false}
+    },
+    {
+      "id": "B1",
+      "description": "Initial raw_0 effective weight grid.",
+      "architecture": "axial_unet2d",
+      "raw0EffectiveWeightMultiplierGrid": [0.25, 0.5, 0.75, 1.0],
+      "maxClassWeightRatio": null,
+      "loss": "cross_entropy_plus_soft_dice"
+    },
+    {
+      "id": "B2",
+      "description": "Limit maximum class weight ratio.",
+      "architecture": "axial_unet2d",
+      "maxClassWeightRatioGrid": [2.0, 4.0, 8.0],
+      "loss": "cross_entropy_plus_soft_dice"
+    },
+    {
+      "id": "B3",
+      "description": "Raw_0 asymmetric loss. Alpha weights false positives, beta weights false negatives.",
+      "architecture": "axial_unet2d",
+      "loss": "tversky",
+      "tversky": {"raw0ClassIndex": 1, "alpha": 0.7, "beta": 0.3}
+    },
+    {
+      "id": "B4",
+      "description": "Validation-only raw_0 threshold and margin calibration.",
+      "architecture": "axial_unet2d",
+      "raw0Calibration": {
+        "enabled": true,
+        "minProbabilityGrid": [0.3, 0.4, 0.5, 0.6],
+        "minMarginGrid": [0.0, 0.05, 0.1, 0.2],
+        "reassignToSecondClass": true
+      }
+    },
+    {
+      "id": "B5",
+      "description": "Optional raw_0 slice-presence head.",
+      "architecture": "axial_unet2d",
+      "presenceHead": {"enabled": true, "lambdaPresenceGrid": [0.1, 0.25, 0.5]}
+    },
+    {
+      "id": "B6",
+      "description": "Raw_0 positive/negative balanced slice sampling inside train only.",
+      "architecture": "axial_unet2d",
+      "raw0BalancedSampler": {"enabled": true, "positiveFractionGrid": [0.35, 0.5]}
+    }
+  ]
+}
