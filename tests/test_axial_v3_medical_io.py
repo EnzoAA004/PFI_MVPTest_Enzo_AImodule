@@ -31,7 +31,7 @@ def _write_test_dicom(path: Path, pixels: np.ndarray) -> None:
     dataset.HighBit = 15
     dataset.PixelRepresentation = 0
     dataset.PixelData = np.asarray(pixels, dtype=np.uint16).tobytes()
-    dataset.save_as(str(path), enforce_file_format=True)
+    dataset.save_as(str(path), write_like_original=False)
 
 
 def test_open_2d_array_reads_ima_dicom(tmp_path: Path) -> None:
