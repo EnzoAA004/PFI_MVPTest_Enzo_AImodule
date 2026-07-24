@@ -12,10 +12,10 @@ from lumbar_mri.axial_v3.audit import audit_raw0_slice, summarize_raw0_by_patien
 from lumbar_mri.axial_v3.audit import write_audit_outputs
 from lumbar_mri.axial_v3.architectures import ArchitectureConfig, build_axial_v3_model
 from lumbar_mri.axial_v3.calibration import apply_raw0_slice_presence_gate, apply_raw0_threshold, raw0_metrics_from_predictions, raw0_presence_metrics
-from lumbar_mri.axial_v3.labels import mask_to_class_indices, map_raw_mask_to_class_indices, validate_indexed_mask_labels, validate_raw_mask_labels
+from lumbar_mri.axial_v3.labels import CLASS_INDEX_TO_NAME, RAW_TO_CLASS_INDEX, mask_to_class_indices, map_raw_mask_to_class_indices, validate_indexed_mask_labels, validate_raw_mask_labels
 from lumbar_mri.axial_v3.iteration_a import AxialV3AuditConfig, optional_env_path, run_iteration_a, validate_v2_checkpoint_metadata
 from lumbar_mri.axial_v3.registry import read_registry
-from lumbar_mri.axial_v3.training import AxialV3TrainConfig, run_calibration, sha256_file
+from lumbar_mri.axial_v3.training import AxialV3TrainConfig, _load_run_report_per_class, run_calibration, sha256_file
 
 
 def test_raw0_slice_audit_positive_negative_border_and_components() -> None:
@@ -125,6 +125,51 @@ def test_v2_checkpoint_metadata_is_strict_by_default() -> None:
         validate_v2_checkpoint_metadata(incomplete, cfg)
     permissive = AxialV3AuditConfig(PFI_ALLOW_INCOMPLETE_V2_CHECKPOINT_METADATA=True)
     assert "smokeOnly" in validate_v2_checkpoint_metadata(incomplete, permissive)["missingMetadataFields"]
+
+
+def test_v2_checkpoint_nested_label_mapping_validates(tmp_path: Path) -> None:
+    manifest = tmp_path / "split.csv"
+    manifest.write_text("image_file_path,final_label_file_path,case_id_norm,split\n", encoding="utf-8")
+    checkpoint = {
+        "model_state_dict": {},
+        "runId": "axial-final-v2",
+        "smokeOnly": False,
+        "num_classes": 6,
+        "base_channels": 16,
+        "target_size": (256, 256),
+        "monitorMetric": "dice_macro_foreground",
+        "raw0Boost": 1.0,
+        "architecture": "AxialUNet2D",
+        "aiServiceCommit": "285159abcdef",
+        "splitSha256": sha256_file(manifest),
+        "rawToClassIndex": RAW_TO_CLASS_INDEX,
+        "labelMapping": {
+            "rawToClassIndex": RAW_TO_CLASS_INDEX,
+            "classIndexToName": CLASS_INDEX_TO_NAME,
+        },
+        "preprocessingConfig": {"targetSize": (256, 256)},
+    }
+    cfg = AxialV3AuditConfig(SPLIT_MANIFEST_PATH=manifest)
+    result = validate_v2_checkpoint_metadata(checkpoint, cfg)
+    assert "labelMapping" in result["validatedMetadataFields"]
+
+
+def test_guardrail_per_class_prefers_gated_metrics(tmp_path: Path) -> None:
+    report = tmp_path / "run_report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "finalValidationMetrics": {
+                    "perClass": {"raw_50": {"dice": 0.1}},
+                    "presenceGatedSegmentation": {"perClass": {"raw_50": {"dice": 0.9}}},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    row = {"artifactPath": str(report), "validationGatedDiceMacroForeground": 0.8}
+    assert _load_run_report_per_class(row)["raw_50"]["dice"] == 0.9
+    assert _load_run_report_per_class({**row, "validationGatedDiceMacroForeground": None})["raw_50"]["dice"] == 0.1
 
 
 def test_raw0_threshold_batch_and_presence_gate() -> None:

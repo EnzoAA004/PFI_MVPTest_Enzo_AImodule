@@ -697,10 +697,21 @@ def validate_v2_checkpoint_metadata(checkpoint: Any, config: AxialV3AuditConfig)
     else:
         missing.append("rawToClassIndex")
     if "labelMapping" in checkpoint:
-        mapping = checkpoint["labelMapping"]
-        values = set(mapping.values()) if isinstance(mapping, dict) else set(mapping)
-        if not set(CLASS_INDEX_TO_NAME.values()).issubset({str(value) for value in values}):
-            raise ValueError("v2 checkpoint labelMapping mismatch")
+        label_mapping = checkpoint["labelMapping"]
+        if not isinstance(label_mapping, dict):
+            raise ValueError("v2 checkpoint labelMapping must be a mapping")
+        nested_raw_mapping = label_mapping.get("rawToClassIndex")
+        if not isinstance(nested_raw_mapping, dict):
+            raise ValueError("v2 checkpoint labelMapping.rawToClassIndex is missing or invalid")
+        normalized_nested_raw_mapping = {int(key): int(value) for key, value in nested_raw_mapping.items()}
+        if normalized_nested_raw_mapping != RAW_TO_CLASS_INDEX:
+            raise ValueError("v2 checkpoint labelMapping.rawToClassIndex mismatch")
+        nested_class_names = label_mapping.get("classIndexToName")
+        if not isinstance(nested_class_names, dict):
+            raise ValueError("v2 checkpoint labelMapping.classIndexToName is missing or invalid")
+        normalized_class_names = {int(key): str(value) for key, value in nested_class_names.items()}
+        if normalized_class_names != CLASS_INDEX_TO_NAME:
+            raise ValueError("v2 checkpoint labelMapping.classIndexToName mismatch")
         validated.append("labelMapping")
     else:
         missing.append("labelMapping")

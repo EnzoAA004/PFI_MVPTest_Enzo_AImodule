@@ -952,13 +952,23 @@ def summarize_validation_runs(config: AxialV3TrainConfig) -> dict[str, Any]:
 
 
 def _load_run_report_per_class(row: dict[str, Any]) -> dict[str, Any]:
+    def select_per_class(metrics: dict[str, Any]) -> dict[str, Any]:
+        has_gated_selection = row.get("validationGatedDiceMacroForeground") is not None
+        if has_gated_selection:
+            gated = metrics.get("presenceGatedSegmentation")
+            if isinstance(gated, dict):
+                gated_per_class = gated.get("perClass")
+                if isinstance(gated_per_class, dict):
+                    return gated_per_class
+        per_class = metrics.get("perClass")
+        return per_class if isinstance(per_class, dict) else {}
+
     artifact_path = row.get("artifactPath")
     if artifact_path and Path(str(artifact_path)).exists():
         report_path = Path(str(artifact_path))
         payload = json.loads(report_path.read_text(encoding="utf-8"))
         metrics = payload.get("finalValidationMetrics") or payload.get("validationMetrics") or {}
-        per_class = metrics.get("perClass")
-        return per_class if isinstance(per_class, dict) else {}
+        return select_per_class(metrics)
     checkpoint_path = row.get("checkpointPath")
     if not checkpoint_path:
         return {}
@@ -969,8 +979,7 @@ def _load_run_report_per_class(row: dict[str, Any]) -> dict[str, Any]:
         return {}
     payload = json.loads(report_path.read_text(encoding="utf-8"))
     metrics = payload.get("finalValidationMetrics") or payload.get("validationMetrics") or {}
-    per_class = metrics.get("perClass")
-    return per_class if isinstance(per_class, dict) else {}
+    return select_per_class(metrics)
 
 
 def _parse_float(value: object) -> float | None:
@@ -1153,13 +1162,13 @@ def _run_training_impl(config: AxialV3TrainConfig, *, smoke: bool = False) -> di
             smokeOnly=smoke,
             selectedEpoch=selected_epoch,
             monitorMetric=config.MONITOR_METRIC,
-            validationDiceMacroForeground=final_selection_metrics.get("dice_macro_foreground"),
-            validationRaw0Dice=final_selection_metrics.get("raw0Dice"),
-            validationRaw0Precision=final_selection_metrics.get("raw0Precision"),
-            validationRaw0Recall=final_selection_metrics.get("raw0Recall"),
-            validationRaw0FalsePositivePixels=final_selection_metrics.get("raw0FalsePositivePixels"),
-            validationRaw0PredictedInGtAbsentCases=final_selection_metrics.get("raw0PredictedInGtAbsentCases"),
-            validationDiceMacroExcludingRaw0=final_selection_metrics.get("dice_macro_excluding_raw0"),
+            validationDiceMacroForeground=final_metrics.get("dice_macro_foreground"),
+            validationRaw0Dice=final_metrics.get("raw0Dice"),
+            validationRaw0Precision=final_metrics.get("raw0Precision"),
+            validationRaw0Recall=final_metrics.get("raw0Recall"),
+            validationRaw0FalsePositivePixels=final_metrics.get("raw0FalsePositivePixels"),
+            validationRaw0PredictedInGtAbsentCases=final_metrics.get("raw0PredictedInGtAbsentCases"),
+            validationDiceMacroExcludingRaw0=final_metrics.get("dice_macro_excluding_raw0"),
             validationGatedDiceMacroForeground=gated_metrics.get("dice_macro_foreground"),
             validationGatedRaw0Precision=gated_metrics.get("raw0Precision"),
             validationGatedRaw0FalsePositivePixels=gated_metrics.get("raw0FalsePositivePixels"),
