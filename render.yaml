@@ -12,6 +12,10 @@ services:
         value: 8000
       - key: PFI_MODEL_DIR
         value: models/final
+      - key: PFI_SAGITTAL_MODEL_PATH
+        value: models/final/sagittal_spider_multiclass_final_best.pt
+      - key: PFI_AXIAL_MODEL_PATH
+        value: models/final/axial_t2_alkafri_final_best.pt
       - key: PFI_MODEL_REGISTRY
         value: config/model_registry_final.json
       - key: PFI_DATA_FREEZE_CONFIG

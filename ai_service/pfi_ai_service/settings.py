@@ -43,6 +43,11 @@ def optional_env(name: str) -> str | None:
     return value.strip() if value and value.strip() else None
 
 
+def optional_env_path(name: str, default: Path) -> Path:
+    value = optional_env(name)
+    return Path(value) if value else default
+
+
 def get_settings() -> ServiceSettings:
     pfi_root = Path(os.getenv("PFI_ROOT", "/content/drive/MyDrive/PFI_MVP"))
     output_dir = Path(os.getenv("PFI_OUTPUT_DIR", "outputs"))
@@ -59,8 +64,14 @@ def get_settings() -> ServiceSettings:
         figures_root=figures_root,
         docs_root=docs_root,
         output_dir=output_dir,
-        sagittal_model_path=models_root / "sagittal_spider_multiclass_final_best.pt",
-        axial_model_path=models_root / "axial_t2_alkafri_final_best.pt",
+        sagittal_model_path=optional_env_path(
+            "PFI_SAGITTAL_MODEL_PATH",
+            models_root / "sagittal_spider_multiclass_final_best.pt",
+        ),
+        axial_model_path=optional_env_path(
+            "PFI_AXIAL_MODEL_PATH",
+            models_root / "axial_t2_alkafri_final_best.pt",
+        ),
         sagittal_model_uri=optional_env("PFI_SAGITTAL_MODEL_URI"),
         axial_model_uri=optional_env("PFI_AXIAL_MODEL_URI"),
         sagittal_manifest_uri=optional_env("PFI_SAGITTAL_MANIFEST_URI"),
