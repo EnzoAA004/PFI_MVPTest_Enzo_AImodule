@@ -21,6 +21,7 @@ dependencies = [
   "torch>=2.0",
   "torchvision>=0.15",
   "simpleitk>=2.3",
+  "pydicom>=2.4",
   "google-cloud-storage>=2.16",
 ]
 
