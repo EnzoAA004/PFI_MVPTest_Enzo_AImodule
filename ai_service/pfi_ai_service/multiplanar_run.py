@@ -42,6 +42,9 @@ def run_multiplanar_pipeline(request: MultiplanarRunRequest) -> Dict[str, Any]:
         "workspaceMode": "dual_plane_with_3d_context",
         "requestedInferenceMode": requested_mode(request.metadata),
         "effectiveInferenceMode": effective_workspace_mode(sagittal, axial),
+        "sagittalRunReady": plane_real_ready(sagittal),
+        "axialRunReady": plane_real_ready(axial),
+        "dualRunReady": plane_real_ready(sagittal) and plane_real_ready(axial),
         "planes": {
             "sagittal": sagittal,
             "axial": axial,
@@ -130,6 +133,16 @@ def effective_workspace_mode(sagittal: Dict[str, Any], axial: Dict[str, Any]) ->
         str((axial.get("aiOutput") or {}).get("inferenceMode", "contract")),
     }
     return modes.pop() if len(modes) == 1 else "mixed"
+
+
+def plane_real_ready(plane_response: Dict[str, Any]) -> bool:
+    ai_output = plane_response.get("aiOutput") if isinstance(plane_response.get("aiOutput"), dict) else {}
+    artifact = plane_response.get("modelArtifact") if isinstance(plane_response.get("modelArtifact"), dict) else {}
+    return (
+        ai_output.get("inferenceMode") == "real_baseline"
+        and bool(artifact.get("baselineReady"))
+        and bool(artifact.get("availableForRealInference"))
+    )
 
 
 def workspace_quality(sagittal: Dict[str, Any], axial: Dict[str, Any]) -> Dict[str, Any]:

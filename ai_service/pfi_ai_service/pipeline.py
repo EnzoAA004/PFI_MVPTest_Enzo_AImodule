@@ -4,6 +4,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional
 
+from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS, build_agent_decision
@@ -363,8 +364,24 @@ def run_pipeline(request: PipelineRunRequest) -> Dict[str, Any]:
             flags.append(f"real_inference_failed:{type(exc).__name__}")
             flags.append("contract_fallback_after_real_inference_failure")
     elif wants_real and not artifact.get("availableForRealInference", False):
+        if not _allow_contract_fallback(request):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Modelo no habilitado para real_baseline: {request.model_key}; "
+                    f"readiness={artifact.get('readiness')}"
+                ),
+            )
         flags.append("model_artifact_missing_for_real_inference")
     elif wants_real and not model_matches_plane:
+        if not _allow_contract_fallback(request):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Modelo incompatible con plano real_baseline: {request.model_key}; "
+                    f"expected={model_info.get('plane') if model_info else 'unknown'};actual={request.plane}"
+                ),
+            )
         flags.append("real_inference_not_started_model_plane_mismatch")
 
     if wants_real:
