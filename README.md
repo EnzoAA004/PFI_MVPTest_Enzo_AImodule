@@ -78,16 +78,16 @@ Ver `.env.example`.
 
 ```text
 PFI_ROOT=/content/drive/MyDrive/PFI_MVP
-PFI_MODEL_DIR=models/final
-PFI_SAGITTAL_MODEL_PATH=models/final/sagittal_spider_multiclass_final_best.pt
-PFI_AXIAL_MODEL_PATH=models/final/axial_t2_alkafri_final_best.pt
+PFI_MODEL_DIR=/app/models/final
+PFI_SAGITTAL_MODEL_PATH=/app/models/final/sagittal_spider_multiclass_final_best.pt
+PFI_AXIAL_MODEL_PATH=/app/models/final/axial_t2_alkafri_final_v2_candidate.pt
 PFI_MODEL_REGISTRY=config/model_registry_final.json
 PFI_DATA_FREEZE_CONFIG=config/data_freeze_config.json
-PFI_OUTPUT_DIR=outputs
+PFI_OUTPUT_DIR=/app/outputs
 PORT=8000
 ```
 
-`PFI_MODEL_DIR` apunta por defecto a `models/final`, donde el deploy cloud espera encontrar `axial_t2_alkafri_final_best.pt` y `sagittal_spider_multiclass_final_best.pt`. Si el artifact remoto conserva otro nombre, definir `PFI_AXIAL_MODEL_PATH` o `PFI_SAGITTAL_MODEL_PATH` con la ruta completa; el manifest debe quedar junto al artifact con sufijo `.manifest.json`, por ejemplo `axial_t2_alkafri_final_v2_candidate.pt.manifest.json`. `PFI_ROOT` queda como raiz externa/fallback de Colab para resultados, figuras y reportes. Los datasets completos, imagenes medicas pesadas, checkpoints no autorizados y resultados grandes no deben subirse a este repositorio.
+En cloud, `PFI_MODEL_DIR` debe apuntar a `/app/models/final`, la misma carpeta donde el Dockerfile copia los artifacts finales. El sagital autorizado es `sagittal_spider_multiclass_final_best.pt`; el axial autorizado para deploy es `axial_t2_alkafri_final_v2_candidate.pt` y no debe renombrarse como `best`. Cada artifact debe tener al lado su manifest con sufijo `.manifest.json`, por ejemplo `axial_t2_alkafri_final_v2_candidate.pt.manifest.json`. `PFI_ROOT` queda como raiz externa/fallback de Colab para resultados, figuras y reportes. Los datasets completos, imagenes medicas pesadas, checkpoints no autorizados y resultados grandes no deben subirse a este repositorio.
 
 ## Endpoints FastAPI actuales
 

@@ -4,7 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/ai_service \
     PORT=8000 \
-    PFI_MODEL_DIR=/models/final \
+    PFI_MODEL_DIR=/app/models/final \
     PFI_OUTPUT_DIR=/app/outputs
 
 WORKDIR /app
@@ -22,7 +22,7 @@ COPY ai_service /app/ai_service
 COPY config /app/config
 COPY models/final /app/models/final
 
-RUN mkdir -p /models/final /app/outputs
+RUN mkdir -p /app/models/final /app/outputs
 
 EXPOSE 8000
 

@@ -1,45 +1,54 @@
 {
-  "modelKey": "sagittal_spider",
-  "version": "real-baseline-v1",
   "artifactFile": "sagittal_spider_multiclass_final_best.pt",
-  "dataset": "SPIDER sagittal lumbar MRI",
-  "datasetVersion": "PENDIENTE: manifest/split versionado del held-out final",
-  "task": "lumbar_mri_multiclass_segmentation",
-  "inputPlane": "sagittal",
+  "baseChannels": 16,
+  "bestEpoch": 63,
   "classes": [
     "background",
     "vertebra_group",
     "canal",
     "disc_group"
   ],
+  "clinicalValidationStatus": "not_clinically_validated",
+  "dataset": "SPIDER sagittal lumbar MRI",
+  "epochsCompleted": 75,
+  "humanReviewRequired": true,
+  "inputPlane": "sagittal",
+  "manifestSha256": "fa54c89a278d850021c0f91c0a27b3b5211c86301c9e4f125d75d517f39b793b",
   "metrics": {
-    "dice": 0.8311,
-    "iou": 0.7309,
-    "scope": "legacy_internal_holdout_macro_no_background",
-    "status": "legacy_not_final_quality_gate"
+    "dice": 0.8934316063846954,
+    "iou": 0.8079981902423006,
+    "qualityGatePassed": true,
+    "qualityGateTarget": 0.7,
+    "scope": "final_patient_level_held_out_test_macro_no_background",
+    "testLoss": 0.14282359443361464,
+    "validationDiceMacroNoBackground": 0.8992978910787764
   },
-  "preliminaryEvaluation": {
-    "status": "preliminary_not_final",
-    "source": "QUAL-003b official evaluator",
-    "split": "held-out preliminary_gt_not_confirmed_unseen",
-    "heldOutConfirmedByPatient": false,
-    "diceMacroForeground": 0.625,
-    "iouMacroForeground": 0.511,
-    "reliable": true,
-    "thresholdDiceMacroForeground": 0.7,
-    "qualityGateStatus": "below_threshold",
-    "note": "Preliminar, held-out no confirmado por paciente; NO es test limpio final. Umbral objetivo Dice macro >= 0.70."
+  "modelKey": "sagittal_spider",
+  "notClinicalDiagnosis": true,
+  "numClasses": 4,
+  "patientCounts": {
+    "test": 33,
+    "train": 152,
+    "val": 33
   },
-  "trainingStatus": "baseline_evaluated_preliminary_quality_below_threshold",
+  "reasonFinished": "early_stopping",
+  "sha256": "cf11dcc0ad77a7c787e64a796a2fd7398ef906add461cef4b3d61f1a5238e944",
+  "sliceCounts": {
+    "test": 1218,
+    "train": 5271,
+    "val": 1174
+  },
+  "sourceArchitectureSha256": "d83f735cca9cbefc0e65dd8863466f4a528f205f3d674ebb73c49d68f8687c90",
+  "sourceRepositoryCommit": "6013e160f45c9263fd4ae50e864ceb37245323e2",
+  "sourceTrainingNotebook": "notebooks/45_gcs_spider_final_training.ipynb",
+  "sourceTrainingSummary": "gcs_spider_final_training_summary.json",
   "targetSize": [
     256,
     256
   ],
-  "targetSizeSource": "checkpoint:target_size",
-  "baseChannels": 16,
-  "humanReviewRequired": true,
-  "notClinicalDiagnosis": true,
-  "sha256": "7dd393cc750311c98003516d8110136310c31e8b6f0f00b6815f949fd61ef15b",
-  "numClasses": 4,
-  "modelCard": "models/final/sagittal_spider_multiclass_final_best.pt.modelcard.md"
+  "task": "lumbar_mri_multiclass_segmentation",
+  "trainingIndexSha256": "2720b7218c92870f6f0a000b57111ed36b5cf3b78c716f244f427ca7fee4a4ba",
+  "trainingStatus": "validated_baseline",
+  "version": "sagittal-spider-final-v1",
+  "warning": "Modelo academico de apoyo. Requiere revision profesional y no debe utilizarse como sustituto del criterio clinico ni como dispositivo medico validado."
 }

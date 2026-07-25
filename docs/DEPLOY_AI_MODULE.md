@@ -29,7 +29,9 @@ uvicorn pfi_ai_service.api:app --host 0.0.0.0 --port ${PORT:-8000}
 
 ```text
 PORT=8000
-PFI_MODEL_DIR=models/final
+PFI_MODEL_DIR=/app/models/final
+PFI_SAGITTAL_MODEL_PATH=/app/models/final/sagittal_spider_multiclass_final_best.pt
+PFI_AXIAL_MODEL_PATH=/app/models/final/axial_t2_alkafri_final_v2_candidate.pt
 PFI_ROOT=/content/drive/MyDrive/PFI_MVP
 PFI_MODEL_REGISTRY=config/model_registry_final.json
 PFI_DATA_FREEZE_CONFIG=config/data_freeze_config.json
@@ -38,7 +40,7 @@ PFI_OUTPUT_DIR=outputs
 
 Ver tambien `docs/CLOUD_ENVIRONMENT_VARIABLES.md`.
 
-En produccion, `PFI_MODEL_DIR` debe apuntar a `models/final` o a un volumen/bucket montado con los pesos finales autorizados. `PFI_ROOT` se conserva como fallback Colab y raiz externa para resultados/evidencia. No incluir datasets completos, imagenes medicas privadas ni checkpoints no autorizados dentro de la imagen Docker.
+En produccion Docker, `PFI_MODEL_DIR` debe apuntar a `/app/models/final`, que es la carpeta donde se copian los pesos finales autorizados. `PFI_ROOT` se conserva como fallback Colab y raiz externa para resultados/evidencia. No incluir datasets completos, imagenes medicas privadas ni checkpoints no autorizados dentro de la imagen Docker.
 
 ## Docker local
 
@@ -91,7 +93,7 @@ Pasos:
 
 Render inyecta `PORT`; la imagen respeta ese valor.
 
-La imagen crea la ruta `models/final` dentro del contenedor mediante un placeholder. Si los pesos finales no estan versionados, el servicio igual despliega y responde el contrato/smoke, pero la inferencia real debe resolverse con Git LFS, disco/volumen, descarga controlada o almacenamiento externo autorizado.
+La imagen copia `models/final` a `/app/models/final` dentro del contenedor. Si los pesos finales no estan versionados, el servicio igual despliega y responde el contrato/smoke, pero la inferencia real debe resolverse con Git LFS, disco/volumen, descarga controlada o almacenamiento externo autorizado.
 
 ## Railway Docker
 
@@ -118,7 +120,7 @@ Ejemplo conceptual:
 gcloud run deploy pfi-ai-module \
   --image REGION-docker.pkg.dev/PROJECT/REPOSITORY/pfi-ai-module:TAG \
   --region REGION \
-  --set-env-vars PFI_MODEL_DIR=models/final,PFI_ROOT=/mnt/pfi,PFI_OUTPUT_DIR=outputs \
+  --set-env-vars PFI_MODEL_DIR=/app/models/final,PFI_SAGITTAL_MODEL_PATH=/app/models/final/sagittal_spider_multiclass_final_best.pt,PFI_AXIAL_MODEL_PATH=/app/models/final/axial_t2_alkafri_final_v2_candidate.pt,PFI_ROOT=/app,PFI_OUTPUT_DIR=/app/outputs \
   --no-allow-unauthenticated
 ```
 

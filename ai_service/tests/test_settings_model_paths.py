@@ -31,4 +31,4 @@ def test_model_paths_default_to_model_dir(monkeypatch, tmp_path: Path) -> None:
     settings = get_settings()
 
     assert settings.sagittal_model_path == models_root / "sagittal_spider_multiclass_final_best.pt"
-    assert settings.axial_model_path == models_root / "axial_t2_alkafri_final_best.pt"
+    assert settings.axial_model_path == models_root / "axial_t2_alkafri_final_v2_candidate.pt"

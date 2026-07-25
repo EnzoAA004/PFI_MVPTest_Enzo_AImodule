@@ -70,7 +70,7 @@ def get_settings() -> ServiceSettings:
         ),
         axial_model_path=optional_env_path(
             "PFI_AXIAL_MODEL_PATH",
-            models_root / "axial_t2_alkafri_final_best.pt",
+            models_root / "axial_t2_alkafri_final_v2_candidate.pt",
         ),
         sagittal_model_uri=optional_env("PFI_SAGITTAL_MODEL_URI"),
         axial_model_uri=optional_env("PFI_AXIAL_MODEL_URI"),

@@ -1,70 +1,65 @@
 # Model Card - sagittal_spider_multiclass_final_best.pt
 
-## Identificacion
+## Nombre y version
 
-- Artifact: `sagittal_spider_multiclass_final_best.pt`
-- Model key: `sagittal_spider`
-- Version: `real-baseline-v1`
-- Fecha de model card: 2026-07-16
-- SHA-256: `7dd393cc750311c98003516d8110136310c31e8b6f0f00b6815f949fd61ef15b`
-- Tamano local inspeccionado: 1,975,947 bytes
-- Manifest: `models/final/sagittal_spider_multiclass_final_best.pt.manifest.json`
+- Modelo: sagittal_spider
+- Version: sagittal-spider-final-v1
+- Artifact runtime: `sagittal_spider_multiclass_final_best.pt`
+- Release GCS: `gs://pfi-rm-lumbar-artifacts-2026-ef/models/releases/sagittal_spider_final_v1/`
 
-## Lineage / Origen
+## Objetivo
 
-- Origen: notebook de Colab `20_E12_sagittal_final_training_clean.ipynb` / lineage E12 sagital final.
-- Dataset: SPIDER sagittal lumbar MRI.
-- Split de entrenamiento/validacion/test final: PENDIENTE de manifest versionado por paciente.
-- Evaluacion preliminar indicada para QUAL-006: `held-out preliminary_gt_not_confirmed_unseen`.
-- Riesgo conocido: el held-out preliminar NO esta confirmado como test limpio final por paciente.
+Segmentacion multiclase de RM lumbar sagital SPIDER para apoyo academico revisable. No produce diagnostico automatico ni recomendaciones terapeuticas.
 
-## Arquitectura e hiperparametros
+## Arquitectura y formato
 
-- Arquitectura runtime: `SagittalUNet2D`.
-- `num_classes`: 4.
-- `base_channels`: 16.
-- `target_size`: 256 x 256.
-- State dict: bajo key top-level `model_state_dict`.
-- Metadata embebida confirmada en AI-001: `base_channels`, `num_classes`, `target_size`, `label_group_mapping`, `sagittal_axis`, `slice_strategy`, `val_dice_macro_no_bg`.
+- Arquitectura: SagittalUNet2D
+- Entrada: tensor 1x256x256
+- Salida: 4 clases: background, vertebra_group, canal, disc_group
+- base_channels: 16
+- target_size: 256x256
+- Runtime alias compatible: `sagittal_spider_multiclass_final_best.pt`
 
-## Clases
+## Dataset y split
 
-- 0: `background`
-- 1: `vertebra_group`
-- 2: `canal`
-- 3: `disc_group`
+- Dataset: SPIDER sagittal lumbar MRI
+- Split por paciente: train=152, val=33, test=33
+- Slices: train=5271, val=1174, test=1218
+- Validation selecciona modelo; test se evalua una sola vez con el mejor checkpoint.
 
-El checkpoint incluye `label_group_mapping` para remapear labels crudos SPIDER al espacio agrupado del modelo.
+## Entrenamiento
 
-## Calidad actual documentada
+- Notebook fuente: notebooks/45_gcs_spider_final_training.ipynb
+- Optimizer: AdamW
+- Loss: CrossEntropy ponderada + Dice sin fondo
+- Early stopping: patience 12
+- Epochs completados: 75
+- Mejor epoch: 63
+- Reason finished: early_stopping
 
-Estado: PRELIMINAR, no final.
+## Metricas finales
 
-- Evaluador: QUAL-003b official evaluator.
-- Split: `held-out preliminary_gt_not_confirmed_unseen`.
-- Dice macro foreground preliminar: 0.625.
-- IoU macro foreground preliminar: 0.511.
-- `reliable`: true.
-- Umbral objetivo: Dice macro foreground >= 0.70.
-- Estado frente al umbral: por debajo del umbral.
+- Validation Dice macro no background: 0.8992978910787764
+- Test Dice macro no background: 0.8934316063846954
+- Test IoU macro no background: 0.8079981902423006
+- Umbral Dice: 0.70
+- Quality gate: aprobado
 
-Aclaracion obligatoria: estas metricas NO son test limpio final. El conjunto held-out aun no esta confirmado por paciente, por lo que no debe presentarse como resultado final de calidad.
+## Procedencia y hashes
 
-## Metricas legacy en manifest
+- Model SHA-256: `cf11dcc0ad77a7c787e64a796a2fd7398ef906add461cef4b3d61f1a5238e944`
+- Training repository commit: `6013e160f45c9263fd4ae50e864ceb37245323e2`
+- Architecture SHA-256: `d83f735cca9cbefc0e65dd8863466f4a528f205f3d674ebb73c49d68f8687c90`
+- Dataset manifest SHA-256: `fa54c89a278d850021c0f91c0a27b3b5211c86301c9e4f125d75d517f39b793b`
+- Training index SHA-256: `2720b7218c92870f6f0a000b57111ed36b5cf3b78c716f244f427ca7fee4a4ba`
 
-El manifest conserva metricas historicas internas bajo `metrics` con status `legacy_not_final_quality_gate`. No reemplazan la evaluacion final requerida por QUAL-004/QUAL-005.
+## Formatos soportados por runtime
 
-## Uso previsto y restricciones
+El runtime actual acepta entradas de imagen y volumen soportadas por el servicio existente. Esta release solo publica artifacts; la materializacion cloud desde gs:// requiere una tarea separada controlada o una estrategia HTTPS autenticada.
 
-- Uso: prototipo academico para segmentacion asistida de RM lumbar sagital y generacion de mascaras revisables.
-- No emite diagnosticos.
-- No recomienda tratamientos.
+## Limitaciones
+
+- No tiene validacion clinica.
+- Puede sesgarse al dominio SPIDER evaluado.
 - Requiere revision profesional humana.
-- No debe usarse como evidencia clinica final sin quality gate sobre test held-out limpio.
-
-## Pendientes
-
-- Congelar y versionar test held-out limpio por paciente.
-- Ejecutar QUAL-003b sobre el test limpio final.
-- Alcanzar o justificar brecha frente a Dice macro foreground >= 0.70.
-- Documentar split train/val/test definitivo con IDs no sensibles.
+- No debe usarse para diagnostico automatico, seguridad clinica, eficacia clinica ni generalizacion fuera del conjunto evaluado.

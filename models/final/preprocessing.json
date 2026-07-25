@@ -1,0 +1,40 @@
+{
+  "augmentations": {
+    "enabled": true,
+    "horizontalFlip": {
+      "enabled": false,
+      "note": "requiere validar lateralidad antes de habilitar",
+      "p": 0.5
+    },
+    "intensityJitter": {
+      "enabled": true,
+      "p": 0.25,
+      "scale": [
+        0.95,
+        1.05
+      ],
+      "shift": [
+        -0.03,
+        0.03
+      ]
+    },
+    "smallRotationDegrees": {
+      "enabled": false,
+      "imageInterpolation": "bilinear",
+      "maskInterpolation": "nearest",
+      "maxAbsDegrees": 5
+    },
+    "spatialEnabledByDefault": false
+  },
+  "imageResize": "bilinear",
+  "maskResize": "nearest",
+  "normalization": "robust_percentile_1_99_per_image_train_independent",
+  "rawToClassIndex": {
+    "0": 1,
+    "50": 2,
+    "100": 3,
+    "150": 4,
+    "200": 5,
+    "250": 0
+  }
+}
