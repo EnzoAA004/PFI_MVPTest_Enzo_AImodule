@@ -17,4 +17,5 @@ def test_multiplanar_run_endpoint(monkeypatch, tmp_path):
     assert body["status"] == "multiplanar_run_ready"
     assert body["traceId"] == "trace-multi-test"
     assert body["planes"]["sagittal"]["plane"] == "sagittal"
-    assert body["planes"]["axial"]["plane"] == "axial"
+    assert body["planes"]["axial"] is None
+    assert body["threeD"]["status"] == "blocked_missing_axial"

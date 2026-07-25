@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -11,6 +12,7 @@ from .multiplanar_routes import register_multiplanar_routes
 from .real_inference_routes import register_real_inference_routes
 
 TRACE_ID_HEADER = "X-Trace-Id"
+LOGGER = logging.getLogger(__name__)
 
 
 def register_error_handlers(app: FastAPI) -> None:
@@ -50,6 +52,32 @@ def register_error_handlers(app: FastAPI) -> None:
             "notClinicalDiagnosis": True,
         }
         return JSONResponse(status_code=exc.status_code, content=body, headers={TRACE_ID_HEADER: trace_id})
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        trace_id = trace_id_from_request(request)
+        LOGGER.exception(
+            "ai_service_unhandled_exception",
+            extra={
+                "traceId": trace_id,
+                "path": request.url.path,
+                "method": request.method,
+                "exceptionType": type(exc).__name__,
+                "errorMessage": str(exc)[:240],
+            },
+        )
+        body: dict[str, Any] = {
+            "status": "error",
+            "code": "AI_MODULE_ERROR",
+            "message": "Fallo interno controlado del AI Module",
+            "traceId": trace_id,
+            "path": request.url.path,
+            "method": request.method,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "humanReviewRequired": True,
+            "notClinicalDiagnosis": True,
+        }
+        return JSONResponse(status_code=500, content=body, headers={TRACE_ID_HEADER: trace_id})
 
 
 def trace_id_from_request(request: Request) -> str:
