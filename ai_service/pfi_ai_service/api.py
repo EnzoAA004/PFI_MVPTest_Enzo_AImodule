@@ -23,7 +23,7 @@ from .inference import run_axial_inference, run_sagittal_inference
 from .input_registry import InputRegistrationRequest, register_server_side_input, register_uploaded_input
 from .model_artifacts import artifact_summary, registry_with_artifact_status, verify_model_artifacts
 from .model_materializer import sync_model_artifacts
-from .multiplanar_contract import multiplanar_workspace_contract
+from .multiplanar_contract import multiplanar_workspace_contract, multiplanar_workspace_contract_v2
 from .pipeline import PipelineRunRequest, run_pipeline
 from .readiness import build_readiness
 from .report_summary import recent_agent_report_summaries, summarize_agent_report
@@ -249,6 +249,11 @@ def evaluation_evidence():
 @app.get("/multiplanar/contract")
 def multiplanar_contract():
     return clean_for_json(multiplanar_workspace_contract())
+
+
+@app.get("/v2/multiplanar/contract")
+def multiplanar_contract_v2():
+    return clean_for_json(multiplanar_workspace_contract_v2())
 
 
 @app.get("/pipeline/schema")

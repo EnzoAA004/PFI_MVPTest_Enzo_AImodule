@@ -6,9 +6,18 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 from .input_registry import InputRegistryError
 from .multiplanar_run import MultiplanarRunRequest, run_multiplanar_pipeline
+from .multiplanar_v2_executor import (
+    CanonicalMultiplanarExecutor,
+    MultiplanarV2Error,
+    exception_to_v2,
+    http_exception_to_v2,
+    structured_validation_error,
+)
+from .multiplanar_v2_models import MultiplanarRunV2Request
 
 LOGGER = logging.getLogger(__name__)
 
@@ -50,6 +59,37 @@ def register_multiplanar_routes(app: FastAPI) -> None:
                 headers={"X-Trace-Id": trace_id},
             )
 
+    @app.post("/v2/multiplanar/run")
+    async def multiplanar_run_v2(http_request: Request):
+        trace_id = request_trace_id(http_request)
+        payload = await http_request.json()
+        try:
+            request = MultiplanarRunV2Request.model_validate(payload)
+        except ValidationError as exc:
+            error = structured_validation_error(payload, exc, trace_id)
+            return JSONResponse(status_code=error.status_code, content=error.body(), headers={"X-Trace-Id": trace_id})
+        trace_id = request.traceId or trace_id
+        try:
+            response = CanonicalMultiplanarExecutor().run(request, trace_id=trace_id)
+            return response.model_dump(mode="json")
+        except MultiplanarV2Error as exc:
+            return JSONResponse(status_code=exc.status_code, content=exc.body(), headers={"X-Trace-Id": trace_id})
+        except HTTPException as exc:
+            error = http_exception_to_v2(exc, trace_id=trace_id, case_id=request.caseId, requested_planes=requested_planes(request))
+            return JSONResponse(status_code=error.status_code, content=error.body(), headers={"X-Trace-Id": trace_id})
+        except Exception as exc:
+            LOGGER.exception(
+                "multiplanar_run_v2_unhandled_exception",
+                extra={
+                    "traceId": trace_id,
+                    "caseId": request.caseId,
+                    "exceptionType": type(exc).__name__,
+                    "errorMessage": str(exc)[:240],
+                },
+            )
+            error = exception_to_v2(exc, trace_id=trace_id, case_id=request.caseId, requested_planes=requested_planes(request))
+            return JSONResponse(status_code=error.status_code, content=error.body(), headers={"X-Trace-Id": trace_id})
+
 
 def request_trace_id(request: Request) -> str:
     value = getattr(request.state, "trace_id", None)
@@ -57,6 +97,15 @@ def request_trace_id(request: Request) -> str:
         return value
     header = request.headers.get("X-Trace-Id")
     return header.strip() if header and header.strip() else "unavailable"
+
+
+def requested_planes(request: MultiplanarRunV2Request) -> list[str]:
+    planes: list[str] = []
+    if request.planes.sagittal is not None:
+        planes.append("sagittal")
+    if request.planes.axial is not None:
+        planes.append("axial")
+    return planes
 
 
 def error_body(*, status_code: int, message: str, trace_id: str, path: str, method: str) -> dict[str, Any]:

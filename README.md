@@ -35,6 +35,10 @@ tests/                   Tests con datos sinteticos
 scripts/                 Scripts de ejecucion local
 ```
 
+## Contrato multiplanar v2
+
+P9-A agrega el contrato canonico `POST /v2/multiplanar/run` y el descriptor `GET /v2/multiplanar/contract`, manteniendo temporalmente `POST /multiplanar/run` para compatibilidad P8. Ver [docs/P9_A_MULTIPLANAR_V2_CONTRACT.md](docs/P9_A_MULTIPLANAR_V2_CONTRACT.md).
+
 ## Ejecucion local
 
 Crear un entorno virtual e instalar dependencias del servicio:
