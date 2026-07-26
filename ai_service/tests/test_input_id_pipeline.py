@@ -132,14 +132,16 @@ def test_multiplanar_run_accepts_input_ids_for_partial_real_baseline(monkeypatch
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["effectiveInferenceMode"] == "mixed"
+    assert body["effectiveInferenceMode"] == "contract"
     assert body["sagittalRunReady"] is True
-    assert body["axialRunReady"] is False
-    assert body["dualRunReady"] is False
+    assert body["axialRunReady"] is True
+    assert body["dualRunReady"] is True
     assert body["runId"].startswith("multi-")
     assert body["traceId"] == "trace-ai013-multi"
     assert body["planes"]["sagittal"]["inputId"] == sagittal_id
     assert body["planes"]["axial"]["inputId"] == axial_id
-    assert body["planes"]["sagittal"]["aiOutput"]["inferenceMode"] == "real_baseline"
+    assert body["planes"]["sagittal"]["aiOutput"]["inferenceMode"] == "contract"
     assert body["planes"]["axial"]["aiOutput"]["inferenceMode"] == "contract"
+    assert body["planes"]["sagittal"]["synthetic"] is True
+    assert body["planes"]["axial"]["synthetic"] is True
     assert_no_internal_paths(body)

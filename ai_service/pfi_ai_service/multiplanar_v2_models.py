@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 PlaneNameV2 = Literal["sagittal", "axial"]
 InferenceModeV2 = Literal["contract", "mock", "real_baseline"]
+EffectiveInferenceModeV2 = Literal["contract", "mock", "real_baseline", "mixed"]
 WorkspaceModeV2 = Literal["sagittal_only", "axial_only", "dual_plane"]
 PlaneStatusV2 = Literal["ready", "blocked", "error"]
 
@@ -187,6 +188,8 @@ class PlaneRunV2Result(PublicResponseModel):
     landmarks: list[PlaneLandmarkV2]
     measurements: list[PlaneMeasurementV2]
     quality: PlaneQualityV2
+    synthetic: bool
+    fallbackReason: str | None = None
 
 
 class MultiplanarReadinessV2(PublicResponseModel):
@@ -231,7 +234,7 @@ class MultiplanarRunV2Response(PublicResponseModel):
     caseId: str
     workspaceMode: WorkspaceModeV2
     requestedInferenceMode: InferenceModeV2
-    effectiveInferenceMode: InferenceModeV2
+    effectiveInferenceMode: EffectiveInferenceModeV2
     requestedPlanes: list[PlaneNameV2]
     completedPlanes: list[PlaneNameV2]
     readiness: MultiplanarReadinessV2
@@ -240,6 +243,8 @@ class MultiplanarRunV2Response(PublicResponseModel):
     quality: WorkspaceQualityV2
     review: ReviewPolicyV2
     governance: GovernanceV2
+    synthetic: bool
+    fallbackReason: str | None = None
 
 
 class StructuredAiErrorV2(PublicResponseModel):
@@ -255,6 +260,7 @@ class StructuredAiErrorV2(PublicResponseModel):
         "REAL_INFERENCE_FAILED",
         "UNSUPPORTED_INFERENCE_MODE",
         "CONTRACT_FALLBACK_DISABLED",
+        "INVALID_MULTIPLANAR_RESPONSE",
     ]
     message: str
     traceId: str

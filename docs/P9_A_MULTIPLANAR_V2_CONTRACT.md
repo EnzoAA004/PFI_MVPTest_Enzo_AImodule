@@ -6,6 +6,12 @@ P9-A introduce un contrato canonico para corridas multiplanares del AI Module. E
 
 El endpoint legacy `POST /multiplanar/run` se conserva para el backend P8. El nuevo contrato publico esta en `POST /v2/multiplanar/run` y el descriptor de capacidades en `GET /v2/multiplanar/contract`.
 
+Desde P9-A.1 el endpoint legacy tambien usa el core canonico:
+
+`MultiplanarRunRequest v1 -> LegacyMultiplanarV1RequestMapper -> CanonicalMultiplanarExecutor -> LegacyMultiplanarV1Adapter -> response v1`
+
+`run_multiplanar_pipeline()` queda fuera del flujo publico y se mantiene solo como compatibilidad interna/deprecated.
+
 ## Request V2
 
 ```json
@@ -33,6 +39,8 @@ El endpoint legacy `POST /multiplanar/run` se conserva para el backend P8. El nu
 `caseId` es obligatorio. Al menos un plano debe estar solicitado. `inputPath`, datos de sujeto, fechas de estudio, descripcion y metadata libre no forman parte del contrato v2. La convencion publica es camelCase.
 
 `inferenceMode` acepta `contract`, `mock` y `real_baseline`; `real` se normaliza como alias de entrada a `real_baseline`. `allowContractFallback` vale `false` por defecto y no hay fallback silencioso.
+
+Si `allowContractFallback=true`, el fallback P9-A.1 es global: ante un fallo de `real_baseline` o un modelo solicitado no listo, todos los planos solicitados se devuelven en `contract`, con `synthetic=true` y `fallbackReason` sanitizado. No se mezclan silenciosamente planos reales y sinteticos.
 
 ## Modos
 
@@ -85,7 +93,9 @@ La respuesta principal es `pfi.multiplanar-run.v2`:
   "planes": {
     "sagittal": {},
     "axial": null
-  }
+  },
+  "synthetic": false,
+  "fallbackReason": null
 }
 ```
 
@@ -104,10 +114,30 @@ Cada plano contiene secciones tipadas:
 - `landmarks`: puntos derivados de mascara cuando aplica.
 - `measurements`: lista unica sin `reviewerValue`, sin niveles inventados y con `measurementBasis`.
 - `quality`: metricas tecnicas de la corrida, no metricas de entrenamiento.
+- `synthetic`: `false` para inferencia real exitosa; `true` para contract/mock o fallback.
+- `fallbackReason`: `null` para real exitoso; razon sanitizada para contract/mock/fallback.
+
+`effectiveInferenceMode` se calcula desde los planos completados. Si todos son `real_baseline`, el workspace es `real_baseline`; si todos son `contract`, es `contract`; si todos son `mock`, es `mock`; cualquier mezcla explicita seria `mixed`.
+
+## Contract, Mock y Fallback
+
+En v2, `contract` y `mock` explicitos no reutilizan los fixtures clinicos legacy. La respuesta contiene:
+
+- `series=[]`
+- `assets=[]`
+- `masks=[]`
+- `landmarks=[]`
+- `measurements=[]`
+- quality con contadores `0`
+- `synthetic=true`
+
+No se devuelven series ficticias como `Sagittal T1`, `Axial T1` o `Axial T2 L4-L5`, ni datos demo como `PAT-DEMO` o fechas clinicas. El adapter v1 puede conservar estructura P8 minima, pero queda marcada con `synthetic` y `fallbackReason`.
 
 ## Coordinate Space
 
 `coordinateSpace` explicita `width`, `height`, `units`, origen, direcciones y slice fuente. Las mediciones usan `measurementBasis=physical_spacing` solo si existe spacing real; si no, usan `pixel_space`.
+
+Para `real_baseline`, `width` y `height` deben ser mayores que cero y derivarse del runtime. Si faltan `processedShape`/`canonicalShape` validos, la normalizacion falla con `INVALID_MULTIPLANAR_RESPONSE`; no se fabrica `256`.
 
 ## Assets
 
@@ -162,6 +192,12 @@ Los errores v2 usan `pfi.error.v2`:
 
 No se incluyen stack traces, paths internos, secretos ni contenido de archivos.
 
+Errores adicionales P9-A.1:
+
+- `INVALID_MULTIPLANAR_REQUEST`: JSON invalido, body no objeto o shape de request invalida.
+- `CONTRACT_FALLBACK_DISABLED`: reservado para fallos donde se solicito real sin fallback permitido.
+- `INVALID_MULTIPLANAR_RESPONSE`: normalizacion interna invalida, por ejemplo serie real ausente o `coordinateSpace` 0x0.
+
 ## Governance
 
 Toda respuesta v2 mantiene:
@@ -185,6 +221,15 @@ El AI Module no genera diagnostico clinico.
 | `dualRunReady` | ambos planos completados |
 | `metadata.traceId` | `traceId` top-level |
 | aliases snake_case | removidos del contrato canonico |
+
+Campos legacy conservados temporalmente:
+
+- `planes.{plane}.measurements.values`
+- `planes.{plane}.measurementValues`
+- `planes.{plane}.modelArtifact`
+- `planes.{plane}.aiOutput`
+- `sagittalRunReady`, `axialRunReady`, `dualRunReady`
+- `humanReviewRequired`, `notClinicalDiagnosis`
 
 No deben agregarse nuevos consumidores v1.
 

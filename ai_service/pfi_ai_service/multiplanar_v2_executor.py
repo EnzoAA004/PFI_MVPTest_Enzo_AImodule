@@ -10,7 +10,8 @@ from pydantic import ValidationError
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS
 from .input_registry import InputRegistryError, resolve_input_id
 from .model_artifacts import model_status
-from .pipeline import PipelineRunRequest, run_pipeline
+from . import multiplanar_run as legacy_multiplanar_module
+from .pipeline import PipelineRunRequest
 from .reporting import write_json
 from .settings import MODEL_REGISTRY, get_settings
 from .multiplanar_v2_models import (
@@ -36,8 +37,13 @@ from .multiplanar_v2_models import (
     WorkspaceQualityV2,
     WorkspaceModeV2,
 )
+from .multiplanar_run import MultiplanarRunRequest
 
 MODEL_NOT_READY_MESSAGE = "Modelo no habilitado para real_baseline"
+
+
+def run_pipeline(request: PipelineRunRequest) -> dict[str, Any]:
+    return legacy_multiplanar_module.run_pipeline(request)
 
 
 class MultiplanarV2Error(Exception):
@@ -113,19 +119,97 @@ def requested_planes_from_payload(payload: Any) -> list[PlaneNameV2]:
 
 
 class CanonicalMultiplanarExecutor:
-    def run(self, request: MultiplanarRunV2Request, *, trace_id: str) -> MultiplanarRunV2Response:
+    def run(
+        self,
+        request: MultiplanarRunV2Request,
+        *,
+        trace_id: str,
+        allow_unregistered_inputs: bool = False,
+    ) -> MultiplanarRunV2Response:
         requested_planes = planes_requested(request)
         workspace_mode = workspace_mode_for(requested_planes)
         run_id = deterministic_multiplanar_run_id(request, requested_planes)
-        preflight = self._preflight(request, trace_id, requested_planes)
+        preflight = self._preflight(
+            request,
+            trace_id,
+            requested_planes,
+            allow_global_fallback=request.allowContractFallback,
+            allow_unregistered_inputs=allow_unregistered_inputs,
+        )
 
         plane_results: dict[PlaneNameV2, PlaneRunV2Result | None] = {"sagittal": None, "axial": None}
+        if request.inferenceMode == "real_baseline" and request.allowContractFallback and any(
+            not item["model"].get("availableForRealInference") for item in preflight.values()
+        ):
+            reason = sanitize_fallback_reason("real_baseline_model_not_ready")
+            for plane in requested_planes:
+                plane_spec = getattr(request.planes, plane)
+                assert plane_spec is not None
+                plane_results[plane] = synthetic_plane_result(plane, plane_spec, preflight[plane], "contract", reason)
+            return self._persist_response(request, trace_id, run_id, requested_planes, workspace_mode, plane_results, preflight)
+
+        if request.inferenceMode in {"contract", "mock"}:
+            for plane in requested_planes:
+                plane_spec = getattr(request.planes, plane)
+                assert plane_spec is not None
+                plane_results[plane] = synthetic_plane_result(
+                    plane,
+                    plane_spec,
+                    preflight[plane],
+                    request.inferenceMode,
+                    f"explicit_{request.inferenceMode}_mode",
+                )
+            return self._persist_response(request, trace_id, run_id, requested_planes, workspace_mode, plane_results, preflight)
+
         for plane in requested_planes:
             plane_spec = getattr(request.planes, plane)
             assert plane_spec is not None
-            pipeline_response = run_pipeline(self._pipeline_request(request, plane, plane_spec, run_id, trace_id, workspace_mode))
-            plane_results[plane] = normalize_plane_result_v2(plane, plane_spec, pipeline_response, preflight[plane])
+            try:
+                pipeline_response = run_pipeline(self._pipeline_request(request, plane, plane_spec, run_id, trace_id, workspace_mode))
+                plane_results[plane] = normalize_plane_result_v2(
+                    plane,
+                    plane_spec,
+                    pipeline_response,
+                    preflight[plane],
+                    strict=not allow_unregistered_inputs,
+                )
+            except MultiplanarV2Error:
+                raise
+            except Exception as exc:
+                if not request.allowContractFallback:
+                    raise MultiplanarV2Error(
+                        "REAL_INFERENCE_FAILED",
+                        "Fallo de inferencia real baseline.",
+                        status_code=500,
+                        trace_id=trace_id,
+                        case_id=request.caseId,
+                        requested_planes=requested_planes,
+                        details={"plane": plane, "type": type(exc).__name__},
+                    ) from exc
+                reason = sanitize_fallback_reason(f"real_baseline_failed:{type(exc).__name__}")
+                for fallback_plane in requested_planes:
+                    fallback_spec = getattr(request.planes, fallback_plane)
+                    assert fallback_spec is not None
+                    plane_results[fallback_plane] = synthetic_plane_result(
+                        fallback_plane,
+                        fallback_spec,
+                        preflight[fallback_plane],
+                        "contract",
+                        reason,
+                    )
+                break
+        return self._persist_response(request, trace_id, run_id, requested_planes, workspace_mode, plane_results, preflight)
 
+    def _persist_response(
+        self,
+        request: MultiplanarRunV2Request,
+        trace_id: str,
+        run_id: str,
+        requested_planes: list[PlaneNameV2],
+        workspace_mode: WorkspaceModeV2,
+        plane_results: dict[PlaneNameV2, PlaneRunV2Result | None],
+        preflight: dict[PlaneNameV2, dict[str, Any]],
+    ) -> MultiplanarRunV2Response:
         response = build_workspace_response(
             request=request,
             trace_id=trace_id,
@@ -143,6 +227,9 @@ class CanonicalMultiplanarExecutor:
         request: MultiplanarRunV2Request,
         trace_id: str,
         requested_planes: list[PlaneNameV2],
+        *,
+        allow_global_fallback: bool,
+        allow_unregistered_inputs: bool,
     ) -> dict[PlaneNameV2, dict[str, Any]]:
         preflight: dict[PlaneNameV2, dict[str, Any]] = {}
         for plane in requested_planes:
@@ -169,21 +256,26 @@ class CanonicalMultiplanarExecutor:
                     requested_planes=requested_planes,
                     details={"plane": plane, "modelKey": plane_spec.modelKey, "expectedPlane": model_info.get("plane")},
                 )
+            input_record = None
             try:
                 input_record = resolve_input_id(plane_spec.inputId, case_id=request.caseId, plane=plane)
             except InputRegistryError as exc:
-                raise MultiplanarV2Error(
-                    "INPUT_NOT_FOUND",
-                    exc.message,
-                    status_code=exc.status_code,
-                    trace_id=trace_id,
-                    case_id=request.caseId,
-                    requested_planes=requested_planes,
-                    details={"plane": plane, "inputId": plane_spec.inputId},
-                ) from exc
+                if request.inferenceMode == "real_baseline" and not allow_unregistered_inputs:
+                    raise MultiplanarV2Error(
+                        "INPUT_NOT_FOUND",
+                        exc.message,
+                        status_code=exc.status_code,
+                        trace_id=trace_id,
+                        case_id=request.caseId,
+                        requested_planes=requested_planes,
+                        details={"plane": plane, "inputId": plane_spec.inputId},
+                    ) from exc
 
             artifact = model_status(plane_spec.modelKey, dict(model_info))
             if request.inferenceMode == "real_baseline" and not artifact.get("availableForRealInference"):
+                if allow_global_fallback:
+                    preflight[plane] = {"model": artifact, "input": input_record}
+                    continue
                 raise MultiplanarV2Error(
                     "MODEL_NOT_READY",
                     f"{MODEL_NOT_READY_MESSAGE}: {plane_spec.modelKey}",
@@ -263,6 +355,8 @@ def normalize_plane_result_v2(
     plane_spec: PlaneExecutionV2Request,
     response: dict[str, Any],
     preflight: dict[str, Any],
+    *,
+    strict: bool = True,
 ) -> PlaneRunV2Result:
     metadata = response.get("metadata") if isinstance(response.get("metadata"), dict) else {}
     model = plane_model_v2(preflight["model"])
@@ -272,6 +366,19 @@ def normalize_plane_result_v2(
     canonical_shape = int_list_or_none(metadata.get("inputShapeCanonical"))
     processed_shape = int_list_or_none(metadata.get("processedShape"))
     height, width = shape_to_height_width(processed_shape or canonical_shape)
+    if width <= 0 or height <= 0:
+        if not strict:
+            width, height = 1, 1
+        else:
+            raise MultiplanarV2Error(
+                "INVALID_MULTIPLANAR_RESPONSE",
+                "Respuesta real_baseline sin coordinateSpace valido.",
+                status_code=500,
+                trace_id=str(response.get("traceId") or metadata.get("traceId") or "unavailable"),
+                case_id=str(response.get("caseId") or response.get("case_id") or ""),
+                requested_planes=[plane],
+                details={"plane": plane, "reason": "invalid_processed_shape"},
+            )
     coordinate_space = CoordinateSpaceV2(
         name=f"model_{width}x{height}",
         width=width,
@@ -287,7 +394,7 @@ def normalize_plane_result_v2(
     return PlaneRunV2Result(
         status="ready",
         plane=plane,
-        runId=str(response.get("runId") or response.get("run_id")),
+        runId=required_text(response.get("runId") or response.get("run_id"), "planeRunId", plane),
         effectiveInferenceMode=normalize_inference_mode(response.get("inferenceMode") or metadata.get("inferenceMode")),
         model=model,
         input=PlaneInputV2(
@@ -305,12 +412,14 @@ def normalize_plane_result_v2(
             inPlaneSpacingMm=float_list_or_none(metadata.get("inPlaneSpacing")),
         ),
         coordinateSpace=coordinate_space,
-        series=series_v2(plane, response.get("series"), selected_slice),
+        series=series_v2(plane, response.get("series"), selected_slice, strict=strict),
         assets=assets_v2(plane, str(response.get("runId") or response.get("run_id")), metadata),
-        masks=masks_v2(response.get("masks"), coordinate_space.name),
-        landmarks=landmarks_v2(response.get("landmarks"), coordinate_space.name),
+        masks=masks_v2(plane, response.get("masks"), coordinate_space.name),
+        landmarks=landmarks_v2(plane, response.get("landmarks"), coordinate_space.name),
         measurements=measurements_v2(plane, response.get("measurementValues") or (response.get("measurements") or {}).get("values"), metadata),
         quality=quality,
+        synthetic=False,
+        fallbackReason=None,
     )
 
 
@@ -329,21 +438,33 @@ def plane_model_v2(artifact: dict[str, Any]) -> PlaneModelV2:
     )
 
 
-def series_v2(plane: PlaneNameV2, raw: Any, selected_slice: int | None) -> list[PlaneSeriesV2]:
+def series_v2(plane: PlaneNameV2, raw: Any, selected_slice: int | None, *, strict: bool = True) -> list[PlaneSeriesV2]:
     source = raw if isinstance(raw, list) else []
     series: list[PlaneSeriesV2] = []
     for item in source:
         if not isinstance(item, dict) or item.get("plane") != plane:
             continue
         series.append(PlaneSeriesV2(
-            id=str(item.get("id") or f"series-{plane}-primary"),
+            id=required_text(item.get("id"), "series.id", plane),
             plane=plane,
             sequence=None,
             selectedSliceIndex=int_or_none(item.get("selectedSlice")) if item.get("selectedSlice") is not None else selected_slice,
             sliceCount=int_or_none(item.get("sliceCount")),
             status="served_single_slice" if item.get("status") == "real_baseline_ready" else str(item.get("status") or "served_single_slice"),
         ))
-    return series or [PlaneSeriesV2(id=f"series-{plane}-primary", plane=plane, sequence=None, selectedSliceIndex=selected_slice, sliceCount=None, status="served_single_slice")]
+    if not series:
+        if not strict:
+            return []
+        raise MultiplanarV2Error(
+            "INVALID_MULTIPLANAR_RESPONSE",
+            "Respuesta real_baseline sin serie procesada.",
+            status_code=500,
+            trace_id="unavailable",
+            case_id=None,
+            requested_planes=[plane],
+            details={"plane": plane, "reason": "missing_real_series"},
+        )
+    return series
 
 
 def assets_v2(plane: PlaneNameV2, run_id: str, metadata: dict[str, Any]) -> list[PlaneAssetV2]:
@@ -375,14 +496,14 @@ def assets_v2(plane: PlaneNameV2, run_id: str, metadata: dict[str, Any]) -> list
     ]
 
 
-def masks_v2(raw: Any, coordinate_space: str) -> list[PlaneMaskV2]:
+def masks_v2(plane: PlaneNameV2, raw: Any, coordinate_space: str) -> list[PlaneMaskV2]:
     masks = []
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
             continue
-        class_key = str(item.get("className") or item.get("label") or item.get("id"))
+        class_key = required_text(item.get("className") or item.get("label"), "mask.classKey", plane)
         masks.append(PlaneMaskV2(
-            id=str(item.get("id") or f"mask-{class_key}"),
+            id=required_text(item.get("id"), "mask.id", plane),
             classKey=class_key,
             confidence=float_or_none(item.get("confidence")),
             enabled=bool(item.get("enabled", True)),
@@ -393,14 +514,14 @@ def masks_v2(raw: Any, coordinate_space: str) -> list[PlaneMaskV2]:
     return masks
 
 
-def landmarks_v2(raw: Any, coordinate_space: str) -> list[PlaneLandmarkV2]:
+def landmarks_v2(plane: PlaneNameV2, raw: Any, coordinate_space: str) -> list[PlaneLandmarkV2]:
     landmarks = []
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict) or item.get("x") is None or item.get("y") is None:
             continue
         landmarks.append(PlaneLandmarkV2(
-            id=str(item.get("id")),
-            labelKey=str(item.get("label") or item.get("id")),
+            id=required_text(item.get("id"), "landmark.id", plane),
+            labelKey=required_text(item.get("label"), "landmark.labelKey", plane),
             x=float(item["x"]),
             y=float(item["y"]),
             confidence=float_or_none(item.get("confidence")),
@@ -420,8 +541,8 @@ def measurements_v2(plane: PlaneNameV2, raw: Any, metadata: dict[str, Any]) -> l
         if not physical and unit in {"mm", "mm2"}:
             unit = "px2" if unit == "mm2" else "px"
         values.append(PlaneMeasurementV2(
-            id=str(item.get("id")),
-            labelKey=str(item.get("label") or item.get("id")),
+            id=required_text(item.get("id"), "measurement.id", plane),
+            labelKey=required_text(item.get("label"), "measurement.labelKey", plane),
             value=float(item["value"]),
             unit=unit,
             confidence=float_or_none(item.get("confidence")),
@@ -460,6 +581,9 @@ def build_workspace_response(
 ) -> MultiplanarRunV2Response:
     completed = [plane for plane in requested_planes if planes.get(plane) is not None]
     quality = workspace_quality_v2(planes)
+    effective_mode = workspace_effective_mode(planes)
+    synthetic = any(bool(plane.synthetic) for plane in planes.values() if plane is not None)
+    fallback_reason = first_fallback_reason(planes)
     return MultiplanarRunV2Response(
         status="completed",
         schemaVersion="pfi.multiplanar-run.v2",
@@ -468,7 +592,7 @@ def build_workspace_response(
         caseId=request.caseId,
         workspaceMode=workspace_mode,
         requestedInferenceMode=request.inferenceMode,
-        effectiveInferenceMode=request.inferenceMode,
+        effectiveInferenceMode=effective_mode,
         requestedPlanes=requested_planes,
         completedPlanes=completed,
         readiness=readiness,
@@ -477,6 +601,8 @@ def build_workspace_response(
         quality=quality,
         review=ReviewPolicyV2(status="pending", required=True, approvalRequiresHumanConfirmation=True),
         governance=GovernanceV2(humanReviewRequired=True, notClinicalDiagnosis=True),
+        synthetic=synthetic,
+        fallbackReason=fallback_reason,
     )
 
 
@@ -524,10 +650,107 @@ def normalize_inference_mode(value: Any) -> str:
     return "real_baseline" if normalized == "real" else normalized if normalized in {"contract", "mock", "real_baseline"} else "contract"
 
 
+def workspace_effective_mode(planes: dict[PlaneNameV2, PlaneRunV2Result | None]) -> str:
+    modes = {plane.effectiveInferenceMode for plane in planes.values() if plane is not None}
+    if not modes:
+        return "contract"
+    return modes.pop() if len(modes) == 1 else "mixed"
+
+
+def first_fallback_reason(planes: dict[PlaneNameV2, PlaneRunV2Result | None]) -> str | None:
+    for plane in planes.values():
+        if plane is not None and plane.fallbackReason:
+            return plane.fallbackReason
+    return None
+
+
 def shape_to_height_width(shape: list[int] | None) -> tuple[int, int]:
     if shape and len(shape) >= 2:
         return int(shape[-2]), int(shape[-1])
     return 0, 0
+
+
+def required_text(value: Any, field: str, plane: PlaneNameV2) -> str:
+    if value is None:
+        raise MultiplanarV2Error(
+            "INVALID_MULTIPLANAR_RESPONSE",
+            "Respuesta real_baseline incompleta.",
+            status_code=500,
+            trace_id="unavailable",
+            case_id=None,
+            requested_planes=[plane],
+            details={"plane": plane, "field": field},
+        )
+    normalized = str(value).strip()
+    if not normalized or normalized == "None":
+        raise MultiplanarV2Error(
+            "INVALID_MULTIPLANAR_RESPONSE",
+            "Respuesta real_baseline incompleta.",
+            status_code=500,
+            trace_id="unavailable",
+            case_id=None,
+            requested_planes=[plane],
+            details={"plane": plane, "field": field},
+        )
+    return normalized
+
+
+def synthetic_plane_result(
+    plane: PlaneNameV2,
+    plane_spec: PlaneExecutionV2Request,
+    preflight: dict[str, Any],
+    mode: str,
+    fallback_reason: str,
+) -> PlaneRunV2Result:
+    return PlaneRunV2Result(
+        status="ready",
+        plane=plane,
+        runId=synthetic_plane_run_id(plane, plane_spec, mode),
+        effectiveInferenceMode=mode,  # type: ignore[arg-type]
+        model=plane_model_v2(preflight["model"]),
+        input=PlaneInputV2(
+            inputId=plane_spec.inputId,
+            format=getattr(preflight.get("input"), "format", None),
+            sizeBytes=getattr(preflight.get("input"), "size", None),
+            nativeShape=None,
+            canonicalShape=None,
+            orientationTransform=None,
+            spacingXyzMm=None,
+            canonicalAxisSpacingMm=None,
+            selectedSliceIndex=None,
+            sliceCount=None,
+            selectedAxis=None,
+            inPlaneSpacingMm=None,
+        ),
+        coordinateSpace=CoordinateSpaceV2(
+            name="synthetic_empty_pixel_space",
+            width=1,
+            height=1,
+            units="pixel",
+            origin="top_left",
+            xDirection="right",
+            yDirection="down",
+            sourceSliceIndex=None,
+            sourceAxis=None,
+        ),
+        series=[],
+        assets=[],
+        masks=[],
+        landmarks=[],
+        measurements=[],
+        quality=PlaneQualityV2(maskCount=0, landmarkCount=0, measurementCount=0, warnings=["synthetic_empty_result"]),
+        synthetic=True,
+        fallbackReason=fallback_reason,
+    )
+
+
+def synthetic_plane_run_id(plane: PlaneNameV2, plane_spec: PlaneExecutionV2Request, mode: str) -> str:
+    raw = f"{plane}|{plane_spec.inputId}|{plane_spec.modelKey}|{mode}|synthetic"
+    return "synthetic-" + sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def sanitize_fallback_reason(value: str) -> str:
+    return "".join(char if char.isalnum() or char in "._:-" else "_" for char in value)[:120]
 
 
 def int_or_none(value: Any) -> int | None:
@@ -583,6 +806,10 @@ class LegacyMultiplanarV1Adapter:
 
     def from_v2(self, response: MultiplanarRunV2Response) -> dict[str, Any]:
         payload = response.model_dump(mode="json")
+        planes = {
+            "sagittal": self._plane_from_v2(response.planes["sagittal"], response.traceId),
+            "axial": self._plane_from_v2(response.planes["axial"], response.traceId),
+        }
         return {
             "status": "multiplanar_run_ready",
             "schemaVersion": "multiplanar-run-v1",
@@ -595,7 +822,7 @@ class LegacyMultiplanarV1Adapter:
             "sagittalRunReady": response.planes["sagittal"] is not None,
             "axialRunReady": response.planes["axial"] is not None,
             "dualRunReady": response.planes["sagittal"] is not None and response.planes["axial"] is not None,
-            "planes": payload["planes"],
+            "planes": planes,
             "threeD": payload["threeD"],
             "quality": payload["quality"],
             "review": {"status": "pendiente", "professionalReviewRequired": True, "approvalRequiresHumanConfirmation": True},
@@ -603,6 +830,167 @@ class LegacyMultiplanarV1Adapter:
             "humanReviewRequired": True,
             "notClinicalDiagnosis": True,
         }
+
+    def _plane_from_v2(self, plane: PlaneRunV2Result | None, trace_id: str) -> dict[str, Any] | None:
+        if plane is None:
+            return None
+        values = [
+            {
+                "id": measurement.id,
+                "label": measurement.labelKey,
+                "value": measurement.value,
+                "unit": measurement.unit,
+                "confidence": measurement.confidence,
+                "status": "pendiente" if measurement.status == "pending_review" else measurement.status,
+                "level": measurement.level,
+            }
+            for measurement in plane.measurements
+        ]
+        return {
+            "runId": plane.runId,
+            "traceId": trace_id,
+            "plane": plane.plane,
+            "modelKey": plane.model.key,
+            "modelVersion": plane.model.version,
+            "inputId": plane.input.inputId,
+            "series": [
+                {
+                    "id": series.id,
+                    "plane": series.plane,
+                    "sequence": series.sequence,
+                    "sliceCount": series.sliceCount,
+                    "selectedSlice": series.selectedSliceIndex,
+                    "status": series.status,
+                }
+                for series in plane.series
+            ],
+            "masks": [
+                {
+                    "id": mask.id,
+                    "label": mask.classKey,
+                    "className": mask.classKey,
+                    "confidence": mask.confidence,
+                    "editable": mask.editable,
+                    "enabled": mask.enabled,
+                    "contours": [],
+                    "synthetic": plane.synthetic,
+                }
+                for mask in plane.masks
+            ],
+            "landmarks": [
+                {
+                    "id": landmark.id,
+                    "label": landmark.labelKey,
+                    "x": landmark.x,
+                    "y": landmark.y,
+                    "editable": False,
+                    "synthetic": plane.synthetic,
+                }
+                for landmark in plane.landmarks
+            ],
+            "measurements": {
+                "status": "synthetic_ready" if plane.synthetic else "real_baseline_ready",
+                "values": values,
+                "source": "canonical_multiplanar_v2",
+                "synthetic": plane.synthetic,
+                "fallbackReason": plane.fallbackReason,
+            },
+            "measurementValues": values,
+            "quality": plane.quality.model_dump(mode="json"),
+            "assets": [asset.model_dump(mode="json") for asset in plane.assets],
+            "modelArtifact": legacy_model_artifact(plane.model),
+            "metadata": {
+                "inferenceMode": plane.effectiveInferenceMode,
+                "allowContractFallback": False if plane.effectiveInferenceMode == "real_baseline" else True,
+                "inputFormat": f".{plane.input.format}" if plane.input.format else None,
+                "outputFiles": legacy_output_files(plane.assets),
+                "synthetic": plane.synthetic,
+                "fallbackReason": plane.fallbackReason,
+            },
+            "aiOutput": {
+                "status": "synthetic_ready" if plane.synthetic else "real_baseline_ready",
+                "inferenceMode": plane.effectiveInferenceMode,
+                "synthetic": plane.synthetic,
+                "fallbackReason": plane.fallbackReason,
+                "humanReviewRequired": True,
+                "notClinicalDiagnosis": True,
+            },
+            "humanReviewRequired": True,
+            "notClinicalDiagnosis": True,
+            "synthetic": plane.synthetic,
+            "fallbackReason": plane.fallbackReason,
+        }
+
+
+class LegacyMultiplanarV1RequestMapper:
+    def to_v2(self, request: MultiplanarRunRequest, *, trace_id: str) -> MultiplanarRunV2Request:
+        metadata = dict(request.metadata or {})
+        planes: dict[str, Any] = {"sagittal": None, "axial": None}
+        if request.sagittal_input_id or request.sagittal_input_path:
+            planes["sagittal"] = {
+                "inputId": request.sagittal_input_id or legacy_path_input_id(request.case_id, "sagittal", request.sagittal_input_path),
+                "modelKey": request.sagittal_model_key,
+            }
+        if request.axial_input_id or request.axial_input_path:
+            planes["axial"] = {
+                "inputId": request.axial_input_id or legacy_path_input_id(request.case_id, "axial", request.axial_input_path),
+                "modelKey": request.axial_model_key,
+            }
+        if planes["sagittal"] is None and planes["axial"] is None:
+            synthetic_id = f"legacy_contract_{sha256(request.case_id.encode('utf-8')).hexdigest()[:12]}"
+            planes["sagittal"] = {"inputId": synthetic_id, "modelKey": request.sagittal_model_key}
+        options = {
+            key: metadata[key]
+            for key in ("sliceIndex", "sliceAxis", "sliceWindowRadius", "inputOrientationTransform")
+            if key in metadata
+        }
+        return MultiplanarRunV2Request.model_validate({
+            "caseId": request.case_id,
+            "traceId": trace_id,
+            "inferenceMode": normalize_inference_mode(metadata.get("inferenceMode", metadata.get("mode", "contract"))),
+            "allowContractFallback": bool_value(metadata.get("allowContractFallback"), default=True),
+            "planes": planes,
+            "options": options,
+        })
+
+
+def bool_value(value: Any, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in {"false", "0", "no", "off"}
+
+
+def legacy_path_input_id(case_id: str, plane: str, input_path: str | None) -> str:
+    raw = f"{case_id}|{plane}|{input_path or ''}"
+    return "legacy_path_" + sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def legacy_output_files(assets: list[PlaneAssetV2]) -> dict[str, dict[str, Any]]:
+    key_for_name = {
+        "input.png": "imagePath",
+        "overlay.png": "overlayPath",
+        "mask.npy": "maskPath",
+        "confidence.npy": "confidencePath",
+        "mask-preview.png": "maskPreviewPath",
+    }
+    return {
+        key_for_name[asset.assetName]: {"generated": asset.generated, "fileName": asset.assetName}
+        for asset in assets
+        if asset.assetName in key_for_name
+    }
+
+
+def legacy_model_artifact(model: PlaneModelV2) -> dict[str, Any]:
+    return {
+        **model.model_dump(mode="json"),
+        "manifest": {
+            "status": model.manifestStatus,
+            "valid": model.manifestValid,
+            "trainingStatus": model.trainingStatus,
+        },
+    }
 
 
 def http_exception_to_v2(exc: HTTPException, *, trace_id: str, case_id: str | None, requested_planes: list[PlaneNameV2]) -> MultiplanarV2Error:

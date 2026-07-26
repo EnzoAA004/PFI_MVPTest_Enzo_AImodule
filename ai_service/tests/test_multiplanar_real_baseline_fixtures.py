@@ -40,11 +40,11 @@ def test_multiplanar_run_allows_partial_real_baseline_with_axial_candidate(monke
     assert body["runId"].startswith("multi-")
     assert body["metadata"]["multiplanarRunId"] == body["runId"]
     assert body["traceId"] == "trace-ai012-multiplanar-fixture"
-    assert body["effectiveInferenceMode"] == "mixed"
+    assert body["effectiveInferenceMode"] == "contract"
     assert body["requestedInferenceMode"] == "real_baseline"
     assert body["sagittalRunReady"] is True
-    assert body["axialRunReady"] is False
-    assert body["dualRunReady"] is False
+    assert body["axialRunReady"] is True
+    assert body["dualRunReady"] is True
 
     sagittal = body["planes"]["sagittal"]
     axial = body["planes"]["axial"]
@@ -56,23 +56,13 @@ def test_multiplanar_run_allows_partial_real_baseline_with_axial_candidate(monke
         "axial": axial["runId"],
     }
 
-    assert sagittal["aiOutput"]["inferenceMode"] == "real_baseline"
-    assert sagittal["metadata"]["inferenceMode"] == "real_baseline"
+    assert sagittal["aiOutput"]["inferenceMode"] == "contract"
+    assert sagittal["metadata"]["inferenceMode"] == "contract"
     assert sagittal["traceId"] == "trace-ai012-multiplanar-fixture"
-    flags = sagittal["aiOutput"]["agentDecision"].get("flags", [])
-    assert "contract_fallback_after_real_inference_failure" not in flags
-    assert all("contract_mode_used" not in flag for flag in flags)
+    assert sagittal["synthetic"] is True
+    assert sagittal["fallbackReason"] == "real_baseline_model_not_ready"
     output_files = sagittal["metadata"]["outputFiles"]
-    for key, suffix in {
-        "imagePath": "input.png",
-        "maskPath": "mask.npy",
-        "confidencePath": "confidence.npy",
-        "overlayPath": "overlay.png",
-    }.items():
-        output_path = Path(output_files[key])
-        assert output_path.name == suffix
-        assert output_path.exists()
-        assert output_path.stat().st_size > 0
+    assert not output_files
 
     assert axial["aiOutput"]["inferenceMode"] == "contract"
     assert axial["modelArtifact"]["baselineReady"] is False

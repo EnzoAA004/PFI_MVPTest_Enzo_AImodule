@@ -57,12 +57,25 @@ def main() -> int:
     assert_status(response, 200)
     body = response.json()
     validate_response(body)
+    evidence = {
+        "status": "ok",
+        "runId": body["runId"],
+        "traceId": body["traceId"],
+        "selectedSliceIndex": body["planes"]["sagittal"]["input"]["selectedSliceIndex"],
+        "sliceCount": body["planes"]["sagittal"]["input"]["sliceCount"],
+        "response": body,
+    }
+    evidence_dir = Path("docs/evidence/p9-a")
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    evidence_path = evidence_dir / "multiplanar_v2_sagittal_e2e.json"
+    evidence_path.write_text(json.dumps(evidence, indent=2, sort_keys=True), encoding="utf-8")
     print(json.dumps({
         "status": "ok",
         "runId": body["runId"],
         "traceId": body["traceId"],
         "selectedSliceIndex": body["planes"]["sagittal"]["input"]["selectedSliceIndex"],
         "sliceCount": body["planes"]["sagittal"]["input"]["sliceCount"],
+        "evidencePath": str(evidence_path),
     }, indent=2))
     return 0
 

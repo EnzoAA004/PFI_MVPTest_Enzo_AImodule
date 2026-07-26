@@ -120,7 +120,10 @@ def test_multiplanar_readiness_flags_allow_sagittal_only_progress(monkeypatch, t
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["sagittalRunReady"] is True
-    assert body["axialRunReady"] is False
-    assert body["dualRunReady"] is False
-    assert body["planes"]["sagittal"]["aiOutput"]["inferenceMode"] == "real_baseline"
+    assert body["axialRunReady"] is True
+    assert body["dualRunReady"] is True
+    assert body["effectiveInferenceMode"] == "contract"
+    assert body["planes"]["sagittal"]["aiOutput"]["inferenceMode"] == "contract"
     assert body["planes"]["axial"]["aiOutput"]["inferenceMode"] == "contract"
+    assert body["planes"]["sagittal"]["synthetic"] is True
+    assert body["planes"]["axial"]["synthetic"] is True
