@@ -127,8 +127,99 @@ def test_legacy_adapter_returns_assets_as_map_not_list() -> None:
     assert isinstance(sagittal["masks"], list)
     assert isinstance(sagittal["landmarks"], list)
 
+    assert sagittal["status"] == "ready"
+    assert sagittal["inferenceMode"] == "real_baseline"
+    assert sagittal["requestedInferenceMode"] == "real_baseline"
+    assert sagittal["effectiveInferenceMode"] == "real_baseline"
+    assert sagittal["allowContractFallback"] is False
+    assert sagittal["artifactHash"] == "cf11dcc0ad77a7c787e64a796a2fd7398ef906add461cef4b3d61f1a5238e944"
+    assert sagittal["degradedMode"] is False
+
+    assert sagittal["aiOutput"]["inferenceMode"] == "real_baseline"
+    assert sagittal["aiOutput"]["artifactHash"] == "cf11dcc0ad77a7c787e64a796a2fd7398ef906add461cef4b3d61f1a5238e944"
+    assert sagittal["aiOutput"]["realInferenceAvailable"] is True
+
+    assert sagittal["metadata"]["allowContractFallback"] is False
+
     assert payload["humanReviewRequired"] is True
     assert payload["notClinicalDiagnosis"] is True
+
+
+def fake_v2_response_synthetic_fallback(case_id: str, trace_id: str) -> MultiplanarRunV2Response:
+    quality = PlaneQualityV2(maskCount=0, landmarkCount=0, measurementCount=0)
+    sagittal = PlaneRunV2Result(
+        status="ready",
+        plane="sagittal",
+        runId="synthetic-sag",
+        effectiveInferenceMode="contract",
+        model=PlaneModelV2(
+            key="sagittal_spider",
+            version="sagittal-spider-final-v1",
+            readiness="real_baseline_ready",
+            trainingStatus="final",
+            artifactHash="cf11dcc0ad77a7c787e64a796a2fd7398ef906add461cef4b3d61f1a5238e944",
+            baselineReady=True,
+            availableForRealInference=True,
+            manifestStatus="valid",
+            manifestValid=True,
+        ),
+        input=PlaneInputV2(
+            inputId="input-sag",
+            format="mha",
+            sizeBytes=None,
+            nativeShape=None,
+            canonicalShape=None,
+            orientationTransform=None,
+            spacingXyzMm=None,
+            canonicalAxisSpacingMm=None,
+            selectedSliceIndex=None,
+            sliceCount=None,
+            selectedAxis=None,
+            inPlaneSpacingMm=None,
+        ),
+        coordinateSpace=CoordinateSpaceV2(name="synthetic_empty_pixel_space", width=1, height=1, units="pixel", origin="top_left", xDirection="right", yDirection="down", sourceSliceIndex=None, sourceAxis=None),
+        series=[],
+        assets=[],
+        masks=[],
+        landmarks=[],
+        measurements=[],
+        quality=quality,
+        synthetic=True,
+        fallbackReason="explicit_contract_mode",
+    )
+    return MultiplanarRunV2Response(
+        status="completed",
+        schemaVersion="pfi.multiplanar-run.v2",
+        runId="multi-fallback",
+        traceId=trace_id,
+        caseId=case_id,
+        workspaceMode="sagittal_only",
+        requestedInferenceMode="real_baseline",
+        effectiveInferenceMode="contract",
+        requestedPlanes=["sagittal"],
+        completedPlanes=["sagittal"],
+        readiness=MultiplanarReadinessV2(sagittal=False, axial=False, dual=False),
+        planes={"sagittal": sagittal, "axial": None},
+        threeD=ThreeDStatusV2(enabled=False, status="blocked_missing_axial", sourcePlaneRunIds={"sagittal": "synthetic-sag", "axial": None}, requiredInputs=[]),
+        quality=WorkspaceQualityV2(planeCount=1, maskCount=0, landmarkCount=0, measurementCount=0, byPlane={"sagittal": quality, "axial": None}),
+        review=ReviewPolicyV2(status="pending", required=True, approvalRequiresHumanConfirmation=True),
+        governance=GovernanceV2(humanReviewRequired=True, notClinicalDiagnosis=True),
+        synthetic=True,
+        fallbackReason="explicit_contract_mode",
+    )
+
+
+def test_legacy_adapter_synthetic_fallback_plane_reports_degraded_mode() -> None:
+    response = fake_v2_response_synthetic_fallback("CASE-P9A3-FALLBACK", "trace-p9a3-fallback")
+    payload = LegacyMultiplanarV1Adapter().from_v2(response)
+
+    sagittal = payload["planes"]["sagittal"]
+    assert sagittal["requestedInferenceMode"] == "real_baseline"
+    assert sagittal["effectiveInferenceMode"] == "contract"
+    assert sagittal["allowContractFallback"] is True
+    assert sagittal["degradedMode"] is True
+    assert sagittal["aiOutput"]["realInferenceAvailable"] is False
+    assert sagittal["metadata"]["allowContractFallback"] is True
 
 
 def test_multiplanar_run_endpoint_assets_serialize_as_object(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

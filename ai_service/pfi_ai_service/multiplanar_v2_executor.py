@@ -807,8 +807,8 @@ class LegacyMultiplanarV1Adapter:
     def from_v2(self, response: MultiplanarRunV2Response) -> dict[str, Any]:
         payload = response.model_dump(mode="json")
         planes = {
-            "sagittal": self._plane_from_v2(response.planes["sagittal"], response.traceId),
-            "axial": self._plane_from_v2(response.planes["axial"], response.traceId),
+            "sagittal": self._plane_from_v2(response.planes["sagittal"], response.traceId, response.requestedInferenceMode),
+            "axial": self._plane_from_v2(response.planes["axial"], response.traceId, response.requestedInferenceMode),
         }
         return {
             "status": "multiplanar_run_ready",
@@ -831,7 +831,12 @@ class LegacyMultiplanarV1Adapter:
             "notClinicalDiagnosis": True,
         }
 
-    def _plane_from_v2(self, plane: PlaneRunV2Result | None, trace_id: str) -> dict[str, Any] | None:
+    def _plane_from_v2(
+        self,
+        plane: PlaneRunV2Result | None,
+        trace_id: str,
+        requested_inference_mode: str,
+    ) -> dict[str, Any] | None:
         if plane is None:
             return None
         values = [
@@ -850,6 +855,13 @@ class LegacyMultiplanarV1Adapter:
             "runId": plane.runId,
             "traceId": trace_id,
             "plane": plane.plane,
+            "status": plane.status,
+            "inferenceMode": plane.effectiveInferenceMode,
+            "requestedInferenceMode": requested_inference_mode,
+            "effectiveInferenceMode": plane.effectiveInferenceMode,
+            "allowContractFallback": legacy_allow_contract_fallback(plane),
+            "artifactHash": plane.model.artifactHash,
+            "degradedMode": plane.synthetic,
             "modelKey": plane.model.key,
             "modelVersion": plane.model.version,
             "inputId": plane.input.inputId,
@@ -901,7 +913,7 @@ class LegacyMultiplanarV1Adapter:
             "modelArtifact": legacy_model_artifact(plane.model),
             "metadata": {
                 "inferenceMode": plane.effectiveInferenceMode,
-                "allowContractFallback": False if plane.effectiveInferenceMode == "real_baseline" else True,
+                "allowContractFallback": legacy_allow_contract_fallback(plane),
                 "inputFormat": f".{plane.input.format}" if plane.input.format else None,
                 "outputFiles": legacy_output_files(plane.assets),
                 "synthetic": plane.synthetic,
@@ -910,6 +922,15 @@ class LegacyMultiplanarV1Adapter:
             "aiOutput": {
                 "status": "synthetic_ready" if plane.synthetic else "real_baseline_ready",
                 "inferenceMode": plane.effectiveInferenceMode,
+                "artifactHash": plane.model.artifactHash,
+                "realInferenceAvailable": bool(
+                    plane.model.availableForRealInference
+                    and plane.effectiveInferenceMode == "real_baseline"
+                    and not plane.synthetic
+                    and plane.fallbackReason is None
+                ),
+                "modelKey": plane.model.key,
+                "modelVersion": plane.model.version,
                 "synthetic": plane.synthetic,
                 "fallbackReason": plane.fallbackReason,
                 "humanReviewRequired": True,
@@ -965,6 +986,14 @@ def bool_value(value: Any, *, default: bool) -> bool:
 def legacy_path_input_id(case_id: str, plane: str, input_path: str | None) -> str:
     raw = f"{case_id}|{plane}|{input_path or ''}"
     return "legacy_path_" + sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def legacy_allow_contract_fallback(plane: PlaneRunV2Result) -> bool:
+    return not (
+        plane.effectiveInferenceMode == "real_baseline"
+        and not plane.synthetic
+        and plane.fallbackReason is None
+    )
 
 
 def legacy_assets_map(assets: list[PlaneAssetV2]) -> dict[str, dict[str, Any]]:
