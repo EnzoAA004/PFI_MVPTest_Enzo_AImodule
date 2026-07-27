@@ -1,0 +1,379 @@
+﻿{
+    "status":  "completed",
+    "schemaVersion":  "pfi.multiplanar-run.v2",
+    "runId":  "multi-32d66dabd290b661c709",
+    "traceId":  "trace-p9a-20260726-183839",
+    "caseId":  "P9A-SPIDER-101-T2",
+    "workspaceMode":  "sagittal_only",
+    "requestedInferenceMode":  "real_baseline",
+    "effectiveInferenceMode":  "real_baseline",
+    "requestedPlanes":  [
+                            "sagittal"
+                        ],
+    "completedPlanes":  [
+                            "sagittal"
+                        ],
+    "readiness":  {
+                      "sagittal":  true,
+                      "axial":  false,
+                      "dual":  false
+                  },
+    "planes":  {
+                   "sagittal":  {
+                                    "status":  "ready",
+                                    "plane":  "sagittal",
+                                    "runId":  "bec20aa91f96c9cd",
+                                    "effectiveInferenceMode":  "real_baseline",
+                                    "model":  {
+                                                  "key":  "sagittal_spider",
+                                                  "version":  "sagittal-spider-final-v1",
+                                                  "readiness":  "real_baseline_ready",
+                                                  "trainingStatus":  "validated_baseline",
+                                                  "artifactHash":  "cf11dcc0ad77a7c787e64a796a2fd7398ef906add461cef4b3d61f1a5238e944",
+                                                  "baselineReady":  true,
+                                                  "availableForRealInference":  true,
+                                                  "manifestStatus":  "baseline_manifest_ready",
+                                                  "manifestValid":  true
+                                              },
+                                    "input":  {
+                                                  "inputId":  "inp_2822bf9640ab40a289050a30ce2fe6fd",
+                                                  "format":  "mha",
+                                                  "sizeBytes":  2361432,
+                                                  "nativeShape":  [
+                                                                      352,
+                                                                      384,
+                                                                      17
+                                                                  ],
+                                                  "canonicalShape":  [
+                                                                         352,
+                                                                         384,
+                                                                         17
+                                                                     ],
+                                                  "orientationTransform":  "none",
+                                                  "spacingXyzMm":  [
+                                                                       4.7905672101450465,
+                                                                       0.6770833134684295,
+                                                                       0.7408835567977405
+                                                                   ],
+                                                  "canonicalAxisSpacingMm":  [
+                                                                                 0.7408835567977405,
+                                                                                 0.6770833134684295,
+                                                                                 4.7905672101450465
+                                                                             ],
+                                                  "selectedSliceIndex":  7,
+                                                  "sliceCount":  17,
+                                                  "selectedAxis":  2,
+                                                  "inPlaneSpacingMm":  [
+                                                                           0.7408835567977405,
+                                                                           0.6770833134684295
+                                                                       ]
+                                              },
+                                    "coordinateSpace":  {
+                                                            "name":  "model_256x256",
+                                                            "width":  256,
+                                                            "height":  256,
+                                                            "units":  "pixel",
+                                                            "origin":  "top_left",
+                                                            "xDirection":  "right",
+                                                            "yDirection":  "down",
+                                                            "sourceSliceIndex":  7,
+                                                            "sourceAxis":  2
+                                                        },
+                                    "series":  [
+                                                   {
+                                                       "id":  "series-sag-t2",
+                                                       "plane":  "sagittal",
+                                                       "sequence":  null,
+                                                       "selectedSliceIndex":  7,
+                                                       "sliceCount":  17,
+                                                       "status":  "served_single_slice"
+                                                   }
+                                               ],
+                                    "assets":  [
+                                                   {
+                                                       "assetName":  "input.png",
+                                                       "role":  "input_preview",
+                                                       "contentType":  "image/png",
+                                                       "generated":  true,
+                                                       "relativePath":  "/assets/bec20aa91f96c9cd/sagittal/input.png"
+                                                   },
+                                                   {
+                                                       "assetName":  "overlay.png",
+                                                       "role":  "overlay",
+                                                       "contentType":  "image/png",
+                                                       "generated":  true,
+                                                       "relativePath":  "/assets/bec20aa91f96c9cd/sagittal/overlay.png"
+                                                   },
+                                                   {
+                                                       "assetName":  "mask.npy",
+                                                       "role":  "mask_array",
+                                                       "contentType":  "application/octet-stream",
+                                                       "generated":  true,
+                                                       "relativePath":  "/assets/bec20aa91f96c9cd/sagittal/mask.npy"
+                                                   },
+                                                   {
+                                                       "assetName":  "confidence.npy",
+                                                       "role":  "confidence_array",
+                                                       "contentType":  "application/octet-stream",
+                                                       "generated":  true,
+                                                       "relativePath":  "/assets/bec20aa91f96c9cd/sagittal/confidence.npy"
+                                                   }
+                                               ],
+                                    "masks":  [
+                                                  {
+                                                      "id":  "mask-sagittal-vertebra-group",
+                                                      "classKey":  "vertebra_group",
+                                                      "confidence":  0.9656,
+                                                      "enabled":  true,
+                                                      "editable":  false,
+                                                      "coordinateSpace":  "model_256x256",
+                                                      "geometry":  null
+                                                  },
+                                                  {
+                                                      "id":  "mask-sagittal-canal",
+                                                      "classKey":  "canal",
+                                                      "confidence":  0.9774,
+                                                      "enabled":  true,
+                                                      "editable":  false,
+                                                      "coordinateSpace":  "model_256x256",
+                                                      "geometry":  null
+                                                  },
+                                                  {
+                                                      "id":  "mask-sagittal-disc-group",
+                                                      "classKey":  "disc_group",
+                                                      "confidence":  0.967,
+                                                      "enabled":  true,
+                                                      "editable":  false,
+                                                      "coordinateSpace":  "model_256x256",
+                                                      "geometry":  null
+                                                  }
+                                              ],
+                                    "landmarks":  [
+                                                      {
+                                                          "id":  "lm-mask-sagittal-vertebra-group-centroid",
+                                                          "labelKey":  "vertebra_group centroid",
+                                                          "x":  130.3,
+                                                          "y":  156.7,
+                                                          "confidence":  null,
+                                                          "coordinateSpace":  "model_256x256",
+                                                          "source":  "derived_from_mask"
+                                                      },
+                                                      {
+                                                          "id":  "lm-mask-sagittal-canal-centroid",
+                                                          "labelKey":  "canal centroid",
+                                                          "x":  140.0,
+                                                          "y":  149.8,
+                                                          "confidence":  null,
+                                                          "coordinateSpace":  "model_256x256",
+                                                          "source":  "derived_from_mask"
+                                                      },
+                                                      {
+                                                          "id":  "lm-mask-sagittal-disc-group-centroid",
+                                                          "labelKey":  "disc_group centroid",
+                                                          "x":  108.4,
+                                                          "y":  146.8,
+                                                          "confidence":  null,
+                                                          "coordinateSpace":  "model_256x256",
+                                                          "source":  "derived_from_mask"
+                                                      }
+                                                  ],
+                                    "measurements":  [
+                                                         {
+                                                             "id":  "sagittal-vertebra_group-area",
+                                                             "labelKey":  "vertebra_group area",
+                                                             "value":  4293.03,
+                                                             "unit":  "mm2",
+                                                             "confidence":  0.9656,
+                                                             "source":  "ai",
+                                                             "status":  "pending_review",
+                                                             "plane":  "sagittal",
+                                                             "level":  null,
+                                                             "measurementBasis":  "physical_spacing",
+                                                             "linkedLandmarkIds":  [
+                                                                                       "lm-mask-sagittal-vertebra-group-centroid"
+                                                                                   ]
+                                                         },
+                                                         {
+                                                             "id":  "sagittal-vertebra_group-width",
+                                                             "labelKey":  "vertebra_group width",
+                                                             "value":  69.74,
+                                                             "unit":  "mm",
+                                                             "confidence":  0.9656,
+                                                             "source":  "ai",
+                                                             "status":  "pending_review",
+                                                             "plane":  "sagittal",
+                                                             "level":  null,
+                                                             "measurementBasis":  "physical_spacing",
+                                                             "linkedLandmarkIds":  [
+                                                                                       "lm-mask-sagittal-vertebra-group-centroid"
+                                                                                   ]
+                                                         },
+                                                         {
+                                                             "id":  "sagittal-vertebra_group-height",
+                                                             "labelKey":  "vertebra_group height",
+                                                             "value":  147.44,
+                                                             "unit":  "mm",
+                                                             "confidence":  0.9656,
+                                                             "source":  "ai",
+                                                             "status":  "pending_review",
+                                                             "plane":  "sagittal",
+                                                             "level":  null,
+                                                             "measurementBasis":  "physical_spacing",
+                                                             "linkedLandmarkIds":  [
+                                                                                       "lm-mask-sagittal-vertebra-group-centroid"
+                                                                                   ]
+                                                         },
+                                                         {
+                                                             "id":  "sagittal-canal-area",
+                                                             "labelKey":  "canal area",
+                                                             "value":  1343.39,
+                                                             "unit":  "mm2",
+                                                             "confidence":  0.9774,
+                                                             "source":  "ai",
+                                                             "status":  "pending_review",
+                                                             "plane":  "sagittal",
+                                                             "level":  null,
+                                                             "measurementBasis":  "physical_spacing",
+                                                             "linkedLandmarkIds":  [
+                                                                                       "lm-mask-sagittal-canal-centroid"
+                                                                                   ]
+                                                         },
+                                                         {
+                                                             "id":  "sagittal-canal-width",
+                                                             "labelKey":  "canal width",
+                                                             "value":  33.85,
+                                                             "unit":  "mm",
+                                                             "confidence":  0.9774,
+                                                             "source":  "ai",
+                                                             "status":  "pending_review",
+                                                             "plane":  "sagittal",
+                                                             "level":  null,
+                                                             "measurementBasis":  "physical_spacing",
+                                                             "linkedLandmarkIds":  [
+                                                                                       "lm-mask-sagittal-canal-centroid"
+                                                                                   ]
+                                                         },
+                                                         {
+                                                             "id":  "sagittal-canal-height",
+                                                             "labelKey":  "canal height",
+                                                             "value":  153.36,
+                                                             "unit":  "mm",
+                                                             "confidence":  0.9774,
+                                                             "source":  "ai",
+                                                             "status":  "pending_review",
+                                                             "plane":  "sagittal",
+                                                             "level":  null,
+                                                             "measurementBasis":  "physical_spacing",
+                                                             "linkedLandmarkIds":  [
+                                                                                       "lm-mask-sagittal-canal-centroid"
+                                                                                   ]
+                                                         },
+                                                         {
+                                                             "id":  "sagittal-disc_group-area",
+                                                             "labelKey":  "disc_group area",
+                                                             "value":  835.73,
+                                                             "unit":  "mm2",
+                                                             "confidence":  0.967,
+                                                             "source":  "ai",
+                                                             "status":  "pending_review",
+                                                             "plane":  "sagittal",
+                                                             "level":  null,
+                                                             "measurementBasis":  "physical_spacing",
+                                                             "linkedLandmarkIds":  [
+                                                                                       "lm-mask-sagittal-disc-group-centroid"
+                                                                                   ]
+                                                         },
+                                                         {
+                                                             "id":  "sagittal-disc_group-width",
+                                                             "labelKey":  "disc_group width",
+                                                             "value":  45.36,
+                                                             "unit":  "mm",
+                                                             "confidence":  0.967,
+                                                             "source":  "ai",
+                                                             "status":  "pending_review",
+                                                             "plane":  "sagittal",
+                                                             "level":  null,
+                                                             "measurementBasis":  "physical_spacing",
+                                                             "linkedLandmarkIds":  [
+                                                                                       "lm-mask-sagittal-disc-group-centroid"
+                                                                                   ]
+                                                         },
+                                                         {
+                                                             "id":  "sagittal-disc_group-height",
+                                                             "labelKey":  "disc_group height",
+                                                             "value":  146.69,
+                                                             "unit":  "mm",
+                                                             "confidence":  0.967,
+                                                             "source":  "ai",
+                                                             "status":  "pending_review",
+                                                             "plane":  "sagittal",
+                                                             "level":  null,
+                                                             "measurementBasis":  "physical_spacing",
+                                                             "linkedLandmarkIds":  [
+                                                                                       "lm-mask-sagittal-disc-group-centroid"
+                                                                                   ]
+                                                         }
+                                                     ],
+                                    "quality":  {
+                                                    "maskCount":  3,
+                                                    "landmarkCount":  3,
+                                                    "measurementCount":  9,
+                                                    "meanConfidence":  0.9869,
+                                                    "meanForegroundConfidence":  0.9683,
+                                                    "foregroundRatio":  0.196869,
+                                                    "warnings":  [
+
+                                                                 ]
+                                                },
+                                    "synthetic":  false,
+                                    "fallbackReason":  null
+                                },
+                   "axial":  null
+               },
+    "threeD":  {
+                   "enabled":  false,
+                   "status":  "blocked_missing_axial",
+                   "sourcePlaneRunIds":  {
+                                             "sagittal":  "bec20aa91f96c9cd",
+                                             "axial":  null
+                                         },
+                   "requiredInputs":  [
+                                          "axial_masks",
+                                          "spacing",
+                                          "slice_index_mapping"
+                                      ]
+               },
+    "quality":  {
+                    "planeCount":  1,
+                    "maskCount":  3,
+                    "landmarkCount":  3,
+                    "measurementCount":  9,
+                    "byPlane":  {
+                                    "sagittal":  {
+                                                     "maskCount":  3,
+                                                     "landmarkCount":  3,
+                                                     "measurementCount":  9,
+                                                     "meanConfidence":  0.9869,
+                                                     "meanForegroundConfidence":  0.9683,
+                                                     "foregroundRatio":  0.196869,
+                                                     "warnings":  [
+
+                                                                  ]
+                                                 },
+                                    "axial":  null
+                                }
+                },
+    "review":  {
+                   "status":  "pending",
+                   "required":  true,
+                   "approvalRequiresHumanConfirmation":  true
+               },
+    "governance":  {
+                       "humanReviewRequired":  true,
+                       "notClinicalDiagnosis":  true,
+                       "deidentified":  true,
+                       "diagnosisGenerated":  false
+                   },
+    "synthetic":  false,
+    "fallbackReason":  null
+}

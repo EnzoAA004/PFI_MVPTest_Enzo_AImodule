@@ -897,7 +897,7 @@ class LegacyMultiplanarV1Adapter:
             },
             "measurementValues": values,
             "quality": plane.quality.model_dump(mode="json"),
-            "assets": [asset.model_dump(mode="json") for asset in plane.assets],
+            "assets": legacy_assets_map(plane.assets),
             "modelArtifact": legacy_model_artifact(plane.model),
             "metadata": {
                 "inferenceMode": plane.effectiveInferenceMode,
@@ -965,6 +965,18 @@ def bool_value(value: Any, *, default: bool) -> bool:
 def legacy_path_input_id(case_id: str, plane: str, input_path: str | None) -> str:
     raw = f"{case_id}|{plane}|{input_path or ''}"
     return "legacy_path_" + sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def legacy_assets_map(assets: list[PlaneAssetV2]) -> dict[str, dict[str, Any]]:
+    return {
+        asset.assetName: {
+            "role": asset.role,
+            "contentType": asset.contentType,
+            "generated": asset.generated,
+            "relativePath": asset.relativePath,
+        }
+        for asset in assets
+    }
 
 
 def legacy_output_files(assets: list[PlaneAssetV2]) -> dict[str, dict[str, Any]]:
