@@ -68,7 +68,9 @@ def test_multiplanar_run_executes_dual_plane_real_baseline_with_axial_candidate(
     assert axial["metadata"]["inferenceMode"] == "real_baseline"
     assert axial["synthetic"] is False
     assert axial["fallbackReason"] is None
-    assert axial["modelArtifact"]["baselineReady"] is True
+    assert axial["modelArtifact"]["baselineReady"] is False
+    assert axial["modelArtifact"]["availableForRealInference"] is True
+    assert axial["modelArtifact"]["readiness"] == "real_candidate_ready"
     assert axial["modelArtifact"]["manifest"]["trainingStatus"] == "candidate_below_quality_gate"
     assert axial["quality"]["maskCount"] > 0
     assert axial["quality"]["landmarkCount"] > 0

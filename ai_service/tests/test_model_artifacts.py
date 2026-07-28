@@ -16,6 +16,7 @@ def test_registry_with_artifact_status_exposes_all_models() -> None:
             "contract_only_missing_artifact",
             "real_artifact_missing_manifest",
             "real_baseline_ready",
+            "real_candidate_ready",
         }
         assert model["inferenceModes"]["contract"] is True
         assert model["inferenceModes"]["mock"] is True

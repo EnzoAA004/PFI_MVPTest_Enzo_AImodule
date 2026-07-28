@@ -49,7 +49,13 @@ def test_pipeline_run_strict_axial_real_baseline_fixture(monkeypatch, tmp_path) 
     assert body["modelVersion"] == "axial-final-v2"
     assert body["artifactHash"] == "a48cbddd858b5615010fd809412f3d17dae6871fbe12a38f4720e6f6bc70f739"
     assert body["modelArtifact"]["availableForRealInference"] is True
+    assert body["modelArtifact"]["baselineReady"] is False
+    assert body["modelArtifact"]["manifestBaselineReady"] is False
+    assert body["modelArtifact"]["readiness"] == "real_candidate_ready"
     assert body["modelArtifact"]["runtimeQualification"] == "axial_candidate_runtime_ready"
+    assert body["modelArtifact"]["qualityGatePassed"] is False
+    assert body["modelArtifact"]["trainingStatus"] == "candidate_below_quality_gate"
+    assert body["modelArtifact"]["heldOutReuseWarning"]
     assert body["metadata"]["selectedSlice"] is not None
     assert body["metadata"]["sliceCount"] >= 1
     assert body["metadata"]["processedShape"] == [256, 256]

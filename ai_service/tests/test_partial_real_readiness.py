@@ -44,20 +44,30 @@ def test_axial_candidate_is_qualified_for_strict_real_baseline(monkeypatch, tmp_
     assert axial["artifact"]["exists"] is True
     assert axial["manifest"]["trainingStatus"] == "candidate_below_quality_gate"
     assert axial["manifest"]["valid"] is True
-    assert axial["baselineReady"] is True
+    assert axial["baselineReady"] is False
     assert axial["manifestBaselineReady"] is False
     assert axial["availableForRealInference"] is True
+    assert axial["readiness"] == "real_candidate_ready"
     assert axial["runtimeQualification"] == "axial_candidate_runtime_ready"
+    assert axial["qualityGatePassed"] is False
+    assert axial["trainingStatus"] == "candidate_below_quality_gate"
+    assert axial["heldOutReuseWarning"]
+    assert axial["qualityGate"]["heldOutReuseWarning"] == axial["heldOutReuseWarning"]
+    assert axial["metrics"]["test"]["dice_macro_excluding_raw0"] >= 0.80
     assert axial["inferenceModes"]["real_baseline"] is True
     assert axial["manifest"]["content"]["artifactFile"] == "axial_t2_alkafri_final_v2_candidate.pt"
 
     verify_response = client.get("/models/verify")
     assert verify_response.status_code == 200, verify_response.text
     verify_body = verify_response.json()
-    assert verify_body["status"] == "real_baseline_verified"
-    assert verify_body["baselineModelsReady"] == 2
+    assert verify_body["status"] == "real_candidate_available"
+    assert verify_body["baselineModelsReady"] == 1
     assert verify_body["artifactsAvailable"] == 2
     assert verify_body["readyForRealInference"] is True
+    assert len(verify_body["runtimeCandidateModels"]) == 1
+    assert verify_body["runtimeCandidateModels"][0]["modelKey"] == "axial_t2_alkafri"
+    assert verify_body["runtimeCandidateModels"][0]["baselineReady"] is False
+    assert verify_body["runtimeCandidateModels"][0]["qualityGatePassed"] is False
 
     sagittal_fixture = Path("ai_service/tests/fixtures/real_baseline/sagittal_sample_input.npy")
     sagittal_response = client.post(
@@ -99,6 +109,9 @@ def test_axial_candidate_is_qualified_for_strict_real_baseline(monkeypatch, tmp_
     axial_body = axial_response.json()
     assert axial_body["aiOutput"]["inferenceMode"] == "real_baseline"
     assert axial_body["modelArtifact"]["runtimeQualification"] == "axial_candidate_runtime_ready"
+    assert axial_body["modelArtifact"]["baselineReady"] is False
+    assert axial_body["modelArtifact"]["availableForRealInference"] is True
+    assert axial_body["modelArtifact"]["readiness"] == "real_candidate_ready"
     assert axial_body["quality"]["maskCount"] > 0
     assert axial_body["quality"]["landmarkCount"] > 0
     assert axial_body["quality"]["measurementCount"] > 0

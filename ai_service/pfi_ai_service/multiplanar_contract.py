@@ -13,8 +13,10 @@ def multiplanar_workspace_contract() -> Dict[str, Any]:
     summary = artifact_summary()
     sagittal_ready = bool(sagittal.get("baselineReady"))
     axial_ready = bool(axial.get("baselineReady"))
+    sagittal_runtime_ready = bool(sagittal.get("availableForRealInference"))
+    axial_runtime_ready = bool(axial.get("availableForRealInference"))
     return {
-        "status": "multiplanar_ready" if sagittal_ready and axial_ready else "multiplanar_preparation",
+        "status": "multiplanar_ready" if sagittal_runtime_ready and axial_runtime_ready else "multiplanar_preparation",
         "schemaVersion": "multiplanar-workspace-v1",
         "workspaceMode": "dual_plane_with_3d_context",
         "planes": {
@@ -45,6 +47,7 @@ def multiplanar_workspace_contract() -> Dict[str, Any]:
         },
         "modelArtifactSummary": summary,
         "readyForRealBaseline": sagittal_ready and axial_ready,
+        "readyForRealInference": sagittal_runtime_ready and axial_runtime_ready,
         "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
         "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
     }
@@ -65,6 +68,10 @@ def plane_contract(plane: str, model_key: str, model_status: Dict[str, Any]) -> 
         "externalArtifactConfigured": bool(model_status.get("externalArtifactConfigured")),
         "manifestStatus": manifest.get("status"),
         "manifestValid": bool(manifest.get("valid")),
+        "trainingStatus": model_status.get("trainingStatus") or manifest.get("trainingStatus"),
+        "qualityGatePassed": model_status.get("qualityGatePassed"),
+        "heldOutReuseWarning": model_status.get("heldOutReuseWarning"),
+        "runtimeQualification": model_status.get("runtimeQualification"),
         "outputs": ["series", "masks", "landmarks", "measurements", "quality", "metadata"],
         "viewerRole": "primary" if plane == "sagittal" else "secondary",
     }
@@ -157,6 +164,11 @@ def plane_contract_v2(plane: str, model_key: str, status: Dict[str, Any]) -> Dic
         "artifactHash": status.get("artifactHash"),
         "baselineReady": bool(status.get("baselineReady")),
         "availableForRealInference": bool(status.get("availableForRealInference")),
+        "runtimeQualification": status.get("runtimeQualification"),
+        "qualityGatePassed": status.get("qualityGatePassed"),
+        "heldOutReuseWarning": status.get("heldOutReuseWarning"),
+        "qualityGate": status.get("qualityGate"),
+        "metrics": status.get("metrics"),
         "manifestStatus": manifest.get("status"),
         "manifestValid": bool(manifest.get("valid")),
     }

@@ -2,9 +2,11 @@
 
 ## Alcance
 
-El AI Module habilita `real_baseline` para el plano axial con el checkpoint congelado `axial_t2_alkafri_final_v2_candidate.pt`.
+El AI Module habilita inferencia real axial 2D para una imagen axial o un slice axial seleccionado, usando el checkpoint congelado `axial_t2_alkafri_final_v2_candidate.pt`.
 
 No se modifican pesos, notebooks, datasets ni checkpoints. La habilitacion se limita al runtime del servicio y conserva `humanReviewRequired=true` y `notClinicalDiagnosis=true`.
+
+El procesamiento de la serie axial completa, el volumen 3D y la reconstruccion volumetrica pertenecen a P9-A.3. P9-A.2 no declara haber resuelto registracion volumetrica ni reconstruccion 3D paciente-especifica.
 
 ## Criterio de runtime axial
 
@@ -16,7 +18,9 @@ El modelo axial queda disponible para inferencia real solo si:
 - `qualityGate.runtimeVerification.finite=true`;
 - `dice_macro_excluding_raw0 >= 0.80`.
 
-La calificacion publicada es `runtimeQualification=axial_candidate_runtime_ready`. El manifest conserva la advertencia de calidad original porque la metrica macro incluyendo `raw_0` quedo debajo del umbral.
+La calificacion publicada es `runtimeQualification=axial_candidate_runtime_ready`, con `readiness=real_candidate_ready`, `availableForRealInference=true`, `baselineReady=false` y `manifestBaselineReady=false`.
+
+El manifest conserva `qualityGatePassed=false`, `trainingStatus=candidate_below_quality_gate` y `heldOutReuseWarning`. Por eso `/models/verify` no debe publicar `real_baseline_verified` para este estado; debe informar disponibilidad de candidato runtime, no baseline aprobado.
 
 ## Salida esperada
 
