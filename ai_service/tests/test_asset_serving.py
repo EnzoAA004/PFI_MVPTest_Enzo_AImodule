@@ -89,3 +89,14 @@ def test_get_asset_does_not_serve_raw_arrays_or_model_artifacts(monkeypatch, tmp
     assert pth_response.status_code == 403
     assert "application/octet-stream" not in mask_response.headers.get("content-type", "")
     assert "application/octet-stream" not in confidence_response.headers.get("content-type", "")
+
+
+def test_get_workspace_asset_rejects_encoded_traversal_run_id(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("PFI_OUTPUT_DIR", str(tmp_path / "outputs"))
+
+    response = client.get("/assets/multi%252e%252eescape/workspace/lumbar-3d-mesh.json")
+
+    assert response.status_code == 403
+    assert "runId invalido" in response.text
+    assert str(tmp_path) not in response.text
+    assert "multiplanar_3d" not in response.text

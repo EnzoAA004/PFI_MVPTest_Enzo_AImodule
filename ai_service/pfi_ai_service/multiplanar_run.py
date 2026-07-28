@@ -195,7 +195,7 @@ def three_d_status(sagittal: Dict[str, Any], axial: Dict[str, Any] | None) -> Di
             "requiredInputs": ["axial_masks", "spacing", "slice_index_mapping"],
         }
     return {
-        "status": "pending_registered_reconstruction",
+        "status": "experimental_blocked_missing_anatomical_mapping",
         "enabled": False,
         "sourcePlaneRunIds": {
             "sagittal": sagittal.get("runId"),

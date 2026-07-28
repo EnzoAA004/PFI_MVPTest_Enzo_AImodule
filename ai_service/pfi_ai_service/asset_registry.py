@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from urllib.parse import unquote
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -8,6 +10,7 @@ ALLOWED_ASSET_NAMES = frozenset({"input.png", "mask.npy", "confidence.npy", "ove
 PUBLIC_BROWSER_ASSET_NAMES = frozenset({"input.png", "overlay.png", "mask-preview.png", "lumbar-3d-mesh.json"})
 INTERNAL_RAW_ASSET_NAMES = ALLOWED_ASSET_NAMES - PUBLIC_BROWSER_ASSET_NAMES
 _VALID_PLANES = {"sagittal", "axial", "workspace"}
+_RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,96}$")
 
 
 class AssetRegistryError(Exception):
@@ -56,26 +59,31 @@ def register_run_assets(run_id: str, plane: str, outputs: dict[str, str]) -> dic
 
 
 def register_workspace_asset(run_id: str, asset_name: str, path: Path) -> dict[str, object] | None:
+    normalized_run_id = validate_run_id(run_id)
     normalized_asset = validate_asset_name(asset_name)
     if not path.exists() or not path.is_file():
         return None
+    expected_path = workspace_asset_path(normalized_run_id, normalized_asset)
+    if path.resolve() != expected_path:
+        raise AssetRegistryError("ruta de asset workspace invalida", status_code=400)
     record = AssetRecord(
-        run_id=run_id,
+        run_id=normalized_run_id,
         plane="workspace",
         asset_name=normalized_asset,
-        path=path,
+        path=expected_path,
         size=path.stat().st_size,
     )
-    _ASSET_REGISTRY[(run_id, "workspace", normalized_asset)] = record
+    _ASSET_REGISTRY[(normalized_run_id, "workspace", normalized_asset)] = record
     return public_asset_metadata(record)
 
 
 def resolve_run_asset(run_id: str, plane: str, asset_name: str) -> AssetRecord:
     normalized_plane = validate_plane(plane)
     normalized_asset = validate_asset_name(asset_name)
-    record = _ASSET_REGISTRY.get((run_id, normalized_plane, normalized_asset))
+    normalized_run_id = validate_run_id(run_id) if normalized_plane == "workspace" else run_id
+    record = _ASSET_REGISTRY.get((normalized_run_id, normalized_plane, normalized_asset))
     if record is None and normalized_plane == "workspace" and normalized_asset == "lumbar-3d-mesh.json":
-        record = rehydrate_workspace_asset(run_id, normalized_asset)
+        record = rehydrate_workspace_asset(normalized_run_id, normalized_asset)
     if record is None:
         raise AssetRegistryError("asset no registrado", status_code=404)
     if not record.path.exists() or not record.path.is_file():
@@ -84,20 +92,52 @@ def resolve_run_asset(run_id: str, plane: str, asset_name: str) -> AssetRecord:
 
 
 def rehydrate_workspace_asset(run_id: str, asset_name: str) -> AssetRecord | None:
-    from .settings import get_settings
-
-    path = get_settings().output_dir / "multiplanar_3d" / run_id / asset_name
+    normalized_run_id = validate_run_id(run_id)
+    path = workspace_asset_path(normalized_run_id, asset_name)
     if not path.exists() or not path.is_file():
         return None
     record = AssetRecord(
-        run_id=run_id,
+        run_id=normalized_run_id,
         plane="workspace",
         asset_name=asset_name,
         path=path,
         size=path.stat().st_size,
     )
-    _ASSET_REGISTRY[(run_id, "workspace", asset_name)] = record
+    _ASSET_REGISTRY[(normalized_run_id, "workspace", asset_name)] = record
     return record
+
+
+def validate_run_id(run_id: str) -> str:
+    raw = str(run_id or "").strip()
+    decoded = raw
+    for _ in range(3):
+        next_decoded = unquote(decoded)
+        if next_decoded == decoded:
+            break
+        decoded = next_decoded
+    lowered_values = {raw.lower(), decoded.lower()}
+    forbidden = ("..", "/", "\\", "%2e", "%2f", "%5c")
+    if not raw or any(token in value for value in lowered_values for token in forbidden):
+        raise AssetRegistryError("runId invalido", status_code=403)
+    if raw != decoded or not _RUN_ID_PATTERN.fullmatch(decoded):
+        raise AssetRegistryError("runId invalido", status_code=403)
+    return decoded
+
+
+def workspace_asset_root() -> Path:
+    from .settings import get_settings
+
+    return (get_settings().output_dir / "multiplanar_3d").resolve()
+
+
+def workspace_asset_path(run_id: str, asset_name: str) -> Path:
+    normalized_run_id = validate_run_id(run_id)
+    normalized_asset = validate_asset_name(asset_name)
+    root = workspace_asset_root()
+    path = (root / normalized_run_id / normalized_asset).resolve()
+    if path.parent.parent != root:
+        raise AssetRegistryError("ruta de asset workspace invalida", status_code=403)
+    return path
 
 
 def public_asset_metadata(record: AssetRecord) -> dict[str, object]:

@@ -1,8 +1,8 @@
-# P9-A.3.1 - Proxy geometrico sagital-axial experimental
+# P9-A.3.1.1 - Proxy geometrico sagital-axial experimental
 
 ## Alcance implementado
 
-P9-A.3.1 alinea el trabajo 3D con P9-A.2.1. El AI Module puede transportar un artefacto `lumbar-3d-mesh.json`, pero ese artefacto es un proxy geometrico experimental basado en bounding boxes 2D por plano.
+P9-A.3.1.1 alinea el trabajo 3D con P9-A.2.1. El AI Module puede transportar un artefacto `lumbar-3d-mesh.json`, pero ese artefacto es un proxy geometrico experimental basado en bounding boxes 2D por plano.
 
 No es todavia reconstruccion anatomica 3D final, no es fusion volumetrica y no debe presentarse como mesh paciente-especifico validado.
 
@@ -33,13 +33,23 @@ P9-A.3.1 no cruza IDs numericos entre modelos. Los IDs no son equivalentes:
 - sagital: `vertebra_group`, `canal`, `disc_group`;
 - axial: `raw_0`, `raw_50`, `raw_100`, `raw_150`, `raw_200`.
 
-El proxy solo se genera si existe un mapping anatomico explicito, por ejemplo mediante `PFI_MULTIPLANAR_3D_ANATOMICAL_MAPPING_JSON`. Si no existe mapping validado:
+El proxy solo se genera si existe un mapping explicito provisto por configuracion, por ejemplo mediante `PFI_MULTIPLANAR_3D_ANATOMICAL_MAPPING_JSON`. Ese mapping se publica como:
+
+- `mappingSource=config`;
+- `mappingValidated=false`;
+- `explicitOperatorProvidedMapping={...}`.
+
+No se publica `mappingValidated=true` hasta contar con un artefacto o manifest versionado que demuestre validacion anatomica.
+
+Si no existe mapping utilizable:
 
 - `threeD.enabled=false`;
 - `threeD.status=experimental_blocked_missing_anatomical_mapping`;
 - `threeD.assets=[]`.
 
 No se inventan equivalencias para `raw_*` y no se infieren por coincidencia numerica.
+
+El mapping se rechaza si el JSON es invalido, si usa tipos no permitidos, listas vacias, duplicados, clases inexistentes o `background`.
 
 ## Contrato del proxy
 
@@ -50,6 +60,17 @@ Cuando el proxy se genera, `threeD.reconstruction` declara:
 - `anatomicalReconstruction=false`;
 - `volumetricReconstruction=false`;
 - `coordinateSystem=local_proxy_space`.
+- `units=normalized`.
+
+La trazabilidad no fabrica metadata geometrica. Si faltan datos de spacing/slice, publica:
+
+- `inPlaneSpacingMm=null`;
+- `selectedSliceIndex=null`;
+- `sliceCount=null`;
+- `selectedAxis=null`;
+- `metadataSource=unavailable`;
+- `depthSpacingMm=null`;
+- `depthSource=not_available_for_proxy`.
 
 El asset se sirve como:
 
@@ -57,7 +78,7 @@ El asset se sirve como:
 GET /assets/{multiplanarRunId}/workspace/lumbar-3d-mesh.json
 ```
 
-El registro puede rehidratar ese asset desde `outputs/multiplanar_3d/{runId}/lumbar-3d-mesh.json` si el registro en memoria fue limpiado. No se exponen paths internos en el contrato publico.
+El registro puede rehidratar ese asset desde `outputs/multiplanar_3d/{runId}/lumbar-3d-mesh.json` si el registro en memoria fue limpiado. `runId` se valida antes de registrar, resolver o rehidratar, y la ruta resuelta debe permanecer dentro de `PFI_OUTPUT_DIR/multiplanar_3d`. No se exponen paths internos en el contrato publico.
 
 ## Lo que falta para 3D final
 
@@ -72,7 +93,7 @@ La reconstruccion final requiere:
 - registracion sagital-axial;
 - generacion volumetrica y validacion E2E reproducible.
 
-Hasta contar con eso, P9-A.3.1 debe describirse solo como proxy geometrico experimental.
+Hasta contar con eso, P9-A.3.1.1 debe describirse solo como proxy geometrico experimental.
 
 ## Evidencia
 
@@ -80,13 +101,13 @@ Suite enfocada:
 
 ```powershell
 $env:PYTHONPATH='ai_service'
-.\.venv\Scripts\python.exe -m pytest ai_service\tests\test_multiplanar_v2_contract.py ai_service\tests\test_multiplanar_real_baseline_fixtures.py ai_service\tests\test_asset_serving.py ai_service\tests\test_asset_registry.py -q --basetemp .pytest-tmp\p9a31-focused
+.\.venv\Scripts\python.exe -m pytest ai_service\tests\test_multiplanar_v2_contract.py ai_service\tests\test_multiplanar_real_baseline_fixtures.py ai_service\tests\test_asset_serving.py ai_service\tests\test_asset_registry.py ai_service\tests\test_partial_real_readiness.py ai_service\tests\test_strict_axial_real_baseline_fixture.py -q --basetemp .pytest-tmp\p9a311-focused
 ```
 
 Resultado observado:
 
 ```text
-30 passed, 1 warning
+55 passed, 1 warning
 ```
 
 Los tests distinguen:
@@ -94,5 +115,8 @@ Los tests distinguen:
 - unitarios con mascaras fabricadas y mapping explicito;
 - integracion con fixtures/checkpoints reales para validar flujo y transporte del proxy;
 - bloqueo cuando falta mapping anatomico;
+- bloqueo cuando el mapping es invalido, vacio o referencia clases inexistentes;
+- validacion de `runId` contra traversal directo/codificado;
+- metadata geometrica ausente preservada como `null`;
 - no generacion de proxy si hay fallback/sintetico;
 - rehidratacion del JSON tras limpiar el registro en memoria.

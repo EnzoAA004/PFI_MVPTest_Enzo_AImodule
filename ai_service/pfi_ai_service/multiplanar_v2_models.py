@@ -206,7 +206,6 @@ class ThreeDStatusV2(PublicResponseModel):
     status: Literal[
         "blocked_missing_axial",
         "blocked_missing_sagittal",
-        "pending_registered_reconstruction",
         "experimental_ready",
         "experimental_blocked_insufficient_geometry",
         "experimental_blocked_missing_anatomical_mapping",

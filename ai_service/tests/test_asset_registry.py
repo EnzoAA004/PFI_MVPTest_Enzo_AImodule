@@ -9,7 +9,9 @@ from pfi_ai_service.api import app
 from pfi_ai_service.asset_registry import (
     AssetRegistryError,
     clear_asset_registry,
+    register_workspace_asset,
     resolve_run_asset,
+    workspace_asset_path,
 )
 from pfi_ai_service.real_inference_runtime import clear_model_cache
 
@@ -89,4 +91,39 @@ def test_asset_registry_rejects_unknown_run_id(monkeypatch, tmp_path) -> None:
 
     assert exc_info.value.status_code == 404
     assert exc_info.value.message == "asset no registrado"
+
+
+def test_workspace_asset_valid_run_id_rehydrates_after_registry_clear(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("PFI_OUTPUT_DIR", str(tmp_path / "outputs"))
+    run_id = "multi-safe_run-123"
+    path = workspace_asset_path(run_id, "lumbar-3d-mesh.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('{"ok": true}', encoding="utf-8")
+
+    metadata = register_workspace_asset(run_id, "lumbar-3d-mesh.json", path)
+    assert metadata is not None
+    clear_asset_registry()
+
+    record = resolve_run_asset(run_id, "workspace", "lumbar-3d-mesh.json")
+    assert record.path == path
+    assert record.path.resolve().is_relative_to((tmp_path / "outputs" / "multiplanar_3d").resolve())
+
+
+@pytest.mark.parametrize("run_id", ["../evil", "multi/evil", "multi\\evil", "multi%2e%2e", "multi%2fslash", "multi%5cslash", "", "x" * 120])
+def test_workspace_asset_rejects_invalid_run_id_without_path_leak(monkeypatch, tmp_path, run_id: str) -> None:
+    monkeypatch.setenv("PFI_OUTPUT_DIR", str(tmp_path / "outputs"))
+
+    with pytest.raises(AssetRegistryError) as exc_info:
+        resolve_run_asset(run_id, "workspace", "lumbar-3d-mesh.json")
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.message == "runId invalido"
+    assert str(tmp_path) not in exc_info.value.message
+
+
+def test_workspace_asset_path_cannot_escape_multiplanar_3d(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("PFI_OUTPUT_DIR", str(tmp_path / "outputs"))
+
+    with pytest.raises(AssetRegistryError):
+        workspace_asset_path("..%2foutside", "lumbar-3d-mesh.json")
 

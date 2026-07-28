@@ -90,7 +90,7 @@ def test_multiplanar_real_fixtures_transport_experimental_3d_proxy_with_explicit
     monkeypatch.setenv("PFI_INFERENCE_DEVICE", "cpu")
     monkeypatch.setenv(
         "PFI_MULTIPLANAR_3D_ANATOMICAL_MAPPING_JSON",
-        '{"vertebra_group":["raw_50"],"canal":["raw_100"],"disc_group":["raw_150"]}',
+        '{"vertebra_group":["raw_50"],"canal":["raw_100"]}',
     )
     clear_model_cache()
     clear_asset_registry()

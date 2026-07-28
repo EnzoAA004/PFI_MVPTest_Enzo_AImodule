@@ -9,9 +9,8 @@ from typing import Any
 import numpy as np
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS
-from .asset_registry import AssetRegistryError, register_workspace_asset, resolve_run_asset
+from .asset_registry import AssetRegistryError, register_workspace_asset, resolve_run_asset, workspace_asset_path
 from .reporting import write_json
-from .settings import get_settings
 from .multiplanar_v2_models import PlaneAssetV2, PlaneRunV2Result, ThreeDStatusV2
 
 
@@ -20,10 +19,10 @@ class ReconstructionInput:
     plane: str
     run_id: str
     mask: np.ndarray
-    spacing_mm: tuple[float, float]
-    selected_slice_index: int
-    slice_count: int
-    selected_axis: int
+    spacing_mm: tuple[float, float] | None
+    selected_slice_index: int | None
+    slice_count: int | None
+    selected_axis: int | None
     model_key: str
     model_version: str | None
     artifact_hash: str | None
@@ -83,9 +82,8 @@ def build_lumbar_3d_status(run_id: str, planes: dict[str, PlaneRunV2Result | Non
             warnings=["El proxy 3D experimental fallo sin degradar a una geometria sintetica ni inferir equivalencias anatomicas."],
         )
 
-    output_dir = get_settings().output_dir / "multiplanar_3d" / run_id
-    output_dir.mkdir(parents=True, exist_ok=True)
-    mesh_path = output_dir / "lumbar-3d-mesh.json"
+    mesh_path = workspace_asset_path(run_id, "lumbar-3d-mesh.json")
+    mesh_path.parent.mkdir(parents=True, exist_ok=True)
     write_json(mesh_path, mesh)
     register_workspace_asset(run_id, "lumbar-3d-mesh.json", mesh_path)
     return ThreeDStatusV2(
@@ -116,6 +114,9 @@ def build_lumbar_3d_status(run_id: str, planes: dict[str, PlaneRunV2Result | Non
             "vertexCount": len(mesh["vertices"]),
             "faceCount": len(mesh["faces"]),
             "traceability": mesh["traceability"],
+            "mappingSource": "config",
+            "mappingValidated": False,
+            "explicitOperatorProvidedMapping": mesh["traceability"]["parameters"]["explicitOperatorProvidedMapping"],
             "limitations": mesh["limitations"],
         },
         warnings=[
@@ -178,16 +179,16 @@ def reconstruction_input(plane: PlaneRunV2Result | None) -> ReconstructionInput:
     mask = np.asarray(np.load(record.path), dtype=np.uint8)
     if mask.ndim != 2:
         raise ValueError(f"mask ndim unsupported: {mask.ndim}")
-    spacing = plane.input.inPlaneSpacingMm if plane.input.inPlaneSpacingMm and len(plane.input.inPlaneSpacingMm) >= 2 else [1.0, 1.0]
+    spacing = plane.input.inPlaneSpacingMm if plane.input.inPlaneSpacingMm and len(plane.input.inPlaneSpacingMm) >= 2 else None
     class_ids_by_key = {mask.classKey: int(mask.classId) for mask in plane.masks if mask.classId is not None}
     return ReconstructionInput(
         plane=plane.plane,
         run_id=plane.runId,
         mask=mask,
-        spacing_mm=(float(spacing[0]), float(spacing[1])),
-        selected_slice_index=int(plane.input.selectedSliceIndex or 0),
-        slice_count=int(plane.input.sliceCount or 1),
-        selected_axis=int(plane.input.selectedAxis or 0),
+        spacing_mm=(float(spacing[0]), float(spacing[1])) if spacing else None,
+        selected_slice_index=int(plane.input.selectedSliceIndex) if plane.input.selectedSliceIndex is not None else None,
+        slice_count=int(plane.input.sliceCount) if plane.input.sliceCount is not None else None,
+        selected_axis=int(plane.input.selectedAxis) if plane.input.selectedAxis is not None else None,
         model_key=plane.model.key,
         model_version=plane.model.version,
         artifact_hash=plane.model.artifactHash,
@@ -206,10 +207,28 @@ def load_explicit_anatomical_mapping() -> dict[str, list[str]]:
     if not isinstance(parsed, dict):
         return {}
     mapping: dict[str, list[str]] = {}
+    seen_axial_keys: set[str] = set()
     for sagittal_key, axial_keys in parsed.items():
-        if isinstance(sagittal_key, str) and isinstance(axial_keys, list) and all(isinstance(item, str) for item in axial_keys):
-            mapping[sagittal_key] = axial_keys
+        if not isinstance(sagittal_key, str) or not sagittal_key.strip() or background_key(sagittal_key):
+            return {}
+        if not isinstance(axial_keys, list) or not axial_keys:
+            return {}
+        clean_axial_keys: list[str] = []
+        for item in axial_keys:
+            if not isinstance(item, str) or not item.strip() or background_key(item):
+                return {}
+            normalized = item.strip()
+            if normalized in clean_axial_keys or normalized in seen_axial_keys:
+                return {}
+            clean_axial_keys.append(normalized)
+            seen_axial_keys.add(normalized)
+        mapping[sagittal_key.strip()] = clean_axial_keys
     return mapping
+
+
+def background_key(value: str) -> bool:
+    normalized = value.strip().lower()
+    return normalized in {"background", "background_250", "raw_250", "class_0"}
 
 
 def build_sparse_lumbar_proxy(
@@ -222,6 +241,15 @@ def build_sparse_lumbar_proxy(
     faces: list[list[int]] = []
     structures: list[dict[str, Any]] = []
     used_mapping: dict[str, list[str]] = {}
+    unknown_sagittal = [key for key in anatomical_mapping if key not in sagittal.class_ids_by_key]
+    unknown_axial = [
+        key
+        for axial_keys in anatomical_mapping.values()
+        for key in axial_keys
+        if key not in axial.class_ids_by_key
+    ]
+    if unknown_sagittal or unknown_axial:
+        raise ValueError("missing valid anatomical mapping")
     for sagittal_key, axial_keys in anatomical_mapping.items():
         sagittal_id = sagittal.class_ids_by_key.get(sagittal_key)
         axial_ids = [axial.class_ids_by_key[key] for key in axial_keys if key in axial.class_ids_by_key]
@@ -297,7 +325,12 @@ def build_sparse_lumbar_proxy(
                 "sagittal": slice_trace(sagittal),
                 "axial": slice_trace(axial),
             },
-            "parameters": {"method": "dual_plane_bbox_proxy", "explicitAnatomicalMapping": used_mapping},
+            "parameters": {
+                "method": "dual_plane_bbox_proxy",
+                "mappingSource": "config",
+                "mappingValidated": False,
+                "explicitOperatorProvidedMapping": used_mapping,
+            },
             "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
             "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
         },
@@ -346,11 +379,16 @@ def model_trace(item: ReconstructionInput) -> dict[str, Any]:
 
 
 def slice_trace(item: ReconstructionInput) -> dict[str, Any]:
+    metadata_available = any(
+        value is not None
+        for value in (item.selected_slice_index, item.slice_count, item.selected_axis, item.spacing_mm)
+    )
     return {
         "selectedSliceIndex": item.selected_slice_index,
         "sliceCount": item.slice_count,
         "selectedAxis": item.selected_axis,
-        "inPlaneSpacingMm": list(item.spacing_mm),
+        "inPlaneSpacingMm": list(item.spacing_mm) if item.spacing_mm is not None else None,
+        "metadataSource": "runtime_input_metadata" if metadata_available else "unavailable",
         "depthSpacingMm": None,
         "depthSource": "not_available_for_proxy",
     }
