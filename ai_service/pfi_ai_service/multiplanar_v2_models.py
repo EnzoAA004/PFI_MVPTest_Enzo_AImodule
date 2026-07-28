@@ -82,6 +82,8 @@ class PlaneModelV2(PublicResponseModel):
     artifactHash: str | None
     baselineReady: bool
     availableForRealInference: bool
+    runtimeQualification: str | None = None
+    qualityGatePassed: bool | None = None
     manifestStatus: str | None
     manifestValid: bool
 
@@ -133,6 +135,7 @@ class PlaneAssetV2(PublicResponseModel):
 class PlaneMaskV2(PublicResponseModel):
     id: str
     classKey: str
+    classId: int | None = None
     confidence: float | None
     enabled: bool
     editable: bool
@@ -206,6 +209,7 @@ class ThreeDStatusV2(PublicResponseModel):
         "pending_registered_reconstruction",
         "experimental_ready",
         "experimental_blocked_insufficient_geometry",
+        "experimental_blocked_missing_anatomical_mapping",
     ]
     sourcePlaneRunIds: dict[PlaneNameV2, str | None]
     requiredInputs: list[str]

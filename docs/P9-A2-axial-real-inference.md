@@ -63,7 +63,9 @@ Las clases publicadas preservan el label-map congelado del checkpoint axial (`ra
 
 - `/v2/multiplanar/contract` declara axial disponible para inferencia real.
 - `/multiplanar/run` legacy registra paths legacy como `inputId` interno antes de ejecutar el contrato canonico v2.
-- Una corrida sagital+axial con fixtures reales devuelve `effectiveInferenceMode=real_baseline`, planos no sinteticos y `threeD.status=pending_registered_reconstruction`.
+- Una corrida sagital+axial con fixtures reales devuelve `effectiveInferenceMode=real_baseline` y planos no sinteticos.
+- P9-A.3.1 puede transportar un proxy geometrico experimental si existe mapping anatomico explicito; sin ese mapping devuelve `threeD.status=experimental_blocked_missing_anatomical_mapping`.
+- El proxy de P9-A.3.1 no es reconstruccion anatomica real ni reconstruccion volumetrica. La reconstruccion final requiere stack completo, orden DICOM, `ImagePositionPatient`, `ImageOrientationPatient`, `FrameOfReferenceUID`, spacing entre cortes, registracion y generacion volumetrica.
 
 ## Evidencia
 

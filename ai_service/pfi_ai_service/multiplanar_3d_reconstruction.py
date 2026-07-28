@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -25,6 +27,7 @@ class ReconstructionInput:
     model_key: str
     model_version: str | None
     artifact_hash: str | None
+    class_ids_by_key: dict[str, int]
 
 
 def build_lumbar_3d_status(run_id: str, planes: dict[str, PlaneRunV2Result | None]) -> ThreeDStatusV2:
@@ -32,7 +35,7 @@ def build_lumbar_3d_status(run_id: str, planes: dict[str, PlaneRunV2Result | Non
         "sagittal": planes.get("sagittal").runId if planes.get("sagittal") else None,
         "axial": planes.get("axial").runId if planes.get("axial") else None,
     }
-    required = ["sagittal_masks", "axial_masks", "physical_spacing", "slice_index_mapping", "real_baseline_both_planes"]
+    required = ["sagittal_masks", "axial_masks", "explicit_anatomical_mapping", "real_baseline_both_planes"]
     missing = missing_reconstruction_requirements(planes)
     if missing:
         status = "blocked_missing_axial" if "axial_plane" in missing else "blocked_missing_sagittal" if "sagittal_plane" in missing else "experimental_blocked_insufficient_geometry"
@@ -45,28 +48,39 @@ def build_lumbar_3d_status(run_id: str, planes: dict[str, PlaneRunV2Result | Non
                 "experimental": True,
                 "available": False,
                 "blockedReasons": missing,
-                "method": "dual_plane_mask_geometry",
+                "kind": "experimental_geometric_proxy",
+                "method": "dual_plane_bbox_proxy",
+                "anatomicalReconstruction": False,
+                "volumetricReconstruction": False,
             },
-            warnings=["No se genera 3D real si faltan mascaras reales, spacing o mapeo de slices."],
+            warnings=["No se genera proxy 3D si faltan mascaras reales, trazabilidad de modelo o un mapping anatomico explicito."],
         )
+
+    anatomical_mapping = load_explicit_anatomical_mapping()
+    if not anatomical_mapping:
+        return blocked_missing_mapping(source_ids, required)
 
     try:
         sagittal = reconstruction_input(planes["sagittal"])
         axial = reconstruction_input(planes["axial"])
-        mesh = build_sparse_lumbar_mesh(run_id, sagittal, axial)
+        mesh = build_sparse_lumbar_proxy(run_id, sagittal, axial, anatomical_mapping)
     except (AssetRegistryError, OSError, ValueError) as exc:
+        status = "experimental_blocked_missing_anatomical_mapping" if "mapping" in str(exc).lower() else "experimental_blocked_insufficient_geometry"
         return ThreeDStatusV2(
             enabled=False,
-            status="experimental_blocked_insufficient_geometry",
+            status=status,  # type: ignore[arg-type]
             sourcePlaneRunIds=source_ids,  # type: ignore[arg-type]
             requiredInputs=required,
             reconstruction={
                 "experimental": True,
                 "available": False,
                 "blockedReasons": [type(exc).__name__],
-                "method": "dual_plane_mask_geometry",
+                "kind": "experimental_geometric_proxy",
+                "method": "dual_plane_bbox_proxy",
+                "anatomicalReconstruction": False,
+                "volumetricReconstruction": False,
             },
-            warnings=["La reconstruccion 3D experimental fallo sin degradar a una geometria sintetica."],
+            warnings=["El proxy 3D experimental fallo sin degradar a una geometria sintetica ni inferir equivalencias anatomicas."],
         )
 
     output_dir = get_settings().output_dir / "multiplanar_3d" / run_id
@@ -91,10 +105,13 @@ def build_lumbar_3d_status(run_id: str, planes: dict[str, PlaneRunV2Result | Non
         reconstruction={
             "experimental": True,
             "available": True,
-            "method": "dual_plane_mask_geometry",
-            "coordinateSystem": "patient_relative_mm",
+            "kind": "experimental_geometric_proxy",
+            "method": "dual_plane_bbox_proxy",
+            "anatomicalReconstruction": False,
+            "volumetricReconstruction": False,
+            "coordinateSystem": "local_proxy_space",
             "source": "real_segmentation_masks",
-            "meshFormat": "pfi.lumbar-sparse-mesh.v1",
+            "meshFormat": "pfi.lumbar-geometric-proxy.v1",
             "structureCount": len(mesh["structures"]),
             "vertexCount": len(mesh["vertices"]),
             "faceCount": len(mesh["faces"]),
@@ -102,9 +119,29 @@ def build_lumbar_3d_status(run_id: str, planes: dict[str, PlaneRunV2Result | Non
             "limitations": mesh["limitations"],
         },
         warnings=[
-            "Reconstruccion experimental: requiere validacion E2E antes de presentarse como 3D clinico.",
-            "No es una extrusion 2D aislada: fusiona mascaras reales sagitales y axiales con spacing y slice mapping disponibles.",
+            "Proxy geometrico experimental: no es reconstruccion anatomica 3D final.",
+            "No hay reconstruccion volumetrica sin stack completo, geometria DICOM y registracion validada.",
         ],
+    )
+
+
+def blocked_missing_mapping(source_ids: dict[str, str | None], required: list[str]) -> ThreeDStatusV2:
+    return ThreeDStatusV2(
+        enabled=False,
+        status="experimental_blocked_missing_anatomical_mapping",
+        sourcePlaneRunIds=source_ids,  # type: ignore[arg-type]
+        requiredInputs=required,
+        assets=[],
+        reconstruction={
+            "experimental": True,
+            "available": False,
+            "blockedReasons": ["missing_explicit_anatomical_mapping"],
+            "kind": "experimental_geometric_proxy",
+            "method": "dual_plane_bbox_proxy",
+            "anatomicalReconstruction": False,
+            "volumetricReconstruction": False,
+        },
+        warnings=["No se cruzan IDs numericos sagital/axial; se requiere mapping anatomico explicito validado."],
     )
 
 
@@ -121,10 +158,12 @@ def missing_reconstruction_requirements(planes: dict[str, PlaneRunV2Result | Non
             continue
         if plane.effectiveInferenceMode != "real_baseline" or plane.synthetic or plane.fallbackReason is not None:
             missing.append(f"{plane_name}_not_real_baseline")
-        if not plane.input.inPlaneSpacingMm:
-            missing.append(f"{plane_name}_spacing")
-        if plane.input.selectedSliceIndex is None or plane.input.sliceCount is None or plane.input.selectedAxis is None:
-            missing.append(f"{plane_name}_slice_index_mapping")
+        if not plane.model.availableForRealInference:
+            missing.append(f"{plane_name}_not_available_for_real_inference")
+        if not plane.model.artifactHash:
+            missing.append(f"{plane_name}_artifact_hash")
+        if not plane.model.manifestValid:
+            missing.append(f"{plane_name}_manifest_valid")
         if not any(asset.assetName == "mask.npy" and asset.generated for asset in plane.assets):
             missing.append(f"{plane_name}_mask_asset")
         if plane.quality.maskCount <= 0:
@@ -139,42 +178,64 @@ def reconstruction_input(plane: PlaneRunV2Result | None) -> ReconstructionInput:
     mask = np.asarray(np.load(record.path), dtype=np.uint8)
     if mask.ndim != 2:
         raise ValueError(f"mask ndim unsupported: {mask.ndim}")
-    spacing = plane.input.inPlaneSpacingMm
-    if spacing is None or len(spacing) < 2:
-        raise ValueError("missing in-plane spacing")
-    if plane.input.selectedSliceIndex is None or plane.input.sliceCount is None or plane.input.selectedAxis is None:
-        raise ValueError("missing slice mapping")
+    spacing = plane.input.inPlaneSpacingMm if plane.input.inPlaneSpacingMm and len(plane.input.inPlaneSpacingMm) >= 2 else [1.0, 1.0]
+    class_ids_by_key = {mask.classKey: int(mask.classId) for mask in plane.masks if mask.classId is not None}
     return ReconstructionInput(
         plane=plane.plane,
         run_id=plane.runId,
         mask=mask,
         spacing_mm=(float(spacing[0]), float(spacing[1])),
-        selected_slice_index=int(plane.input.selectedSliceIndex),
-        slice_count=int(plane.input.sliceCount),
-        selected_axis=int(plane.input.selectedAxis),
+        selected_slice_index=int(plane.input.selectedSliceIndex or 0),
+        slice_count=int(plane.input.sliceCount or 1),
+        selected_axis=int(plane.input.selectedAxis or 0),
         model_key=plane.model.key,
         model_version=plane.model.version,
         artifact_hash=plane.model.artifactHash,
+        class_ids_by_key=class_ids_by_key,
     )
 
 
-def build_sparse_lumbar_mesh(run_id: str, sagittal: ReconstructionInput, axial: ReconstructionInput) -> dict[str, Any]:
-    labels = [int(value) for value in sorted((set(np.unique(sagittal.mask).astype(int)) & set(np.unique(axial.mask).astype(int))) - {0})]
-    if not labels:
-        raise ValueError("no shared foreground classes")
+def load_explicit_anatomical_mapping() -> dict[str, list[str]]:
+    raw = os.getenv("PFI_MULTIPLANAR_3D_ANATOMICAL_MAPPING_JSON", "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    mapping: dict[str, list[str]] = {}
+    for sagittal_key, axial_keys in parsed.items():
+        if isinstance(sagittal_key, str) and isinstance(axial_keys, list) and all(isinstance(item, str) for item in axial_keys):
+            mapping[sagittal_key] = axial_keys
+    return mapping
+
+
+def build_sparse_lumbar_proxy(
+    run_id: str,
+    sagittal: ReconstructionInput,
+    axial: ReconstructionInput,
+    anatomical_mapping: dict[str, list[str]],
+) -> dict[str, Any]:
     vertices: list[list[float]] = []
     faces: list[list[int]] = []
     structures: list[dict[str, Any]] = []
-    for label in labels:
-        sag_box = physical_box(sagittal.mask == label, sagittal.spacing_mm)
-        ax_box = physical_box(axial.mask == label, axial.spacing_mm)
+    used_mapping: dict[str, list[str]] = {}
+    for sagittal_key, axial_keys in anatomical_mapping.items():
+        sagittal_id = sagittal.class_ids_by_key.get(sagittal_key)
+        axial_ids = [axial.class_ids_by_key[key] for key in axial_keys if key in axial.class_ids_by_key]
+        if sagittal_id is None or not axial_ids:
+            continue
+        sag_box = normalized_box(sagittal.mask == sagittal_id)
+        ax_box = normalized_box(np.isin(axial.mask, axial_ids))
         if sag_box is None or ax_box is None:
             continue
         start = len(vertices)
-        x_min, x_max = ax_box["xMinMm"], ax_box["xMaxMm"]
-        y_min, y_max = sagittal_slice_span_mm(sagittal)
-        z_min = min(sag_box["yMinMm"], ax_box["yMinMm"])
-        z_max = max(sag_box["yMaxMm"], ax_box["yMaxMm"])
+        x_min, x_max = ax_box["xMin"], ax_box["xMax"]
+        y_min, y_max = sag_box["xMin"], sag_box["xMax"]
+        z_min = min(sag_box["yMin"], ax_box["yMin"])
+        z_max = max(sag_box["yMax"], ax_box["yMax"])
         vertices.extend([
             [x_min, y_min, z_min],
             [x_max, y_min, z_min],
@@ -200,22 +261,29 @@ def build_sparse_lumbar_mesh(run_id: str, sagittal: ReconstructionInput, axial: 
             [start + 3, start + 4, start],
         ])
         structures.append({
-            "label": f"class_{label}",
-            "classId": label,
+            "label": sagittal_key,
+            "sagittalClassId": sagittal_id,
+            "axialClassIds": axial_ids,
+            "mappedAxialClassKeys": axial_keys,
             "sourceMasks": {"sagittal": sagittal.run_id, "axial": axial.run_id},
             "vertexStart": start,
             "vertexCount": 8,
             "faceStart": len(faces) - 12,
             "faceCount": 12,
         })
+        used_mapping[sagittal_key] = axial_keys
     if not structures:
-        raise ValueError("empty reconstructed structures")
+        raise ValueError("missing valid anatomical mapping")
     return {
-        "schemaVersion": "pfi.lumbar-sparse-mesh.v1",
+        "schemaVersion": "pfi.lumbar-geometric-proxy.v1",
         "runId": run_id,
         "experimental": True,
-        "coordinateSystem": "patient_relative_mm",
-        "units": "mm",
+        "kind": "experimental_geometric_proxy",
+        "method": "dual_plane_bbox_proxy",
+        "anatomicalReconstruction": False,
+        "volumetricReconstruction": False,
+        "coordinateSystem": "local_proxy_space",
+        "units": "normalized",
         "vertices": vertices,
         "faces": faces,
         "structures": structures,
@@ -229,13 +297,14 @@ def build_sparse_lumbar_mesh(run_id: str, sagittal: ReconstructionInput, axial: 
                 "sagittal": slice_trace(sagittal),
                 "axial": slice_trace(axial),
             },
-            "parameters": {"method": "dual_plane_mask_geometry", "sharedForegroundClasses": labels},
+            "parameters": {"method": "dual_plane_bbox_proxy", "explicitAnatomicalMapping": used_mapping},
             "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
             "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
         },
         "limitations": [
-            "Artefacto experimental derivado de mascaras reales 2D por plano.",
-            "No reemplaza una reconstruccion volumetrica con stack completo y registracion DICOM validada.",
+            "Proxy geometrico experimental derivado de bounding boxes 2D por plano.",
+            "No es reconstruccion anatomica real ni mesh paciente-especifico validado.",
+            "No reemplaza una reconstruccion volumetrica con stack completo, orden DICOM, ImagePositionPatient, ImageOrientationPatient, FrameOfReferenceUID, spacing entre cortes y registracion validada.",
             "Debe validarse con evidencia E2E reproducible antes de uso clinico.",
         ],
     }
@@ -254,14 +323,17 @@ def physical_box(mask: np.ndarray, spacing_mm: tuple[float, float]) -> dict[str,
     }
 
 
-def sagittal_slice_span_mm(sagittal: ReconstructionInput) -> tuple[float, float]:
-    if sagittal.slice_count <= 1:
-        return -0.5, 0.5
-    center = (sagittal.slice_count - 1) / 2.0
-    offset = float(sagittal.selected_slice_index) - center
-    thickness = max(float(sum(sagittal.spacing_mm) / len(sagittal.spacing_mm)), 1.0)
-    y_center = offset * thickness
-    return round(y_center - thickness / 2.0, 4), round(y_center + thickness / 2.0, 4)
+def normalized_box(mask: np.ndarray) -> dict[str, float] | None:
+    ys, xs = np.where(mask)
+    if len(xs) == 0:
+        return None
+    height, width = mask.shape
+    return {
+        "xMin": round(float(xs.min()) / max(width - 1, 1), 6),
+        "xMax": round(float(xs.max() + 1) / max(width, 1), 6),
+        "yMin": round(float(ys.min()) / max(height - 1, 1), 6),
+        "yMax": round(float(ys.max() + 1) / max(height, 1), 6),
+    }
 
 
 def model_trace(item: ReconstructionInput) -> dict[str, Any]:
@@ -279,4 +351,6 @@ def slice_trace(item: ReconstructionInput) -> dict[str, Any]:
         "sliceCount": item.slice_count,
         "selectedAxis": item.selected_axis,
         "inPlaneSpacingMm": list(item.spacing_mm),
+        "depthSpacingMm": None,
+        "depthSource": "not_available_for_proxy",
     }

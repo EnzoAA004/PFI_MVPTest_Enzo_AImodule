@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pfi_ai_service.api import app
-from pfi_ai_service.asset_registry import register_run_assets
+from pfi_ai_service.asset_registry import clear_asset_registry, register_run_assets
 
 
 def configure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -30,11 +30,13 @@ def ready_model(model_key: str, plane: str, *, ready: bool = True) -> dict[str, 
         "key": model_key,
         "plane": plane,
         "version": "sagittal-spider-final-v1" if plane == "sagittal" else "axial-final-v2",
-        "readiness": "real_baseline_ready" if ready else "candidate_below_quality_gate",
+        "readiness": "real_baseline_ready" if plane == "sagittal" and ready else "real_candidate_ready" if plane == "axial" and ready else "candidate_below_quality_gate",
         "trainingStatus": "final" if plane == "sagittal" else "candidate_below_quality_gate",
         "artifactHash": "cf11dcc0ad77a7c787e64a796a2fd7398ef906add461cef4b3d61f1a5238e944" if plane == "sagittal" else "a48cbddd858b5615010fd809412f3d17dae6871fbe12a38f4720e6f6bc70f739",
-        "baselineReady": ready,
+        "baselineReady": ready if plane == "sagittal" else False,
         "availableForRealInference": ready,
+        "runtimeQualification": "axial_candidate_runtime_ready" if plane == "axial" and ready else None,
+        "qualityGatePassed": True if plane == "sagittal" else False,
         "manifest": {"status": "valid", "valid": True, "trainingStatus": "final" if plane == "sagittal" else "candidate_below_quality_gate"},
     }
 
@@ -54,9 +56,9 @@ def fake_plane_response(request) -> dict[str, Any]:
         "inputPath": "C:\\internal\\must-not-leak.mha",
         "series": [{"id": f"series-{plane}-primary", "plane": plane, "sliceCount": 17, "selectedSlice": 7, "status": "real_baseline_ready"}],
         "masks": [
-            {"id": f"mask-{plane}-vertebra", "className": "vertebra_group", "confidence": 0.97, "enabled": True},
-            {"id": f"mask-{plane}-canal", "className": "canal", "confidence": 0.96, "enabled": True},
-            {"id": f"mask-{plane}-disc", "className": "disc_group", "confidence": 0.95, "enabled": True},
+            {"id": f"mask-{plane}-vertebra", "className": "vertebra_group" if plane == "sagittal" else "raw_50", "classId": 1 if plane == "sagittal" else 2, "confidence": 0.97, "enabled": True},
+            {"id": f"mask-{plane}-canal", "className": "canal" if plane == "sagittal" else "raw_100", "classId": 2 if plane == "sagittal" else 3, "confidence": 0.96, "enabled": True},
+            {"id": f"mask-{plane}-disc", "className": "disc_group" if plane == "sagittal" else "raw_150", "classId": 3 if plane == "sagittal" else 4, "confidence": 0.95, "enabled": True},
         ],
         "landmarks": [
             {"id": "lm-1", "label": "vertebra_group centroid", "x": 10.0, "y": 20.0},
@@ -101,10 +103,12 @@ def fake_plane_response_with_registered_mask(request, tmp_path: Path) -> dict[st
     mask = np.zeros((256, 256), dtype=np.uint8)
     if plane == "sagittal":
         mask[80:170, 96:150] = 1
-        mask[130:210, 120:190] = 2
+        mask[130:190, 120:170] = 2
+        mask[190:230, 150:210] = 3
     else:
-        mask[90:165, 70:150] = 1
-        mask[120:205, 115:210] = 2
+        mask[90:150, 70:135] = 2
+        mask[130:190, 115:180] = 3
+        mask[180:230, 150:220] = 4
     mask_path = output_dir / "mask.npy"
     np.save(mask_path, mask)
     register_run_assets(run_id, plane, {"maskPath": str(mask_path)})
@@ -449,8 +453,9 @@ def test_v2_real_missing_series_is_not_fabricated(monkeypatch: pytest.MonkeyPatc
     assert response.json()["code"] == "INVALID_MULTIPLANAR_RESPONSE"
 
 
-def test_v2_dual_real_baseline_generates_experimental_3d_mesh(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_v2_dual_real_baseline_blocks_3d_without_explicit_anatomical_mapping(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     configure(monkeypatch, tmp_path)
+    monkeypatch.delenv("PFI_MULTIPLANAR_3D_ANATOMICAL_MAPPING_JSON", raising=False)
     monkeypatch.setattr("pfi_ai_service.multiplanar_v2_executor.model_status", lambda key, info: ready_model(key, info["plane"], ready=True))
     monkeypatch.setattr("pfi_ai_service.multiplanar_v2_executor.run_pipeline", lambda request: fake_plane_response_with_registered_mask(request, tmp_path))
     client = TestClient(app)
@@ -476,10 +481,50 @@ def test_v2_dual_real_baseline_generates_experimental_3d_mesh(monkeypatch: pytes
     body = response.json()
     assert body["workspaceMode"] == "dual_plane"
     assert body["effectiveInferenceMode"] == "real_baseline"
+    assert body["planes"]["axial"]["model"]["baselineReady"] is False
+    assert body["planes"]["axial"]["model"]["availableForRealInference"] is True
+    assert body["planes"]["axial"]["model"]["runtimeQualification"] == "axial_candidate_runtime_ready"
+    assert body["planes"]["axial"]["model"]["qualityGatePassed"] is False
+    assert body["threeD"]["enabled"] is False
+    assert body["threeD"]["status"] == "experimental_blocked_missing_anatomical_mapping"
+    assert body["threeD"]["assets"] == []
+    assert "missing_explicit_anatomical_mapping" in body["threeD"]["reconstruction"]["blockedReasons"]
+
+
+def test_v2_dual_real_baseline_generates_experimental_3d_proxy_with_explicit_mapping(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    configure(monkeypatch, tmp_path)
+    monkeypatch.setenv("PFI_MULTIPLANAR_3D_ANATOMICAL_MAPPING_JSON", '{"vertebra_group":["raw_50"],"canal":["raw_100"],"disc_group":["raw_150"]}')
+    monkeypatch.setattr("pfi_ai_service.multiplanar_v2_executor.model_status", lambda key, info: ready_model(key, info["plane"], ready=True))
+    monkeypatch.setattr("pfi_ai_service.multiplanar_v2_executor.run_pipeline", lambda request: fake_plane_response_with_registered_mask(request, tmp_path))
+    client = TestClient(app)
+    case_id = "CASE-P9A3-DUAL-3D-MAPPING"
+    sagittal_id = register_input(client, case_id, "sagittal")
+    axial_id = register_input(client, case_id, "axial")
+
+    response = client.post(
+        "/v2/multiplanar/run",
+        headers={"X-Trace-Id": "trace-p9a3-dual-3d-mapping"},
+        json={
+            "caseId": case_id,
+            "inferenceMode": "real_baseline",
+            "allowContractFallback": False,
+            "planes": {
+                "sagittal": {"inputId": sagittal_id, "modelKey": "sagittal_spider"},
+                "axial": {"inputId": axial_id, "modelKey": "axial_t2_alkafri"},
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
     assert body["threeD"]["enabled"] is True
     assert body["threeD"]["status"] == "experimental_ready"
     assert body["threeD"]["reconstruction"]["source"] == "real_segmentation_masks"
-    assert body["threeD"]["reconstruction"]["method"] == "dual_plane_mask_geometry"
+    assert body["threeD"]["reconstruction"]["kind"] == "experimental_geometric_proxy"
+    assert body["threeD"]["reconstruction"]["method"] == "dual_plane_bbox_proxy"
+    assert body["threeD"]["reconstruction"]["anatomicalReconstruction"] is False
+    assert body["threeD"]["reconstruction"]["volumetricReconstruction"] is False
+    assert body["threeD"]["reconstruction"]["coordinateSystem"] == "local_proxy_space"
     assert body["threeD"]["reconstruction"]["structureCount"] >= 1
     assert body["threeD"]["reconstruction"]["traceability"]["sourcePlaneRunIds"] == {
         "sagittal": "sagittal-run-123",
@@ -500,12 +545,30 @@ def test_v2_dual_real_baseline_generates_experimental_3d_mesh(monkeypatch: pytes
     assert asset.status_code == 200
     assert asset.headers["content-type"].startswith("application/json")
     mesh = asset.json()
-    assert mesh["schemaVersion"] == "pfi.lumbar-sparse-mesh.v1"
+    assert mesh["schemaVersion"] == "pfi.lumbar-geometric-proxy.v1"
     assert mesh["experimental"] is True
+    assert mesh["kind"] == "experimental_geometric_proxy"
+    assert mesh["method"] == "dual_plane_bbox_proxy"
+    assert mesh["anatomicalReconstruction"] is False
+    assert mesh["volumetricReconstruction"] is False
+    assert mesh["coordinateSystem"] == "local_proxy_space"
+    assert mesh["units"] == "normalized"
     assert mesh["vertices"]
     assert mesh["faces"]
     assert mesh["traceability"]["models"]["axial"]["artifactHash"] == "a48cbddd858b5615010fd809412f3d17dae6871fbe12a38f4720e6f6bc70f739"
+    assert mesh["traceability"]["parameters"]["explicitAnatomicalMapping"] == {
+        "vertebra_group": ["raw_50"],
+        "canal": ["raw_100"],
+        "disc_group": ["raw_150"],
+    }
+    assert mesh["traceability"]["transforms"]["sagittal"]["depthSpacingMm"] is None
     assert "extrusion" not in json.dumps(mesh).lower()
+    assert "patient_relative_mm" not in json.dumps(mesh)
+
+    clear_asset_registry()
+    rehydrated = client.get(body["threeD"]["assets"][0]["relativePath"])
+    assert rehydrated.status_code == 200
+    assert rehydrated.json()["schemaVersion"] == "pfi.lumbar-geometric-proxy.v1"
 
 
 def test_v2_dual_fallback_does_not_generate_3d_mesh(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -74,10 +74,29 @@ def resolve_run_asset(run_id: str, plane: str, asset_name: str) -> AssetRecord:
     normalized_plane = validate_plane(plane)
     normalized_asset = validate_asset_name(asset_name)
     record = _ASSET_REGISTRY.get((run_id, normalized_plane, normalized_asset))
+    if record is None and normalized_plane == "workspace" and normalized_asset == "lumbar-3d-mesh.json":
+        record = rehydrate_workspace_asset(run_id, normalized_asset)
     if record is None:
         raise AssetRegistryError("asset no registrado", status_code=404)
     if not record.path.exists() or not record.path.is_file():
         raise AssetRegistryError("archivo de asset no disponible", status_code=404)
+    return record
+
+
+def rehydrate_workspace_asset(run_id: str, asset_name: str) -> AssetRecord | None:
+    from .settings import get_settings
+
+    path = get_settings().output_dir / "multiplanar_3d" / run_id / asset_name
+    if not path.exists() or not path.is_file():
+        return None
+    record = AssetRecord(
+        run_id=run_id,
+        plane="workspace",
+        asset_name=asset_name,
+        path=path,
+        size=path.stat().st_size,
+    )
+    _ASSET_REGISTRY[(run_id, "workspace", asset_name)] = record
     return record
 
 

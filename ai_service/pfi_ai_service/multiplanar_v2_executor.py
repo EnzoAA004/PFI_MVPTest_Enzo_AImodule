@@ -434,6 +434,8 @@ def plane_model_v2(artifact: dict[str, Any]) -> PlaneModelV2:
         artifactHash=artifact.get("artifactHash"),
         baselineReady=bool(artifact.get("baselineReady")),
         availableForRealInference=bool(artifact.get("availableForRealInference")),
+        runtimeQualification=artifact.get("runtimeQualification"),
+        qualityGatePassed=artifact.get("qualityGatePassed"),
         manifestStatus=manifest.get("status"),
         manifestValid=bool(manifest.get("valid")),
     )
@@ -506,6 +508,7 @@ def masks_v2(plane: PlaneNameV2, raw: Any, coordinate_space: str) -> list[PlaneM
         masks.append(PlaneMaskV2(
             id=required_text(item.get("id"), "mask.id", plane),
             classKey=class_key,
+            classId=int_or_none(item.get("classId")),
             confidence=float_or_none(item.get("confidence")),
             enabled=bool(item.get("enabled", True)),
             editable=False,

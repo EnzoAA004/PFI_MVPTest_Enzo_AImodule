@@ -157,11 +157,14 @@ No se exponen URLs locales, hosts externos ni paths absolutos. `mask-preview.png
 
 ## 3D
 
-P9-A no genera reconstruccion 3D paciente-especifica. `threeD.enabled` siempre es `false`:
+P9-A.3.1 no genera reconstruccion 3D paciente-especifica final. Puede transportar un proxy geometrico experimental si existe mapping anatomico explicito; si no, queda bloqueado:
 
 - sagital-only: `blocked_missing_axial`
 - axial-only: `blocked_missing_sagittal`
-- dual: `pending_registered_reconstruction`
+- dual sin mapping: `experimental_blocked_missing_anatomical_mapping`
+- dual con mapping explicito: `experimental_ready`
+
+Cuando `experimental_ready`, el contrato declara `kind=experimental_geometric_proxy`, `method=dual_plane_bbox_proxy`, `anatomicalReconstruction=false`, `volumetricReconstruction=false` y `coordinateSystem=local_proxy_space`.
 
 ## Errores
 

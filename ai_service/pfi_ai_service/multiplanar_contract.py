@@ -107,8 +107,13 @@ def multiplanar_workspace_contract_v2() -> Dict[str, Any]:
             "statuses": {
                 "sagittal_only": "blocked_missing_axial",
                 "axial_only": "blocked_missing_sagittal",
-                "dual_plane": "pending_registered_reconstruction",
+                "dual_plane": "experimental_blocked_missing_anatomical_mapping",
+                "dual_plane_with_explicit_mapping": "experimental_ready",
             },
+            "kind": "experimental_geometric_proxy",
+            "method": "dual_plane_bbox_proxy",
+            "anatomicalReconstruction": False,
+            "volumetricReconstruction": False,
         },
         "errors": [
             "INVALID_MULTIPLANAR_REQUEST",

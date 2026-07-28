@@ -1,63 +1,98 @@
-# P9-A.3 - Fusion sagital-axial y reconstruccion 3D lumbar experimental
+# P9-A.3.1 - Proxy geometrico sagital-axial experimental
 
 ## Alcance implementado
 
-P9-A.3 conecta la respuesta multiplanar v2 con un artefacto 3D experimental generado a partir de segmentaciones reales sagitales y axiales ya producidas por `real_baseline`.
+P9-A.3.1 alinea el trabajo 3D con P9-A.2.1. El AI Module puede transportar un artefacto `lumbar-3d-mesh.json`, pero ese artefacto es un proxy geometrico experimental basado en bounding boxes 2D por plano.
 
-El AI Module no presenta este resultado como 3D clinico definitivo. El campo `threeD` queda habilitado solo cuando:
+No es todavia reconstruccion anatomica 3D final, no es fusion volumetrica y no debe presentarse como mesh paciente-especifico validado.
 
-- la corrida es `dual_plane`;
-- ambos planos terminaron en `real_baseline`;
-- ningun plano es sintetico ni proviene de fallback;
-- existen assets internos `mask.npy` registrados para sagital y axial;
-- ambos planos reportan spacing fisico y mapping de slice;
-- hay clases foreground compartidas entre las mascaras.
+## Reglas de habilitacion
 
-Si falta cualquiera de esos requisitos, `threeD.enabled=false` y el estado informa bloqueo por geometria insuficiente.
+Un plano se considera real para el proxy si cumple:
 
-## Contrato de salida
+- `availableForRealInference=true`;
+- `effectiveInferenceMode=real_baseline`;
+- `synthetic=false`;
+- `fallbackReason=null`;
+- `artifactHash` presente;
+- `manifestValid=true`.
 
-En `/v2/multiplanar/run`, `threeD` puede devolver:
+El axial candidato conserva:
 
-- `status=experimental_ready`;
-- `assets[0].assetName=lumbar-3d-mesh.json`;
-- `assets[0].relativePath=/assets/{multiplanarRunId}/workspace/lumbar-3d-mesh.json`;
-- `reconstruction.method=dual_plane_mask_geometry`;
-- `reconstruction.source=real_segmentation_masks`;
-- trazabilidad de `modelKey`, `modelVersion`, `artifactHash`, `runId`, slice y spacing por plano.
+- `baselineReady=false`;
+- `readiness=real_candidate_ready`;
+- `runtimeQualification=axial_candidate_runtime_ready`;
+- `qualityGatePassed=false`.
 
-El asset `lumbar-3d-mesh.json` se sirve como `application/json`. No expone paths internos.
+Esto permite ejecutar inferencia real con checkpoint axial candidato sin promoverlo a baseline aprobado.
 
-## Naturaleza experimental
+## Mapping anatomico
 
-El mesh generado es un artefacto sparse derivado de mascaras reales de dos planos ortogonales. No es una extrusion 2D aislada, pero tampoco reemplaza una reconstruccion volumetrica validada con stack completo, registracion DICOM, spacing/orientacion completa y marching cubes sobre volumen segmentado.
+P9-A.3.1 no cruza IDs numericos entre modelos. Los IDs no son equivalentes:
 
-Por seguridad academica y clinica:
+- sagital: `vertebra_group`, `canal`, `disc_group`;
+- axial: `raw_0`, `raw_50`, `raw_100`, `raw_150`, `raw_200`.
 
-- `experimental=true`;
-- `humanReviewRequired=true`;
-- `notClinicalDiagnosis=true`;
-- se documentan limitaciones dentro del propio JSON del mesh.
+El proxy solo se genera si existe un mapping anatomico explicito, por ejemplo mediante `PFI_MULTIPLANAR_3D_ANATOMICAL_MAPPING_JSON`. Si no existe mapping validado:
 
-## Evidencia reproducible
+- `threeD.enabled=false`;
+- `threeD.status=experimental_blocked_missing_anatomical_mapping`;
+- `threeD.assets=[]`.
 
-Comando enfocado:
+No se inventan equivalencias para `raw_*` y no se infieren por coincidencia numerica.
+
+## Contrato del proxy
+
+Cuando el proxy se genera, `threeD.reconstruction` declara:
+
+- `kind=experimental_geometric_proxy`;
+- `method=dual_plane_bbox_proxy`;
+- `anatomicalReconstruction=false`;
+- `volumetricReconstruction=false`;
+- `coordinateSystem=local_proxy_space`.
+
+El asset se sirve como:
+
+```text
+GET /assets/{multiplanarRunId}/workspace/lumbar-3d-mesh.json
+```
+
+El registro puede rehidratar ese asset desde `outputs/multiplanar_3d/{runId}/lumbar-3d-mesh.json` si el registro en memoria fue limpiado. No se exponen paths internos en el contrato publico.
+
+## Lo que falta para 3D final
+
+La reconstruccion final requiere:
+
+- stack completo;
+- orden DICOM;
+- `ImagePositionPatient`;
+- `ImageOrientationPatient`;
+- `FrameOfReferenceUID`;
+- spacing entre cortes;
+- registracion sagital-axial;
+- generacion volumetrica y validacion E2E reproducible.
+
+Hasta contar con eso, P9-A.3.1 debe describirse solo como proxy geometrico experimental.
+
+## Evidencia
+
+Suite enfocada:
 
 ```powershell
 $env:PYTHONPATH='ai_service'
-.\.venv\Scripts\python.exe -m pytest ai_service\tests\test_multiplanar_v2_contract.py -q --basetemp .pytest-tmp\p9a3-v2
+.\.venv\Scripts\python.exe -m pytest ai_service\tests\test_multiplanar_v2_contract.py ai_service\tests\test_multiplanar_real_baseline_fixtures.py ai_service\tests\test_asset_serving.py ai_service\tests\test_asset_registry.py -q --basetemp .pytest-tmp\p9a31-focused
 ```
 
-Resultado registrado:
+Resultado observado:
 
 ```text
-16 passed, 1 warning
+30 passed, 1 warning
 ```
 
-El test `test_v2_dual_real_baseline_generates_experimental_3d_mesh` valida que:
+Los tests distinguen:
 
-- una corrida dual real produce `threeD.enabled=true`;
-- el estado es `experimental_ready`;
-- se genera y sirve `lumbar-3d-mesh.json`;
-- el mesh tiene vertices, caras, estructuras y trazabilidad de hashes/modelos;
-- no se genera 3D cuando hay fallback o plano sintetico.
+- unitarios con mascaras fabricadas y mapping explicito;
+- integracion con fixtures/checkpoints reales para validar flujo y transporte del proxy;
+- bloqueo cuando falta mapping anatomico;
+- no generacion de proxy si hay fallback/sintetico;
+- rehidratacion del JSON tras limpiar el registro en memoria.
