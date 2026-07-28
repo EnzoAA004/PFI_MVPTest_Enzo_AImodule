@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS
 from .input_registry import InputRegistryError, register_existing_path, resolve_input_id
 from .model_artifacts import model_status
+from .multiplanar_3d_reconstruction import build_lumbar_3d_status
 from . import multiplanar_run as legacy_multiplanar_module
 from .pipeline import PipelineRunRequest
 from .reporting import write_json
@@ -597,7 +598,7 @@ def build_workspace_response(
         completedPlanes=completed,
         readiness=readiness,
         planes=planes,
-        threeD=three_d_status_v2(workspace_mode, planes),
+        threeD=three_d_status_v2(run_id, workspace_mode, planes),
         quality=quality,
         review=ReviewPolicyV2(status="pending", required=True, approvalRequiresHumanConfirmation=True),
         governance=GovernanceV2(humanReviewRequired=True, notClinicalDiagnosis=True),
@@ -624,7 +625,7 @@ def workspace_quality_v2(planes: dict[PlaneNameV2, PlaneRunV2Result | None]) -> 
     )
 
 
-def three_d_status_v2(workspace_mode: WorkspaceModeV2, planes: dict[PlaneNameV2, PlaneRunV2Result | None]) -> ThreeDStatusV2:
+def three_d_status_v2(run_id: str, workspace_mode: WorkspaceModeV2, planes: dict[PlaneNameV2, PlaneRunV2Result | None]) -> ThreeDStatusV2:
     if workspace_mode == "sagittal_only":
         status = "blocked_missing_axial"
         required = ["axial_masks", "spacing", "slice_index_mapping"]
@@ -632,8 +633,7 @@ def three_d_status_v2(workspace_mode: WorkspaceModeV2, planes: dict[PlaneNameV2,
         status = "blocked_missing_sagittal"
         required = ["sagittal_masks", "spacing", "slice_index_mapping"]
     else:
-        status = "pending_registered_reconstruction"
-        required = ["sagittal_masks", "axial_masks", "spacing", "slice_index_mapping"]
+        return build_lumbar_3d_status(run_id, planes)  # type: ignore[arg-type]
     return ThreeDStatusV2(
         enabled=False,
         status=status,  # type: ignore[arg-type]

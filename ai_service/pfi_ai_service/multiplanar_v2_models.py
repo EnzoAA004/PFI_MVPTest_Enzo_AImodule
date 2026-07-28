@@ -124,7 +124,7 @@ class PlaneSeriesV2(PublicResponseModel):
 
 class PlaneAssetV2(PublicResponseModel):
     assetName: str
-    role: Literal["input_preview", "overlay", "mask_preview", "mask_array", "confidence_array"]
+    role: Literal["input_preview", "overlay", "mask_preview", "mask_array", "confidence_array", "mesh_3d", "volume_3d"]
     contentType: str
     generated: bool
     relativePath: str
@@ -200,9 +200,18 @@ class MultiplanarReadinessV2(PublicResponseModel):
 
 class ThreeDStatusV2(PublicResponseModel):
     enabled: bool
-    status: Literal["blocked_missing_axial", "blocked_missing_sagittal", "pending_registered_reconstruction"]
+    status: Literal[
+        "blocked_missing_axial",
+        "blocked_missing_sagittal",
+        "pending_registered_reconstruction",
+        "experimental_ready",
+        "experimental_blocked_insufficient_geometry",
+    ]
     sourcePlaneRunIds: dict[PlaneNameV2, str | None]
     requiredInputs: list[str]
+    assets: list[PlaneAssetV2] = Field(default_factory=list)
+    reconstruction: dict[str, Any] | None = None
+    warnings: list[str] = Field(default_factory=list)
 
 
 class WorkspaceQualityV2(PublicResponseModel):

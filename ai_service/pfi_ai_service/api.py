@@ -296,7 +296,8 @@ def get_run_asset(run_id: str, plane: str, asset_name: str):
 
     if not is_public_browser_asset(record.asset_name):
         raise HTTPException(status_code=403, detail="asset interno no disponible publicamente")
-    return FileResponse(record.path, media_type="image/png", filename=record.asset_name)
+    media_type = "application/json" if record.asset_name.endswith(".json") else "image/png"
+    return FileResponse(record.path, media_type=media_type, filename=record.asset_name)
 
 @app.get("/study/demo-review")
 def study_demo_review():

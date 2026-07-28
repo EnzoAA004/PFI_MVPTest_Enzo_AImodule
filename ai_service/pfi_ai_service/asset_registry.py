@@ -4,10 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-ALLOWED_ASSET_NAMES = frozenset({"input.png", "mask.npy", "confidence.npy", "overlay.png", "mask-preview.png"})
-PUBLIC_BROWSER_ASSET_NAMES = frozenset({"input.png", "overlay.png", "mask-preview.png"})
+ALLOWED_ASSET_NAMES = frozenset({"input.png", "mask.npy", "confidence.npy", "overlay.png", "mask-preview.png", "lumbar-3d-mesh.json"})
+PUBLIC_BROWSER_ASSET_NAMES = frozenset({"input.png", "overlay.png", "mask-preview.png", "lumbar-3d-mesh.json"})
 INTERNAL_RAW_ASSET_NAMES = ALLOWED_ASSET_NAMES - PUBLIC_BROWSER_ASSET_NAMES
-_VALID_PLANES = {"sagittal", "axial"}
+_VALID_PLANES = {"sagittal", "axial", "workspace"}
 
 
 class AssetRegistryError(Exception):
@@ -20,7 +20,7 @@ class AssetRegistryError(Exception):
 @dataclass(frozen=True)
 class AssetRecord:
     run_id: str
-    plane: Literal["sagittal", "axial"]
+    plane: Literal["sagittal", "axial", "workspace"]
     asset_name: str
     path: Path
     size: int
@@ -53,6 +53,21 @@ def register_run_assets(run_id: str, plane: str, outputs: dict[str, str]) -> dic
         _ASSET_REGISTRY[(run_id, normalized_plane, asset_name)] = record
         registered[asset_name] = public_asset_metadata(record)
     return registered
+
+
+def register_workspace_asset(run_id: str, asset_name: str, path: Path) -> dict[str, object] | None:
+    normalized_asset = validate_asset_name(asset_name)
+    if not path.exists() or not path.is_file():
+        return None
+    record = AssetRecord(
+        run_id=run_id,
+        plane="workspace",
+        asset_name=normalized_asset,
+        path=path,
+        size=path.stat().st_size,
+    )
+    _ASSET_REGISTRY[(run_id, "workspace", normalized_asset)] = record
+    return public_asset_metadata(record)
 
 
 def resolve_run_asset(run_id: str, plane: str, asset_name: str) -> AssetRecord:

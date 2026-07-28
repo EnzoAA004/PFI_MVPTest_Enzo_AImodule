@@ -4,10 +4,12 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
 from pfi_ai_service.api import app
+from pfi_ai_service.asset_registry import register_run_assets
 
 
 def configure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -88,6 +90,26 @@ def fake_plane_response(request) -> dict[str, Any]:
             },
         },
     }
+
+
+def fake_plane_response_with_registered_mask(request, tmp_path: Path) -> dict[str, Any]:
+    body = fake_plane_response(request)
+    run_id = body["runId"]
+    plane = request.plane
+    output_dir = tmp_path / "outputs" / "real_inference" / run_id / plane
+    output_dir.mkdir(parents=True, exist_ok=True)
+    mask = np.zeros((256, 256), dtype=np.uint8)
+    if plane == "sagittal":
+        mask[80:170, 96:150] = 1
+        mask[130:210, 120:190] = 2
+    else:
+        mask[90:165, 70:150] = 1
+        mask[120:205, 115:210] = 2
+    mask_path = output_dir / "mask.npy"
+    np.save(mask_path, mask)
+    register_run_assets(run_id, plane, {"maskPath": str(mask_path)})
+    body["metadata"]["assets"] = {"mask.npy": {"assetName": "mask.npy", "generated": True}}
+    return body
 
 
 def walk_keys(value: Any) -> set[str]:
@@ -423,6 +445,102 @@ def test_v2_real_missing_series_is_not_fabricated(monkeypatch: pytest.MonkeyPatc
     )
     assert response.status_code == 500
     assert response.json()["code"] == "INVALID_MULTIPLANAR_RESPONSE"
+
+
+def test_v2_dual_real_baseline_generates_experimental_3d_mesh(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    configure(monkeypatch, tmp_path)
+    monkeypatch.setattr("pfi_ai_service.multiplanar_v2_executor.model_status", lambda key, info: ready_model(key, info["plane"], ready=True))
+    monkeypatch.setattr("pfi_ai_service.multiplanar_v2_executor.run_pipeline", lambda request: fake_plane_response_with_registered_mask(request, tmp_path))
+    client = TestClient(app)
+    case_id = "CASE-P9A3-DUAL-3D"
+    sagittal_id = register_input(client, case_id, "sagittal")
+    axial_id = register_input(client, case_id, "axial")
+
+    response = client.post(
+        "/v2/multiplanar/run",
+        headers={"X-Trace-Id": "trace-p9a3-dual-3d"},
+        json={
+            "caseId": case_id,
+            "inferenceMode": "real_baseline",
+            "allowContractFallback": False,
+            "planes": {
+                "sagittal": {"inputId": sagittal_id, "modelKey": "sagittal_spider"},
+                "axial": {"inputId": axial_id, "modelKey": "axial_t2_alkafri"},
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["workspaceMode"] == "dual_plane"
+    assert body["effectiveInferenceMode"] == "real_baseline"
+    assert body["threeD"]["enabled"] is True
+    assert body["threeD"]["status"] == "experimental_ready"
+    assert body["threeD"]["reconstruction"]["source"] == "real_segmentation_masks"
+    assert body["threeD"]["reconstruction"]["method"] == "dual_plane_mask_geometry"
+    assert body["threeD"]["reconstruction"]["structureCount"] >= 1
+    assert body["threeD"]["reconstruction"]["traceability"]["sourcePlaneRunIds"] == {
+        "sagittal": "sagittal-run-123",
+        "axial": "axial-run-123",
+    }
+    assert body["threeD"]["assets"] == [
+        {
+            "assetName": "lumbar-3d-mesh.json",
+            "role": "mesh_3d",
+            "contentType": "application/json",
+            "generated": True,
+            "relativePath": f"/assets/{body['runId']}/workspace/lumbar-3d-mesh.json",
+        }
+    ]
+    assert "experimental" in json.dumps(body["threeD"])
+
+    asset = client.get(body["threeD"]["assets"][0]["relativePath"])
+    assert asset.status_code == 200
+    assert asset.headers["content-type"].startswith("application/json")
+    mesh = asset.json()
+    assert mesh["schemaVersion"] == "pfi.lumbar-sparse-mesh.v1"
+    assert mesh["experimental"] is True
+    assert mesh["vertices"]
+    assert mesh["faces"]
+    assert mesh["traceability"]["models"]["axial"]["artifactHash"] == "a48cbddd858b5615010fd809412f3d17dae6871fbe12a38f4720e6f6bc70f739"
+    assert "extrusion" not in json.dumps(mesh).lower()
+
+
+def test_v2_dual_fallback_does_not_generate_3d_mesh(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    configure(monkeypatch, tmp_path)
+    monkeypatch.setattr("pfi_ai_service.multiplanar_v2_executor.model_status", lambda key, info: ready_model(key, info["plane"], ready=True))
+
+    def maybe_synthetic(request):
+        if request.plane == "axial":
+            raise RuntimeError("axial unavailable")
+        return fake_plane_response_with_registered_mask(request, tmp_path)
+
+    monkeypatch.setattr("pfi_ai_service.multiplanar_v2_executor.run_pipeline", maybe_synthetic)
+    client = TestClient(app)
+    case_id = "CASE-P9A3-FALLBACK-3D"
+    sagittal_id = register_input(client, case_id, "sagittal")
+    axial_id = register_input(client, case_id, "axial")
+
+    response = client.post(
+        "/v2/multiplanar/run",
+        json={
+            "caseId": case_id,
+            "inferenceMode": "real_baseline",
+            "allowContractFallback": True,
+            "planes": {
+                "sagittal": {"inputId": sagittal_id, "modelKey": "sagittal_spider"},
+                "axial": {"inputId": axial_id, "modelKey": "axial_t2_alkafri"},
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["effectiveInferenceMode"] == "contract"
+    assert body["threeD"]["enabled"] is False
+    assert body["threeD"]["status"] == "experimental_blocked_insufficient_geometry"
+    assert body["threeD"]["assets"] == []
+    assert "axial_not_real_baseline" in body["threeD"]["reconstruction"]["blockedReasons"]
 
 
 def fake_v2_response(case_id: str, trace_id: str):
