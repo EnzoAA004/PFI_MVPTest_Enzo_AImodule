@@ -1,0 +1,20 @@
+{
+  "_fixture": "08-incompatible-metadata",
+  "_purpose": "selectedAxis:5 es invalido para un array 3D (rango valido 0..2, ver nativeShape.length=3) y sliceCount:0 es invalido (debe ser > 0, ver §5.2/§5.3). El AI Module debe rechazar generar el catalogo antes de emitirlo; si de todos modos llegara asi al Backend/Frontend, ambos deben rechazar el bloque completo de metadata volumetrica extendida (no solo una entrada), degradando a legacy_series en vez de propagar metadata corrupta.",
+  "_verified": true,
+  "_note": "Este fixture representa una entrada CORRUPTA, no una serie real. Existe para validar el camino de rechazo, no para representar un caso valido de 101_t1/101_t2.",
+  "plane": "sagittal",
+  "planeRunId": "run-p10-5-a-fixture-08",
+  "input": {
+    "inputId": "input-corrupt-fixture-08",
+    "seriesId": "input-corrupt-fixture-08",
+    "sourceFormat": "mha",
+    "nativeShape": [298, 320, 17],
+    "canonicalShape": [298, 320, 17],
+    "selectedSliceIndex": 8,
+    "sliceCount": 0,
+    "selectedAxis": 5,
+    "slices": []
+  },
+  "_expectedResult": "metadata_incompatible (§6): sliceCount<=0 y selectedAxis fuera de [0, nativeShape.length) -> el run se persiste igual (sin bloquear la corrida completa por esto), pero sin bloque volumetrico extendido -> se comporta como legacy_series para efectos del visor."
+}

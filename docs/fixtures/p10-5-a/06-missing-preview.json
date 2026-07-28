@@ -1,0 +1,23 @@
+{
+  "_fixture": "06-missing-preview",
+  "_purpose": "El indice 3 aparece registrado en el catalogo (el AI Module intento generarlo) pero sin previewAsset -- simula una falla parcial de generacion (por ejemplo, un fallo de escritura a disco para ese indice puntual). El Frontend debe mostrar un estado explicito, nunca romper la navegacion ni reusar la imagen de otro indice.",
+  "_verified": true,
+  "plane": "sagittal",
+  "planeRunId": "run-p10-5-a-fixture-06",
+  "input": {
+    "inputId": "input-101-t1-fixture-06",
+    "seriesId": "input-101-t1-fixture-06",
+    "sourceFormat": "mha",
+    "nativeShape": [298, 320, 17],
+    "canonicalShape": [298, 320, 17],
+    "selectedSliceIndex": 8,
+    "sliceCount": 17,
+    "selectedAxis": 2,
+    "slices": [
+      { "index": 2, "displayIndex": 3, "previewAsset": { "assetName": "slice-002.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-06/sagittal/slice-002.png" }, "hasResults": false },
+      { "index": 3, "displayIndex": 4, "previewAsset": null, "hasResults": false },
+      { "index": 4, "displayIndex": 5, "previewAsset": { "assetName": "slice-004.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-06/sagittal/slice-004.png" }, "hasResults": false }
+    ]
+  },
+  "_expectedResult": "series_incomplete (§6) para el indice 3: el Frontend renderiza un slot vacio con 'vista previa no disponible' en displayIndex 4, y sigue permitiendo navegar libremente a los indices 3 y 5."
+}

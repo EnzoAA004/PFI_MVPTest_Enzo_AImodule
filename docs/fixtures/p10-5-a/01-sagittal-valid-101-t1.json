@@ -1,0 +1,52 @@
+{
+  "_fixture": "01-sagittal-valid-101-t1",
+  "_purpose": "Serie sagital valida, basada en evidencia real de backlogProducto/E13_resultados_cierre.md (101_t1: selected_axis 2, slice 8, shape (298, 320, 17)).",
+  "_verified": true,
+  "plane": "sagittal",
+  "planeRunId": "run-p10-5-a-fixture-01-sagittal",
+  "input": {
+    "inputId": "input-101-t1-fixture-01",
+    "seriesId": "input-101-t1-fixture-01",
+    "sourceFormat": "mha",
+    "nativeShape": [298, 320, 17],
+    "canonicalShape": [298, 320, 17],
+    "orientationTransform": "none",
+    "selectedSliceIndex": 8,
+    "sliceCount": 17,
+    "selectedAxis": 2,
+    "inPlaneSpacingMm": [0.7, 0.7],
+    "spacingXyzMm": null,
+    "canonicalAxisSpacingMm": null,
+    "originMm": null,
+    "directionMatrix": null,
+    "geometryComplete": false,
+    "_geometryNote": "spacingXyzMm/originMm/directionMatrix no estan documentados para 101_t1.mha en el repo; se dejan null y geometryComplete=false en vez de inventar valores. inPlaneSpacingMm es un valor de ejemplo plausible, no verificado.",
+    "slices": [
+      { "index": 0, "displayIndex": 1, "previewAsset": { "assetName": "slice-000.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-000.png" }, "hasResults": false },
+      { "index": 1, "displayIndex": 2, "previewAsset": { "assetName": "slice-001.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-001.png" }, "hasResults": false },
+      { "index": 2, "displayIndex": 3, "previewAsset": { "assetName": "slice-002.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-002.png" }, "hasResults": false },
+      { "index": 3, "displayIndex": 4, "previewAsset": { "assetName": "slice-003.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-003.png" }, "hasResults": false },
+      { "index": 4, "displayIndex": 5, "previewAsset": { "assetName": "slice-004.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-004.png" }, "hasResults": false },
+      { "index": 5, "displayIndex": 6, "previewAsset": { "assetName": "slice-005.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-005.png" }, "hasResults": false },
+      { "index": 6, "displayIndex": 7, "previewAsset": { "assetName": "slice-006.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-006.png" }, "hasResults": false },
+      { "index": 7, "displayIndex": 8, "previewAsset": { "assetName": "slice-007.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-007.png" }, "hasResults": false },
+      {
+        "index": 8,
+        "displayIndex": 9,
+        "previewAsset": { "assetName": "slice-008.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-008.png" },
+        "hasResults": true,
+        "overlayAsset": { "assetName": "slice-008-overlay.png", "role": "slice-overlay", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-008-overlay.png" },
+        "measurementIds": ["m-1", "m-2", "m-3"],
+        "landmarkIds": ["lm-1", "lm-2", "lm-3"]
+      },
+      { "index": 9, "displayIndex": 10, "previewAsset": { "assetName": "slice-009.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-009.png" }, "hasResults": false },
+      { "index": 10, "displayIndex": 11, "previewAsset": { "assetName": "slice-010.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-010.png" }, "hasResults": false },
+      { "index": 11, "displayIndex": 12, "previewAsset": { "assetName": "slice-011.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-011.png" }, "hasResults": false },
+      { "index": 12, "displayIndex": 13, "previewAsset": { "assetName": "slice-012.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-012.png" }, "hasResults": false },
+      { "index": 13, "displayIndex": 14, "previewAsset": { "assetName": "slice-013.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-013.png" }, "hasResults": false },
+      { "index": 14, "displayIndex": 15, "previewAsset": { "assetName": "slice-014.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-014.png" }, "hasResults": false },
+      { "index": 15, "displayIndex": 16, "previewAsset": { "assetName": "slice-015.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-015.png" }, "hasResults": false },
+      { "index": 16, "displayIndex": 17, "previewAsset": { "assetName": "slice-016.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-01-sagittal/sagittal/slice-016.png" }, "hasResults": false }
+    ]
+  }
+}

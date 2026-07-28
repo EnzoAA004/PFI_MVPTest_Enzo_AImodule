@@ -1,0 +1,22 @@
+{
+  "_fixture": "07-index-out-of-range",
+  "_purpose": "sliceCount:17 implica un rango valido de indices 0..16. La entrada con index:17 esta fuera de rango (off-by-one). Debe rechazarse esa entrada especifica sin invalidar el resto del catalogo (regla §5.5).",
+  "_verified": true,
+  "plane": "sagittal",
+  "planeRunId": "run-p10-5-a-fixture-07",
+  "input": {
+    "inputId": "input-101-t1-fixture-07",
+    "seriesId": "input-101-t1-fixture-07",
+    "sourceFormat": "mha",
+    "nativeShape": [298, 320, 17],
+    "canonicalShape": [298, 320, 17],
+    "selectedSliceIndex": 8,
+    "sliceCount": 17,
+    "selectedAxis": 2,
+    "slices": [
+      { "index": 16, "displayIndex": 17, "previewAsset": { "assetName": "slice-016.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-07/sagittal/slice-016.png" }, "hasResults": false },
+      { "index": 17, "displayIndex": 18, "previewAsset": { "assetName": "slice-017.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-07/sagittal/slice-017.png" }, "hasResults": false }
+    ]
+  },
+  "_expectedResult": "slice_out_of_range (§6) para la entrada index:17 (fuera de [0,17)): se descarta esa entrada puntual; el catalogo resultante queda con 16 entradas validas (0..16 minus las no listadas en este fixture recortado), sin romper el parseo completo."
+}

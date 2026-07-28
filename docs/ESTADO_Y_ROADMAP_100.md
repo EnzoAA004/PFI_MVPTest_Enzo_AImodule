@@ -1,9 +1,11 @@
 # Estado del proyecto y roadmap al 100% (producto final deployado)
 
-Fecha: 2026-07-16 (actualizado 2026-07-17)
+Fecha: 2026-07-16 (actualizado 2026-07-28: P10.5-A cerrado)
 Objetivo declarado: NO un MVP al 50%, sino un producto final funcional, deployado y defendible como tesis profesional de última entrega.
 
 Novedades desde la v1: cerrados BE-005b/006/007/009/010, FE-009/011, DEV-001/002a/002b. Decidido deploy en Google Cloud (web SaaS para radiólogos, IaC + dominio propio/HTTPS). Creado el epic FE-REDISEÑO del frontend (docs/design/) que se ejecuta en un chat separado.
+
+**P10.5-A cerrado (2026-07-28)**: contrato volumétrico navegable definido y aprobado — ver `docs/P10_5_A_VOLUMETRIC_CONTRACT.md` y `docs/fixtures/p10-5-a/` (8 fixtures, basados en evidencia real de `101_t1.mha`/`101_t2.mha` documentada en `backlogProducto/E13_resultados_cierre.md`). Reemplaza y detalla lo que este documento describía como AI-009/VOL-2 más abajo — ese texto queda como contexto histórico, la fuente de verdad ahora es el contrato. Próximo bloque: **P10.5-B** (este repo) — generar el catálogo completo de previews por corte en `real_inference_runtime.py::run_real_inference()`, hoy solo se persiste el corte seleccionado.
 
 ---
 

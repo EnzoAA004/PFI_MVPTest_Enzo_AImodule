@@ -1,0 +1,23 @@
+{
+  "_fixture": "03-legacy-single-slice",
+  "_purpose": "Run historico persistido antes de P10.5-B/C: sin seriesId, sin geometria extendida, sin catalogo de slices. Debe seguir abriendo con el visor de corte unico actual, sin fabricar un catalogo retroactivo.",
+  "_verified": true,
+  "_note": "Este shape es literalmente el que produce hoy run_real_inference() (real_inference_runtime.py:617-638) antes de cualquier cambio de P10.5-B.",
+  "plane": "sagittal",
+  "planeRunId": "run-legacy-fixture-03",
+  "input": {
+    "inputId": "input-legacy-fixture-03",
+    "nativeShape": [298, 320, 17],
+    "canonicalShape": [298, 320, 17],
+    "orientationTransform": "none",
+    "selectedSliceIndex": 8,
+    "sliceCount": 17,
+    "selectedAxis": 2,
+    "inPlaneSpacingMm": [0.7, 0.7]
+  },
+  "assets": [
+    { "assetName": "input.png", "role": "input", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-legacy-fixture-03/sagittal/input.png" },
+    { "assetName": "overlay.png", "role": "overlay", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-legacy-fixture-03/sagittal/overlay.png" }
+  ],
+  "_expectedFrontendBehavior": "input.slices === undefined -> parseSlices() devuelve undefined -> el visor legacy de un solo corte por plano sigue siendo la unica vista disponible para este run."
+}

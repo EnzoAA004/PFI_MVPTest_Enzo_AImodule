@@ -1,0 +1,33 @@
+{
+  "_fixture": "05-overlay-only-inferred-slice",
+  "_purpose": "Todas las entradas tienen previewAsset (base de imagen navegable), pero SOLO el indice donde el modelo infirio (8) tiene hasResults:true + overlayAsset + measurementIds/landmarkIds. El resto es imagen plana sin mascara, tal como se espera segun la decision explicita del usuario: no se corre inferencia sobre todo el stack en esta etapa.",
+  "_verified": true,
+  "plane": "sagittal",
+  "planeRunId": "run-p10-5-a-fixture-05",
+  "input": {
+    "inputId": "input-101-t1-fixture-05",
+    "seriesId": "input-101-t1-fixture-05",
+    "sourceFormat": "mha",
+    "nativeShape": [298, 320, 17],
+    "canonicalShape": [298, 320, 17],
+    "selectedSliceIndex": 8,
+    "sliceCount": 17,
+    "selectedAxis": 2,
+    "slices": [
+      { "index": 6, "displayIndex": 7, "previewAsset": { "assetName": "slice-006.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-05/sagittal/slice-006.png" }, "hasResults": false },
+      { "index": 7, "displayIndex": 8, "previewAsset": { "assetName": "slice-007.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-05/sagittal/slice-007.png" }, "hasResults": false },
+      {
+        "index": 8,
+        "displayIndex": 9,
+        "previewAsset": { "assetName": "slice-008.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-05/sagittal/slice-008.png" },
+        "hasResults": true,
+        "overlayAsset": { "assetName": "slice-008-overlay.png", "role": "slice-overlay", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-05/sagittal/slice-008-overlay.png" },
+        "measurementIds": ["m-1", "m-2", "m-3"],
+        "landmarkIds": ["lm-1", "lm-2", "lm-3"]
+      },
+      { "index": 9, "displayIndex": 10, "previewAsset": { "assetName": "slice-009.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-05/sagittal/slice-009.png" }, "hasResults": false }
+    ],
+    "_slicesNote": "Recorte de 4 entradas por brevedad; el patron (solo index 8 con overlay) se aplica identico a los otros 13 indices del stack completo."
+  },
+  "_expectedFrontendBehavior": "Al navegar a un indice con hasResults:false, el panel de resultados muestra 'Sin resultados automaticos en este corte' en vez de dejar el panel vacio o reusar mediciones de otro slice."
+}

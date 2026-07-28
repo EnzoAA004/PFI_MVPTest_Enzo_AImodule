@@ -1,0 +1,31 @@
+{
+  "_fixture": "02-axial-valid-example",
+  "_purpose": "Serie axial valida, estructuralmente conforme al contrato. NO hay evidencia real de un .mha axial multi-corte en el repo (el fixture axial documentado en ai_service/tests/fixtures/real_baseline/fixture_summary.json es un .npy 2D de un dataset distinto, sin eje de stack). Confirmar shape/spacing reales de un .mha axial es la primera tarea de P10.5-B.",
+  "_verified": false,
+  "plane": "axial",
+  "planeRunId": "run-p10-5-a-fixture-02-axial",
+  "input": {
+    "inputId": "input-axial-fixture-02",
+    "seriesId": "input-axial-fixture-02",
+    "sourceFormat": "mha",
+    "nativeShape": [320, 320, 24],
+    "canonicalShape": [320, 320, 24],
+    "orientationTransform": "none",
+    "selectedSliceIndex": 11,
+    "sliceCount": 24,
+    "selectedAxis": 2,
+    "inPlaneSpacingMm": [0.6, 0.6],
+    "spacingXyzMm": null,
+    "canonicalAxisSpacingMm": null,
+    "originMm": null,
+    "directionMatrix": null,
+    "geometryComplete": false,
+    "_geometryNote": "Todos los valores numericos de este fixture (shape, sliceCount, selectedSliceIndex, spacing) son de ejemplo, no verificados contra un archivo real. No usar para aceptar P10.5-B sin antes correr el pipeline sobre un .mha axial real.",
+    "slices": [
+      { "index": 0, "displayIndex": 1, "previewAsset": { "assetName": "slice-000.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-02-axial/axial/slice-000.png" }, "hasResults": false },
+      { "index": 11, "displayIndex": 12, "previewAsset": { "assetName": "slice-011.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-02-axial/axial/slice-011.png" }, "hasResults": true, "overlayAsset": { "assetName": "slice-011-overlay.png", "role": "slice-overlay", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-02-axial/axial/slice-011-overlay.png" }, "measurementIds": ["m-ax-1"], "landmarkIds": ["lm-ax-1"] },
+      { "index": 23, "displayIndex": 24, "previewAsset": { "assetName": "slice-023.png", "role": "slice-preview", "contentType": "image/png", "generated": true, "url": "/api/ai/assets/run-p10-5-a-fixture-02-axial/axial/slice-023.png" }, "hasResults": false }
+    ],
+    "_slicesNote": "Este fixture solo incluye 3 entradas de ejemplo (primera, seleccionada, ultima) por brevedad; una serie real tiene una entrada por cada indice 0..sliceCount-1, ver fixture 01 para el caso completo."
+  }
+}

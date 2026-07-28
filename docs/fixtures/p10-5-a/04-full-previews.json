@@ -1,0 +1,23 @@
+{
+  "_fixture": "04-full-previews",
+  "_purpose": "Las 17 entradas tienen previewAsset generado (catalogo completo, generacion sin fallos parciales). Solo el indice 8 tiene overlayAsset, igual que el fixture 01 (misma base 101_t1.mha).",
+  "_verified": true,
+  "plane": "sagittal",
+  "planeRunId": "run-p10-5-a-fixture-04",
+  "input": {
+    "inputId": "input-101-t1-fixture-04",
+    "seriesId": "input-101-t1-fixture-04",
+    "sourceFormat": "mha",
+    "nativeShape": [298, 320, 17],
+    "canonicalShape": [298, 320, 17],
+    "orientationTransform": "none",
+    "selectedSliceIndex": 8,
+    "sliceCount": 17,
+    "selectedAxis": 2,
+    "inPlaneSpacingMm": [0.7, 0.7],
+    "geometryComplete": false,
+    "_note": "Ver fixture 01 para el catalogo completo de 17 entradas con la misma base 101_t1.mha; este fixture existe para dejar explicito el escenario 'sliceCount === conteo de previewAsset generados', que es el criterio de aceptacion series_incomplete=false.",
+    "expectedSlicesWithPreview": 17,
+    "expectedSlicesWithOverlay": 1
+  }
+}
