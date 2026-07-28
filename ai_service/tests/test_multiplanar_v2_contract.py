@@ -223,7 +223,8 @@ def test_v2_contract_reflects_axial_candidate_status() -> None:
     assert body["capabilities"]["supportedWorkspaceModes"] == ["sagittal_only", "axial_only", "dual_plane"]
     assert body["models"]["axial"]["trainingStatus"] == "candidate_below_quality_gate"
     assert body["models"]["axial"]["artifactHash"] == "a48cbddd858b5615010fd809412f3d17dae6871fbe12a38f4720e6f6bc70f739"
-    assert body["readiness"]["axial"] is False
+    assert body["models"]["axial"]["availableForRealInference"] is True
+    assert body["readiness"]["axial"] is True
 
 
 def test_v1_route_uses_canonical_executor_not_deprecated_pipeline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

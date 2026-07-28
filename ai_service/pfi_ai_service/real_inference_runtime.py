@@ -452,6 +452,7 @@ def save_outputs(run_id: str, plane: str, image: np.ndarray, prediction: np.ndar
     mask_path = output_dir / "mask.npy"
     confidence_path = output_dir / "confidence.npy"
     overlay_path = output_dir / "overlay.png"
+    mask_preview_path = output_dir / "mask-preview.png"
 
     Image.fromarray(np.clip(image * 255.0, 0, 255).astype(np.uint8)).save(image_path)
     np.save(mask_path, prediction.astype(np.uint8))
@@ -465,11 +466,17 @@ def save_outputs(run_id: str, plane: str, image: np.ndarray, prediction: np.ndar
         selected = prediction == class_id
         overlay[selected] = (1.0 - alpha) * overlay[selected] + alpha * color
     Image.fromarray(np.clip(overlay * 255.0, 0, 255).astype(np.uint8)).save(overlay_path)
+
+    preview = np.zeros((*prediction.shape, 3), dtype=np.float32)
+    for class_id in sorted(int(value) for value in np.unique(prediction) if int(value) != 0):
+        preview[prediction == class_id] = np.asarray(PALETTE.get(class_id, (255, 255, 0)), dtype=np.float32) / 255.0
+    Image.fromarray(np.clip(preview * 255.0, 0, 255).astype(np.uint8)).save(mask_preview_path)
     outputs = {
         "imagePath": str(image_path),
         "maskPath": str(mask_path),
         "confidencePath": str(confidence_path),
         "overlayPath": str(overlay_path),
+        "maskPreviewPath": str(mask_preview_path),
     }
     register_run_assets(run_id, plane, outputs)
     return outputs
@@ -554,6 +561,8 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
         "inferenceMode": "real_baseline",
         "requestedInferenceMode": requested_mode,
         "allowContractFallback": allow_contract_fallback,
+        "synthetic": False,
+        "fallbackReason": None,
         "input_path": request.input_path,
         "inputPath": request.input_path,
         "series": [{

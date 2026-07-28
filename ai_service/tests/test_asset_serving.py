@@ -37,7 +37,7 @@ def run_sagittal_fixture(monkeypatch, tmp_path) -> dict:
     body = response.json()
     assert body["metadata"]["requestedInferenceMode"] == "real_baseline"
     assert body["metadata"]["runtime"] == "pytorch"
-    assert set(body["assets"]) == {"input.png", "mask.npy", "confidence.npy", "overlay.png"}
+    assert set(body["assets"]) == {"input.png", "mask.npy", "confidence.npy", "overlay.png", "mask-preview.png"}
     return body
 
 
@@ -67,7 +67,7 @@ def test_get_asset_returns_404_for_unknown_run_or_missing_asset(monkeypatch, tmp
     body = run_sagittal_fixture(monkeypatch, tmp_path)
 
     unknown_run = client.get("/assets/missing-run/sagittal/input.png")
-    missing_asset = client.get(f"/assets/{body['runId']}/sagittal/mask-preview.png")
+    missing_asset = client.get(f"/assets/{body['runId']}/axial/input.png")
 
     assert unknown_run.status_code == 404
     assert missing_asset.status_code == 404

@@ -139,7 +139,7 @@ def test_sagittal_only_uploaded_mha_input_id_runs_real_baseline(monkeypatch: pyt
     assert sagittal["metadata"]["outputFiles"]["overlayPath"] == {"generated": True, "fileName": "overlay.png"}
 
 
-def test_multiplanar_with_axial_input_keeps_strict_axial_validation(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_multiplanar_with_axial_input_runs_dual_real_baseline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     configure_runtime(monkeypatch, tmp_path)
     client = TestClient(app)
     case_id = "CASE-STRICT-AXIAL-PROVIDED"
@@ -167,10 +167,18 @@ def test_multiplanar_with_axial_input_keeps_strict_axial_validation(monkeypatch:
         },
     )
 
-    assert response.status_code == 409
+    assert response.status_code == 200, response.text
     body = response.json()
     assert body["traceId"] == "trace-strict-axial-provided"
-    assert "Modelo no habilitado para real_baseline: axial_t2_alkafri" in body["message"]
+    assert body["effectiveInferenceMode"] == "real_baseline"
+    assert body["sagittalRunReady"] is True
+    assert body["axialRunReady"] is True
+    assert body["dualRunReady"] is True
+    assert body["planes"]["sagittal"]["aiOutput"]["inferenceMode"] == "real_baseline"
+    assert body["planes"]["axial"]["aiOutput"]["inferenceMode"] == "real_baseline"
+    assert body["planes"]["axial"]["quality"]["maskCount"] > 0
+    assert body["planes"]["axial"]["quality"]["landmarkCount"] > 0
+    assert body["planes"]["axial"]["quality"]["measurementCount"] > 0
 
 
 def test_sagittal_real_failure_without_fallback_returns_controlled_500(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

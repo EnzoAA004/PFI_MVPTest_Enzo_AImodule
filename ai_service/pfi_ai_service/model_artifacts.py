@@ -86,7 +86,18 @@ def model_status(model_key: str, info: Dict[str, Any]) -> Dict[str, Any]:
     manifest = read_model_manifest(path)
     artifact_ready = bool(artifact["exists"] and artifact["sha256"])
     baseline_ready = artifact_ready and bool(manifest.get("baselineReady"))
-    readiness = "real_baseline_ready" if baseline_ready else "real_artifact_missing_manifest" if artifact_ready else "external_artifact_configured" if external_uri else "contract_only_missing_artifact"
+    axial_runtime_ready = artifact_ready and axial_candidate_runtime_ready(model_key, manifest)
+    available_for_real = baseline_ready or axial_runtime_ready
+    readiness = (
+        "real_baseline_ready"
+        if available_for_real
+        else "real_artifact_missing_manifest"
+        if artifact_ready
+        else "external_artifact_configured"
+        if external_uri
+        else "contract_only_missing_artifact"
+    )
+    training_status = manifest.get("trainingStatus")
     return {
         **info,
         "key": model_key,
@@ -96,19 +107,45 @@ def model_status(model_key: str, info: Dict[str, Any]) -> Dict[str, Any]:
         "artifactHash": artifact["sha256"],
         "artifactIntegrityStatus": artifact["integrityStatus"],
         "readiness": readiness,
+        "trainingStatus": training_status,
         "inferenceModes": {
             "contract": True,
             "mock": True,
-            "real": baseline_ready,
-            "real_baseline": baseline_ready,
+            "real": available_for_real,
+            "real_baseline": available_for_real,
         },
-        "availableForRealInference": baseline_ready,
-        "baselineReady": baseline_ready,
+        "availableForRealInference": available_for_real,
+        "baselineReady": available_for_real,
+        "manifestBaselineReady": baseline_ready,
+        "runtimeQualification": "axial_candidate_runtime_ready" if axial_runtime_ready and not baseline_ready else None,
         "externalArtifactConfigured": bool(external_uri),
         "enabled": True,
         "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
         "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
     }
+
+
+def axial_candidate_runtime_ready(model_key: str, manifest: Dict[str, Any]) -> bool:
+    if model_key != "axial_t2_alkafri":
+        return False
+    if not manifest.get("valid"):
+        return False
+    if manifest.get("trainingStatus") != "candidate_below_quality_gate":
+        return False
+    if manifest.get("sha256Status") != "MATCH":
+        return False
+    content = manifest.get("content") if isinstance(manifest.get("content"), dict) else {}
+    quality_gate = content.get("qualityGate") if isinstance(content.get("qualityGate"), dict) else {}
+    runtime_verification = quality_gate.get("runtimeVerification") if isinstance(quality_gate.get("runtimeVerification"), dict) else {}
+    if runtime_verification.get("finite") is not True:
+        return False
+    metrics = content.get("metrics") if isinstance(content.get("metrics"), dict) else {}
+    test_metrics = metrics.get("test") if isinstance(metrics.get("test"), dict) else {}
+    dice_excluding_raw0 = test_metrics.get("dice_macro_excluding_raw0") or quality_gate.get("diceMacroExcludingRaw0")
+    try:
+        return float(dice_excluding_raw0) >= 0.80
+    except (TypeError, ValueError):
+        return False
 
 
 def registry_with_artifact_status() -> Dict[str, Dict[str, Any]]:

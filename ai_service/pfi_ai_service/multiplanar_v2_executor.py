@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS
-from .input_registry import InputRegistryError, resolve_input_id
+from .input_registry import InputRegistryError, register_existing_path, resolve_input_id
 from .model_artifacts import model_status
 from . import multiplanar_run as legacy_multiplanar_module
 from .pipeline import PipelineRunRequest
@@ -949,12 +949,12 @@ class LegacyMultiplanarV1RequestMapper:
         planes: dict[str, Any] = {"sagittal": None, "axial": None}
         if request.sagittal_input_id or request.sagittal_input_path:
             planes["sagittal"] = {
-                "inputId": request.sagittal_input_id or legacy_path_input_id(request.case_id, "sagittal", request.sagittal_input_path),
+                "inputId": request.sagittal_input_id or register_legacy_input_path(request.case_id, "sagittal", request.sagittal_input_path),
                 "modelKey": request.sagittal_model_key,
             }
         if request.axial_input_id or request.axial_input_path:
             planes["axial"] = {
-                "inputId": request.axial_input_id or legacy_path_input_id(request.case_id, "axial", request.axial_input_path),
+                "inputId": request.axial_input_id or register_legacy_input_path(request.case_id, "axial", request.axial_input_path),
                 "modelKey": request.axial_model_key,
             }
         if planes["sagittal"] is None and planes["axial"] is None:
@@ -986,6 +986,18 @@ def bool_value(value: Any, *, default: bool) -> bool:
 def legacy_path_input_id(case_id: str, plane: str, input_path: str | None) -> str:
     raw = f"{case_id}|{plane}|{input_path or ''}"
     return "legacy_path_" + sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def register_legacy_input_path(case_id: str, plane: str, input_path: str | None) -> str:
+    if not input_path:
+        return legacy_path_input_id(case_id, plane, input_path)
+    metadata = register_existing_path(
+        case_id=case_id,
+        plane=plane,
+        path=Path(input_path),
+        source_key="legacy_input_path",
+    )
+    return str(metadata["inputId"])
 
 
 def legacy_allow_contract_fallback(plane: PlaneRunV2Result) -> bool:

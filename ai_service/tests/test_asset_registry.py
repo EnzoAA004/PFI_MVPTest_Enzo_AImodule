@@ -51,7 +51,7 @@ def test_asset_registry_registers_real_run_assets(monkeypatch, tmp_path) -> None
     run_id = body["runId"]
     assets = body["assets"]
 
-    assert set(assets) == {"input.png", "mask.npy", "confidence.npy", "overlay.png"}
+    assert set(assets) == {"input.png", "mask.npy", "confidence.npy", "overlay.png", "mask-preview.png"}
     assert_public_assets_have_no_paths(assets)
     for asset_name, metadata in assets.items():
         assert metadata["runId"] == run_id

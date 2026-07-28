@@ -24,7 +24,7 @@ def configure_local_final_models(monkeypatch, tmp_path: Path) -> None:
     clear_model_cache()
 
 
-def test_axial_candidate_does_not_block_strict_sagittal_real_baseline(monkeypatch, tmp_path: Path) -> None:
+def test_axial_candidate_is_qualified_for_strict_real_baseline(monkeypatch, tmp_path: Path) -> None:
     configure_local_final_models(monkeypatch, tmp_path)
     client = TestClient(app)
 
@@ -44,18 +44,20 @@ def test_axial_candidate_does_not_block_strict_sagittal_real_baseline(monkeypatc
     assert axial["artifact"]["exists"] is True
     assert axial["manifest"]["trainingStatus"] == "candidate_below_quality_gate"
     assert axial["manifest"]["valid"] is True
-    assert axial["baselineReady"] is False
-    assert axial["availableForRealInference"] is False
-    assert axial["inferenceModes"]["real_baseline"] is False
+    assert axial["baselineReady"] is True
+    assert axial["manifestBaselineReady"] is False
+    assert axial["availableForRealInference"] is True
+    assert axial["runtimeQualification"] == "axial_candidate_runtime_ready"
+    assert axial["inferenceModes"]["real_baseline"] is True
     assert axial["manifest"]["content"]["artifactFile"] == "axial_t2_alkafri_final_v2_candidate.pt"
 
     verify_response = client.get("/models/verify")
     assert verify_response.status_code == 200, verify_response.text
     verify_body = verify_response.json()
-    assert verify_body["status"] == "degraded_contract_mode"
-    assert verify_body["baselineModelsReady"] == 1
+    assert verify_body["status"] == "real_baseline_verified"
+    assert verify_body["baselineModelsReady"] == 2
     assert verify_body["artifactsAvailable"] == 2
-    assert verify_body["readyForRealInference"] is False
+    assert verify_body["readyForRealInference"] is True
 
     sagittal_fixture = Path("ai_service/tests/fixtures/real_baseline/sagittal_sample_input.npy")
     sagittal_response = client.post(
@@ -93,8 +95,13 @@ def test_axial_candidate_does_not_block_strict_sagittal_real_baseline(monkeypatc
             },
         },
     )
-    assert axial_response.status_code == 409
-    assert "Modelo no habilitado para real_baseline: axial_t2_alkafri" in axial_response.json()["message"]
+    assert axial_response.status_code == 200, axial_response.text
+    axial_body = axial_response.json()
+    assert axial_body["aiOutput"]["inferenceMode"] == "real_baseline"
+    assert axial_body["modelArtifact"]["runtimeQualification"] == "axial_candidate_runtime_ready"
+    assert axial_body["quality"]["maskCount"] > 0
+    assert axial_body["quality"]["landmarkCount"] > 0
+    assert axial_body["quality"]["measurementCount"] > 0
 
 
 def test_multiplanar_readiness_flags_allow_sagittal_only_progress(monkeypatch, tmp_path: Path) -> None:
@@ -122,8 +129,8 @@ def test_multiplanar_readiness_flags_allow_sagittal_only_progress(monkeypatch, t
     assert body["sagittalRunReady"] is True
     assert body["axialRunReady"] is True
     assert body["dualRunReady"] is True
-    assert body["effectiveInferenceMode"] == "contract"
-    assert body["planes"]["sagittal"]["aiOutput"]["inferenceMode"] == "contract"
-    assert body["planes"]["axial"]["aiOutput"]["inferenceMode"] == "contract"
-    assert body["planes"]["sagittal"]["synthetic"] is True
-    assert body["planes"]["axial"]["synthetic"] is True
+    assert body["effectiveInferenceMode"] == "real_baseline"
+    assert body["planes"]["sagittal"]["aiOutput"]["inferenceMode"] == "real_baseline"
+    assert body["planes"]["axial"]["aiOutput"]["inferenceMode"] == "real_baseline"
+    assert body["planes"]["sagittal"]["synthetic"] is False
+    assert body["planes"]["axial"]["synthetic"] is False

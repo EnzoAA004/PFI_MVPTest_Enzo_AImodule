@@ -106,7 +106,7 @@ def test_pipeline_run_rejects_unknown_input_id() -> None:
     assert_no_internal_paths(body)
 
 
-def test_multiplanar_run_accepts_input_ids_for_partial_real_baseline(monkeypatch, tmp_path) -> None:
+def test_multiplanar_run_accepts_input_ids_for_dual_real_baseline(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("PFI_OUTPUT_DIR", str(tmp_path / "outputs"))
     monkeypatch.setenv("PFI_INFERENCE_DEVICE", "cpu")
     clear_model_cache()
@@ -132,7 +132,7 @@ def test_multiplanar_run_accepts_input_ids_for_partial_real_baseline(monkeypatch
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["effectiveInferenceMode"] == "contract"
+    assert body["effectiveInferenceMode"] == "real_baseline"
     assert body["sagittalRunReady"] is True
     assert body["axialRunReady"] is True
     assert body["dualRunReady"] is True
@@ -140,8 +140,8 @@ def test_multiplanar_run_accepts_input_ids_for_partial_real_baseline(monkeypatch
     assert body["traceId"] == "trace-ai013-multi"
     assert body["planes"]["sagittal"]["inputId"] == sagittal_id
     assert body["planes"]["axial"]["inputId"] == axial_id
-    assert body["planes"]["sagittal"]["aiOutput"]["inferenceMode"] == "contract"
-    assert body["planes"]["axial"]["aiOutput"]["inferenceMode"] == "contract"
-    assert body["planes"]["sagittal"]["synthetic"] is True
-    assert body["planes"]["axial"]["synthetic"] is True
+    assert body["planes"]["sagittal"]["aiOutput"]["inferenceMode"] == "real_baseline"
+    assert body["planes"]["axial"]["aiOutput"]["inferenceMode"] == "real_baseline"
+    assert body["planes"]["sagittal"]["synthetic"] is False
+    assert body["planes"]["axial"]["synthetic"] is False
     assert_no_internal_paths(body)
