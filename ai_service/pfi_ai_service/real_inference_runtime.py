@@ -15,7 +15,7 @@ from .model_architectures import build_checkpoint_model
 from .model_artifacts import model_artifact_path, model_status
 from .settings import MODEL_REGISTRY, get_settings
 
-SUPPORTED_EXTENSIONS = {".npy", ".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".mha", ".mhd", ".dcm"}
+SUPPORTED_EXTENSIONS = {".npy", ".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".mha", ".mhd", ".dcm", ".ima"}
 PALETTE = {
     1: (230, 25, 75),
     2: (60, 180, 75),
@@ -123,15 +123,77 @@ def resolve_input_path(input_path: str, plane: str) -> Path:
         raise FileNotFoundError(f"Input real no encontrado: {input_path}")
     if not path.is_dir():
         raise ValueError(f"Input no soportado: {input_path}")
+    # A pre-assembled 3D volume file wins for any plane.
+    volume = next(
+        (file for file in sorted(path.rglob("*")) if file.is_file() and normalized_suffix(file) in {".mha", ".mhd", ".npy"}),
+        None,
+    )
+    if volume is not None:
+        return volume
+    # A DICOM series (2+ slices) reads as a 3D volume via read_dicom_series. Detection
+    # is by content (GDCM), so it works for .dcm, Siemens .ima and extension-less PACS
+    # exports alike — not just files literally named *.dcm.
+    if count_dicom_slices(path) >= 2:
+        return path
+    # Legacy fallback: a single slice or a folder of flat 2D images stays 2D.
     files = sorted(file for file in path.rglob("*") if file.is_file() and normalized_suffix(file) in SUPPORTED_EXTENSIONS)
     if not files:
         raise FileNotFoundError(f"No hay archivos soportados dentro de {input_path}")
-    if plane == "sagittal":
-        volume = next((file for file in files if normalized_suffix(file) in {".mha", ".mhd", ".npy"}), None)
-        return volume or files[len(files) // 2]
-    dicoms = [file for file in files if normalized_suffix(file) == ".dcm"]
-    selected = dicoms if dicoms else files
-    return selected[len(selected) // 2]
+    return files[len(files) // 2]
+
+
+def count_dicom_slices(directory: Path) -> int:
+    """Count DICOM slices under a directory by content (GDCM), ignoring file extension."""
+    try:
+        import SimpleITK as sitk
+    except Exception:  # pragma: no cover - dependency guard
+        return 0
+    reader = sitk.ImageSeriesReader()
+    total = 0
+    for dirpath, _dirs, filenames in os.walk(directory):
+        if not filenames:
+            continue
+        for series_id in reader.GetGDCMSeriesIDs(dirpath):
+            total += len(reader.GetGDCMSeriesFileNames(dirpath, series_id))
+    return total
+
+
+def read_dicom_series(directory: Path) -> tuple[np.ndarray, tuple[float, ...] | None, Dict[str, Any]]:
+    """Assemble a folder of DICOM slices into a 3D volume using SimpleITK/GDCM.
+
+    Picks the series with the most slices when several are present, orders slices by
+    geometry, and returns the array as [slices, rows, cols] with its physical spacing.
+    """
+    try:
+        import SimpleITK as sitk
+    except Exception as exc:  # pragma: no cover - dependency guard
+        raise ImportError("SimpleITK es requerido para series DICOM") from exc
+    reader = sitk.ImageSeriesReader()
+    series_ids = list(reader.GetGDCMSeriesIDs(str(directory)))
+    best_id = ""
+    if series_ids:
+        best_files: list[str] = []
+        for sid in series_ids:
+            names = list(reader.GetGDCMSeriesFileNames(str(directory), sid))
+            if len(names) > len(best_files):
+                best_id, best_files = sid, names
+        file_names = best_files
+    else:
+        # No series metadata at the top level: search recursively for a single series.
+        file_names = list(reader.GetGDCMSeriesFileNames(str(directory), "", False, True))
+    if len(file_names) < 2:
+        raise ValueError(f"La serie DICOM debe tener al menos 2 cortes; encontrados={len(file_names)}")
+    reader.SetFileNames(file_names)
+    image = reader.Execute()
+    array = sitk.GetArrayFromImage(image)
+    spacing = tuple(float(value) for value in image.GetSpacing())
+    metadata: Dict[str, Any] = {
+        "seriesInstanceUid": best_id,
+        "origin": tuple(float(value) for value in image.GetOrigin()),
+        "direction": tuple(float(value) for value in image.GetDirection()),
+        "sliceCount": int(array.shape[0]),
+    }
+    return array, spacing, metadata
 
 
 def normalized_suffix(path: Path) -> str:
@@ -140,11 +202,15 @@ def normalized_suffix(path: Path) -> str:
 
 def load_input(input_path: str, plane: str) -> LoadedInput:
     path = resolve_input_path(input_path, plane)
-    suffix = normalized_suffix(path)
     spacing: tuple[float, ...] | None = None
     metadata: Dict[str, Any] = {}
 
-    if suffix == ".npy":
+    if path.is_dir():
+        # A directory reaching here is a DICOM series (resolve_input_path only
+        # returns the folder when it holds 2+ .dcm slices) -> stack into a 3D volume.
+        array, spacing, metadata = read_dicom_series(path)
+        suffix = ".dcm"
+    elif (suffix := normalized_suffix(path)) == ".npy":
         array = np.load(path)
     elif suffix in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}:
         array = np.asarray(Image.open(path).convert("L"))

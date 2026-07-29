@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Literal
@@ -10,7 +12,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .real_inference_runtime import SUPPORTED_EXTENSIONS
 
-DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+# A .zip is accepted only at upload time as a container for a DICOM series; it is
+# never a direct inference format (SUPPORTED_EXTENSIONS drives inference dispatch).
+ALLOWED_UPLOAD_EXTENSIONS = SUPPORTED_EXTENSIONS | {".zip"}
+
+DEFAULT_MAX_UPLOAD_BYTES = 300 * 1024 * 1024
+DEFAULT_MAX_SERIES_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
+DEFAULT_MAX_SERIES_FILES = 4096
 UPLOAD_CHUNK_BYTES = 1024 * 1024
 
 
@@ -103,14 +111,18 @@ def register_uploaded_input(
     normalized_plane = validate_plane(plane)
     suffix = validate_suffix(client_filename or "")
     input_id = f"inp_{uuid4().hex}"
-    destination = upload_destination(input_id, normalized_plane, suffix)
-    size = write_limited_upload(stream, destination, max_upload_bytes())
+    if suffix == ".zip":
+        destination, size, fmt = store_zip_series(input_id, normalized_plane, stream)
+    else:
+        destination = upload_destination(input_id, normalized_plane, suffix)
+        size = write_limited_upload(stream, destination, max_upload_bytes())
+        fmt = suffix.lstrip(".")
     record = InputRecord(
         input_id=input_id,
         case_id=case_id,
         plane=normalized_plane,
         path=destination,
-        format=suffix.lstrip("."),
+        format=fmt,
         size=size,
         source_key="upload",
     )
@@ -142,6 +154,39 @@ def register_existing_path(
     return public_input_metadata(record)
 
 
+def register_series_files(*, case_id: str, plane: str, file_paths: list) -> dict[str, object]:
+    """Copy a classified series' files into a fresh per-plane input directory and register it.
+
+    Used by study ingestion: the caller has already selected which series belongs to
+    this plane; here we materialize it as an ordinary directory-backed input so the
+    existing pipeline (read_dicom_series) can stack it into a 3D volume.
+    """
+    normalized_plane = validate_plane(plane)
+    if not file_paths:
+        raise InputRegistryError("serie sin archivos", status_code=400)
+    input_id = f"inp_{uuid4().hex}"
+    series_dir = upload_root() / normalized_plane / input_id
+    series_dir.mkdir(parents=True, exist_ok=True)
+    total = 0
+    for index, source in enumerate(file_paths):
+        # These are DICOM files (GDCM-classified); normalize to .dcm so downstream
+        # extension-based checks work even when the source was .ima or extension-less.
+        destination = series_dir / f"{index:05d}.dcm"
+        shutil.copyfile(Path(source), destination)
+        total += destination.stat().st_size
+    record = InputRecord(
+        input_id=input_id,
+        case_id=case_id,
+        plane=normalized_plane,
+        path=series_dir,
+        format="dicom_series",
+        size=total,
+        source_key="study-upload",
+    )
+    _INPUT_REGISTRY[input_id] = record
+    return public_input_metadata(record)
+
+
 def validate_plane(plane: str) -> str:
     normalized = str(plane).strip().lower()
     if normalized not in {"sagittal", "axial"}:
@@ -151,9 +196,83 @@ def validate_plane(plane: str) -> str:
 
 def validate_suffix(filename: str) -> str:
     suffix = Path(filename).suffix.lower()
-    if suffix not in SUPPORTED_EXTENSIONS:
+    if suffix not in ALLOWED_UPLOAD_EXTENSIONS:
         raise InputRegistryError(f"extension no permitida: {suffix or 'sin_extension'}", status_code=400)
     return suffix
+
+
+def max_series_uncompressed_bytes() -> int:
+    raw = os.getenv("PFI_MAX_SERIES_UNCOMPRESSED_BYTES")
+    if raw is None or not raw.strip():
+        return DEFAULT_MAX_SERIES_UNCOMPRESSED_BYTES
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise InputRegistryError("PFI_MAX_SERIES_UNCOMPRESSED_BYTES invalido", status_code=500) from exc
+    if value <= 0:
+        raise InputRegistryError("PFI_MAX_SERIES_UNCOMPRESSED_BYTES debe ser positivo", status_code=500)
+    return value
+
+
+def store_zip_series(input_id: str, plane: str, stream: BinaryIO) -> tuple[Path, int, str]:
+    """Persist an uploaded .zip and extract it into a per-input directory.
+
+    Guards against path traversal (zip-slip), decompression bombs (total-size and
+    file-count caps) and empty archives. Returns the extraction directory, its total
+    uncompressed size and the "dicom_series" format tag.
+    """
+    plane_dir = upload_root() / plane
+    plane_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = plane_dir / f"{input_id}.zip"
+    write_limited_upload(stream, zip_path, max_upload_bytes())
+
+    extract_dir = plane_dir / input_id
+    try:
+        total, count = safe_extract_zip(zip_path, extract_dir)
+    finally:
+        if zip_path.exists():
+            zip_path.unlink()
+    if count == 0:
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        raise InputRegistryError("zip vacio", status_code=400)
+    return extract_dir, total, "dicom_series"
+
+
+def safe_extract_zip(zip_path: Path, extract_dir: Path) -> tuple[int, int]:
+    """Extract a zip into extract_dir, guarding against zip-slip and zip-bombs.
+
+    Returns (total_uncompressed_bytes, file_count). On any failure the partial
+    extraction directory is removed and an InputRegistryError is raised.
+    """
+    extract_dir.mkdir(parents=True, exist_ok=True)
+    resolved_extract = extract_dir.resolve()
+    max_bytes = max_series_uncompressed_bytes()
+    total = 0
+    count = 0
+    try:
+        with zipfile.ZipFile(zip_path) as archive:
+            for member in archive.infolist():
+                if member.is_dir():
+                    continue
+                count += 1
+                if count > DEFAULT_MAX_SERIES_FILES:
+                    raise InputRegistryError("zip con demasiados archivos", status_code=413)
+                total += member.file_size
+                if total > max_bytes:
+                    raise InputRegistryError("zip descomprimido excede el limite", status_code=413)
+                target = (extract_dir / member.filename).resolve()
+                if not str(target).startswith(str(resolved_extract)):
+                    raise InputRegistryError("zip con ruta invalida (path traversal)", status_code=400)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(member) as source, target.open("wb") as handle:
+                    shutil.copyfileobj(source, handle, UPLOAD_CHUNK_BYTES)
+    except zipfile.BadZipFile as exc:
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        raise InputRegistryError("archivo zip invalido o corrupto", status_code=400) from exc
+    except Exception:
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        raise
+    return total, count
 
 
 def upload_destination(input_id: str, plane: str, suffix: str) -> Path:
@@ -207,6 +326,8 @@ def resolve_input_id(input_id: str, *, case_id: str, plane: str) -> InputRecord:
         raise InputRegistryError("inputId no pertenece al caseId solicitado", status_code=409)
     if record.plane != plane:
         raise InputRegistryError("inputId no pertenece al plano solicitado", status_code=409)
-    if not record.path.exists() or not record.path.is_file():
+    # A record path is a file for single uploads, or a directory for an extracted
+    # DICOM series (store_zip_series) — accept either as long as it still exists.
+    if not record.path.exists() or not (record.path.is_file() or record.path.is_dir()):
         raise InputRegistryError("archivo asociado al inputId no disponible", status_code=404)
     return record
