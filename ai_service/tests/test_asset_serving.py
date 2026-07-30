@@ -37,7 +37,9 @@ def run_sagittal_fixture(monkeypatch, tmp_path) -> dict:
     body = response.json()
     assert body["metadata"]["requestedInferenceMode"] == "real_baseline"
     assert body["metadata"]["runtime"] == "pytorch"
-    assert set(body["assets"]) == {"input.png", "mask.npy", "confidence.npy", "overlay.png", "mask-preview.png"}
+    assert {"input.png", "mask.npy", "confidence.npy", "overlay.png", "mask-preview.png"}.issubset(set(body["assets"]))
+    assert any(name.startswith("slice-") and name.endswith(".png") for name in body["assets"])
+    assert any(name.startswith("slice-") and name.endswith("-overlay.png") for name in body["assets"])
     return body
 
 
@@ -45,6 +47,17 @@ def test_get_asset_serves_allowed_png(monkeypatch, tmp_path) -> None:
     body = run_sagittal_fixture(monkeypatch, tmp_path)
 
     response = client.get(f"/assets/{body['runId']}/sagittal/overlay.png")
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("image/png")
+    assert len(response.content) > 0
+
+
+def test_get_asset_serves_slice_preview_png(monkeypatch, tmp_path) -> None:
+    body = run_sagittal_fixture(monkeypatch, tmp_path)
+    preview_name = next(name for name in body["assets"] if name.startswith("slice-") and name.endswith(".png") and not name.endswith("-overlay.png"))
+
+    response = client.get(f"/assets/{body['runId']}/sagittal/{preview_name}")
 
     assert response.status_code == 200, response.text
     assert response.headers["content-type"].startswith("image/png")
