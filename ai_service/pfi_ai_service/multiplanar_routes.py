@@ -22,7 +22,7 @@ from .multiplanar_v2_executor import (
 )
 from .multiplanar_v2_models import MultiplanarRunV2Request
 from .reporting import write_json
-from .security import safe_exception_type
+from .security import sanitize_public_text, safe_exception_type
 from .settings import get_settings
 
 LOGGER = logging.getLogger(__name__)
@@ -56,6 +56,7 @@ def register_multiplanar_routes(app: FastAPI) -> None:
                     "sagittalInputIdPresent": bool(request.sagittal_input_id),
                     "axialInputIdPresent": bool(request.axial_input_id),
                     "exceptionType": safe_exception_type(exc),
+                    "errorMessage": sanitize_public_text(str(exc)),
                 },
             )
             return JSONResponse(
@@ -99,6 +100,7 @@ def register_multiplanar_routes(app: FastAPI) -> None:
                     "traceId": trace_id,
                     "caseId": request.caseId,
                     "exceptionType": safe_exception_type(exc),
+                    "errorMessage": sanitize_public_text(str(exc)),
                 },
             )
             error = exception_to_v2(exc, trace_id=trace_id, case_id=request.caseId, requested_planes=requested_planes(request))

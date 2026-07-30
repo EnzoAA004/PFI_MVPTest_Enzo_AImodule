@@ -64,6 +64,7 @@ def register_error_handlers(app: FastAPI) -> None:
                 "path": request.url.path,
                 "method": request.method,
                 "exceptionType": safe_exception_type(exc),
+                "errorMessage": sanitize_public_text(str(exc)),
             },
         )
         body: dict[str, Any] = {
