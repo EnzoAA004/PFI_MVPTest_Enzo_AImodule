@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS
 from .input_registry import InputRegistryError
 from .pipeline import PipelineRunRequest, run_pipeline
+from .security import sanitize_public_text
 from .reporting import write_json
 from .settings import get_settings
 
@@ -206,7 +207,7 @@ def three_d_status(sagittal: Dict[str, Any], axial: Dict[str, Any] | None) -> Di
 
 
 def compact_message(exc: Exception) -> str:
-    return str(exc).replace("\n", " ")[:240]
+    return sanitize_public_text(str(exc).replace("\n", " ")[:240])
 
 
 def log_multiplanar_event(

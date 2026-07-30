@@ -81,7 +81,8 @@ def test_pipeline_run_accepts_input_id_for_real_baseline(monkeypatch, tmp_path) 
     assert body["aiOutput"]["inferenceMode"] == "real_baseline"
     assert body["traceId"] == "trace-ai013-pipeline"
     assert body["metadata"]["inputId"] == input_id
-    assert body["metadata"]["outputFiles"]["maskPath"] == {"generated": True, "fileName": "mask.npy"}
+    assert "outputFiles" not in body["metadata"]
+    assert body["assets"]["mask.npy"]["assetName"] == "mask.npy"
     assert "inputPath" not in body
     assert "sourcePath" not in body["metadata"]
     assert_no_internal_paths(body)

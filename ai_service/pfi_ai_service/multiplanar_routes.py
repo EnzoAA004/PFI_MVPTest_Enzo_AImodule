@@ -22,6 +22,7 @@ from .multiplanar_v2_executor import (
 )
 from .multiplanar_v2_models import MultiplanarRunV2Request
 from .reporting import write_json
+from .security import safe_exception_type
 from .settings import get_settings
 
 LOGGER = logging.getLogger(__name__)
@@ -47,15 +48,14 @@ def register_multiplanar_routes(app: FastAPI) -> None:
         except (HTTPException, InputRegistryError):
             raise
         except Exception as exc:
-            LOGGER.exception(
+            LOGGER.error(
                 "multiplanar_run_unhandled_exception",
                 extra={
                     "traceId": trace_id,
                     "caseId": request.case_id,
                     "sagittalInputIdPresent": bool(request.sagittal_input_id),
                     "axialInputIdPresent": bool(request.axial_input_id),
-                    "exceptionType": type(exc).__name__,
-                    "errorMessage": str(exc)[:240],
+                    "exceptionType": safe_exception_type(exc),
                 },
             )
             return JSONResponse(
@@ -93,13 +93,12 @@ def register_multiplanar_routes(app: FastAPI) -> None:
             error = http_exception_to_v2(exc, trace_id=trace_id, case_id=request.caseId, requested_planes=requested_planes(request))
             return JSONResponse(status_code=error.status_code, content=error.body(), headers={"X-Trace-Id": trace_id})
         except Exception as exc:
-            LOGGER.exception(
+            LOGGER.error(
                 "multiplanar_run_v2_unhandled_exception",
                 extra={
                     "traceId": trace_id,
                     "caseId": request.caseId,
-                    "exceptionType": type(exc).__name__,
-                    "errorMessage": str(exc)[:240],
+                    "exceptionType": safe_exception_type(exc),
                 },
             )
             error = exception_to_v2(exc, trace_id=trace_id, case_id=request.caseId, requested_planes=requested_planes(request))
