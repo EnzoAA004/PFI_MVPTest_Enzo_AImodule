@@ -224,7 +224,7 @@ def load_input(input_path: str, plane: str) -> LoadedInput:
         spacing = tuple(float(value) for value in image.GetSpacing())
         metadata["origin"] = tuple(float(value) for value in image.GetOrigin())
         metadata["direction"] = tuple(float(value) for value in image.GetDirection())
-    elif suffix == ".dcm":
+    elif suffix in {".dcm", ".ima"}:
         try:
             import pydicom
         except Exception as exc:

@@ -214,6 +214,19 @@ def max_series_uncompressed_bytes() -> int:
     return value
 
 
+def max_series_files() -> int:
+    raw = os.getenv("PFI_MAX_SERIES_FILES")
+    if raw is None or not raw.strip():
+        return DEFAULT_MAX_SERIES_FILES
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise InputRegistryError("PFI_MAX_SERIES_FILES invalido", status_code=500) from exc
+    if value <= 0:
+        raise InputRegistryError("PFI_MAX_SERIES_FILES debe ser positivo", status_code=500)
+    return value
+
+
 def store_zip_series(input_id: str, plane: str, stream: BinaryIO) -> tuple[Path, int, str]:
     """Persist an uploaded .zip and extract it into a per-input directory.
 
@@ -247,6 +260,7 @@ def safe_extract_zip(zip_path: Path, extract_dir: Path) -> tuple[int, int]:
     extract_dir.mkdir(parents=True, exist_ok=True)
     resolved_extract = extract_dir.resolve()
     max_bytes = max_series_uncompressed_bytes()
+    max_files = max_series_files()
     total = 0
     count = 0
     try:
@@ -255,11 +269,14 @@ def safe_extract_zip(zip_path: Path, extract_dir: Path) -> tuple[int, int]:
                 if member.is_dir():
                     continue
                 count += 1
-                if count > DEFAULT_MAX_SERIES_FILES:
+                if count > max_files:
                     raise InputRegistryError("zip con demasiados archivos", status_code=413)
                 total += member.file_size
                 if total > max_bytes:
                     raise InputRegistryError("zip descomprimido excede el limite", status_code=413)
+                member_path = Path(member.filename)
+                if member_path.is_absolute() or member_path.drive:
+                    raise InputRegistryError("zip con ruta invalida (path traversal)", status_code=400)
                 target = (extract_dir / member.filename).resolve()
                 if not str(target).startswith(str(resolved_extract)):
                     raise InputRegistryError("zip con ruta invalida (path traversal)", status_code=400)
