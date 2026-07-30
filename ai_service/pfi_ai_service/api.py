@@ -21,6 +21,7 @@ from .evaluation_summary import evaluation_summary as build_evaluation_summary
 from .evidence_summary import evidence_summary as build_evidence_summary
 from .inference import run_axial_inference, run_sagittal_inference
 from .input_registry import InputRegistrationRequest, register_server_side_input, register_uploaded_input
+from .study_ingestion import register_study_zip
 from .model_artifacts import artifact_summary, registry_with_artifact_status, verify_model_artifacts
 from .model_materializer import sync_model_artifacts
 from .multiplanar_contract import multiplanar_workspace_contract, multiplanar_workspace_contract_v2
@@ -224,6 +225,21 @@ async def inputs_register(
         ))
     payload = await http_request.json()
     return clean_for_json(register_server_side_input(InputRegistrationRequest.model_validate(payload)))
+
+
+@app.post("/inputs/study")
+async def inputs_register_study(
+    file: UploadFile | None = File(default=None),
+    case_id: str | None = Form(default=None, alias="caseId"),
+):
+    """Ingest a whole-study DICOM zip and auto-split it into per-plane inputs.
+
+    Returns caseId plus sagittal/axial input metadata (each with the detected series
+    description, weighting and slice count) and any classification warnings.
+    """
+    if file is None or case_id is None:
+        raise HTTPException(status_code=400, detail="requiere file (zip) y caseId")
+    return clean_for_json(register_study_zip(case_id=case_id, stream=file.file))
 
 
 @app.post("/models/sync")
