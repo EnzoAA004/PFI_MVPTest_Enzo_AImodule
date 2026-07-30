@@ -30,7 +30,7 @@ SENSITIVE_KEYS = {
 
 SAFE_PATH_KEYS = {"path", "method"}
 PATH_LIKE = re.compile(
-    r"([A-Za-z]:[\\/]|/tmp\b|/var\b|/app\b|/content\b|/models\b|/outputs\b|\\\\|localhost|host\.docker\.internal|cloudflare)",
+    r"([A-Za-z]:[\\/]|/tmp\b|/var\b|/app\b|/content\b|/models\b|/outputs\b|/home\b|/srv\b|/opt\b|/root\b|\\\\|localhost|host\.docker\.internal|cloudflare)",
     re.IGNORECASE,
 )
 TOKEN_LIKE = re.compile(r"(bearer\s+[A-Za-z0-9._~+/=-]+|eyJ[A-Za-z0-9._~+/=-]+)", re.IGNORECASE)

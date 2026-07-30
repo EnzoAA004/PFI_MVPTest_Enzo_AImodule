@@ -70,6 +70,7 @@ def real_payload(*, allow_fallback: bool, trace_id: str) -> dict[str, Any]:
 def test_readiness_and_model_surfaces_do_not_expose_internal_paths(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("PFI_OUTPUT_DIR", str(tmp_path / "outputs"))
     monkeypatch.setenv("PFI_ROOT", str(tmp_path / "private-root"))
+    monkeypatch.setenv("PFI_MODEL_DIR", str(tmp_path / "private-models"))
     client = TestClient(app, raise_server_exceptions=False)
 
     for route in ["/health", "/warmup", "/models", "/models/verify", "/models/runtime"]:
@@ -77,6 +78,20 @@ def test_readiness_and_model_surfaces_do_not_expose_internal_paths(monkeypatch, 
         assert response.status_code == 200, response.text
         assert response.headers[TRACE_ID_HEADER] == "trace-p10-ai-readiness"
         assert_no_internal_detail(response.json())
+
+
+def test_models_sync_does_not_expose_internal_paths(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PFI_MODEL_DIR", str(tmp_path / "private-models"))
+    monkeypatch.setenv("PFI_OUTPUT_DIR", str(tmp_path / "private-outputs"))
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post("/models/sync", headers={TRACE_ID_HEADER: "trace-p10-ai-sync"})
+
+    assert response.status_code == 200, response.text
+    assert response.headers[TRACE_ID_HEADER] == "trace-p10-ai-sync"
+    body = response.json()
+    assert body["status"] == "models_sync_completed"
+    assert_no_internal_detail(body)
 
 
 def test_http_errors_are_sanitized_and_preserve_trace_id(monkeypatch, tmp_path: Path) -> None:
