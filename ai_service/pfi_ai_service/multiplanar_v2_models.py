@@ -90,6 +90,8 @@ class PlaneModelV2(PublicResponseModel):
 
 class PlaneInputV2(PublicResponseModel):
     inputId: str
+    seriesId: str | None = None
+    sourceFormat: str | None = None
     format: str | None
     sizeBytes: int | None
     nativeShape: list[int] | None
@@ -97,10 +99,32 @@ class PlaneInputV2(PublicResponseModel):
     orientationTransform: str | None
     spacingXyzMm: list[float] | None
     canonicalAxisSpacingMm: list[float] | None
+    originMm: list[float] | None = None
+    directionMatrix: list[float] | None = None
+    geometryComplete: bool = False
     selectedSliceIndex: int | None
     sliceCount: int | None
     selectedAxis: int | None
     inPlaneSpacingMm: list[float] | None
+    slices: list["PlaneSliceV2"] = Field(default_factory=list)
+
+
+class PlaneSliceAssetV2(PublicResponseModel):
+    assetName: str
+    role: Literal["slice-preview", "slice-overlay"]
+    contentType: Literal["image/png"]
+    generated: bool
+    url: str
+
+
+class PlaneSliceV2(PublicResponseModel):
+    index: int
+    displayIndex: int
+    previewAsset: PlaneSliceAssetV2
+    hasResults: bool
+    overlayAsset: PlaneSliceAssetV2 | None = None
+    measurementIds: list[str] = Field(default_factory=list)
+    landmarkIds: list[str] = Field(default_factory=list)
 
 
 class CoordinateSpaceV2(PublicResponseModel):
@@ -126,7 +150,7 @@ class PlaneSeriesV2(PublicResponseModel):
 
 class PlaneAssetV2(PublicResponseModel):
     assetName: str
-    role: Literal["input_preview", "overlay", "mask_preview", "mask_array", "confidence_array", "mesh_3d", "volume_3d"]
+    role: Literal["input_preview", "overlay", "mask_preview", "mask_array", "confidence_array", "mesh_3d", "volume_3d", "slice_preview", "slice_overlay"]
     contentType: str
     generated: bool
     relativePath: str

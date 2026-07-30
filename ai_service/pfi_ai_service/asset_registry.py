@@ -8,6 +8,8 @@ from typing import Literal
 
 ALLOWED_ASSET_NAMES = frozenset({"input.png", "mask.npy", "confidence.npy", "overlay.png", "mask-preview.png", "lumbar-3d-mesh.json"})
 PUBLIC_BROWSER_ASSET_NAMES = frozenset({"input.png", "overlay.png", "mask-preview.png", "lumbar-3d-mesh.json"})
+SLICE_PREVIEW_ASSET_PATTERN = re.compile(r"^slice-\d{3}\.png$")
+SLICE_OVERLAY_ASSET_PATTERN = re.compile(r"^slice-\d{3}-overlay\.png$")
 INTERNAL_RAW_ASSET_NAMES = ALLOWED_ASSET_NAMES - PUBLIC_BROWSER_ASSET_NAMES
 _VALID_PLANES = {"sagittal", "axial", "workspace"}
 _RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,96}$")
@@ -42,7 +44,7 @@ def register_run_assets(run_id: str, plane: str, outputs: dict[str, str]) -> dic
     for raw_path in outputs.values():
         path = Path(raw_path)
         asset_name = path.name
-        if asset_name not in ALLOWED_ASSET_NAMES:
+        if not is_allowed_asset_name(asset_name):
             continue
         if not path.exists() or not path.is_file():
             continue
@@ -169,10 +171,27 @@ def validate_asset_name(asset_name: str) -> str:
     normalized = str(asset_name).strip()
     if normalized != Path(normalized).name or "/" in normalized or "\\" in normalized or ".." in normalized:
         raise AssetRegistryError("assetName invalido", status_code=403)
-    if normalized not in ALLOWED_ASSET_NAMES:
+    if not is_allowed_asset_name(normalized):
         raise AssetRegistryError("assetName no permitido", status_code=403)
     return normalized
 
 
 def is_public_browser_asset(asset_name: str) -> bool:
-    return validate_asset_name(asset_name) in PUBLIC_BROWSER_ASSET_NAMES
+    normalized = validate_asset_name(asset_name)
+    return normalized in PUBLIC_BROWSER_ASSET_NAMES or is_slice_preview_asset_name(normalized) or is_slice_overlay_asset_name(normalized)
+
+
+def is_allowed_asset_name(asset_name: str) -> bool:
+    return (
+        asset_name in ALLOWED_ASSET_NAMES
+        or is_slice_preview_asset_name(asset_name)
+        or is_slice_overlay_asset_name(asset_name)
+    )
+
+
+def is_slice_preview_asset_name(asset_name: str) -> bool:
+    return bool(SLICE_PREVIEW_ASSET_PATTERN.fullmatch(str(asset_name)))
+
+
+def is_slice_overlay_asset_name(asset_name: str) -> bool:
+    return bool(SLICE_OVERLAY_ASSET_PATTERN.fullmatch(str(asset_name)))

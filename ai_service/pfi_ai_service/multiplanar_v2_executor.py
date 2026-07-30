@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS
+from .asset_registry import is_slice_overlay_asset_name, is_slice_preview_asset_name
 from .input_registry import InputRegistryError, register_existing_path, resolve_input_id
 from .model_artifacts import model_status
 from .multiplanar_3d_reconstruction import build_lumbar_3d_status
@@ -32,6 +33,7 @@ from .multiplanar_v2_models import (
     PlaneQualityV2,
     PlaneRunV2Result,
     PlaneSeriesV2,
+    PlaneSliceV2,
     ReviewPolicyV2,
     StructuredAiErrorV2,
     ThreeDStatusV2,
@@ -400,6 +402,8 @@ def normalize_plane_result_v2(
         model=model,
         input=PlaneInputV2(
             inputId=plane_spec.inputId,
+            seriesId=text_or_none(metadata.get("seriesId")) or plane_spec.inputId,
+            sourceFormat=text_or_none(metadata.get("sourceFormat")) or strip_dot(metadata.get("inputFormat")),
             format=strip_dot(metadata.get("inputFormat")),
             sizeBytes=int_or_none(metadata.get("inputSize")) or getattr(preflight.get("input"), "size", None),
             nativeShape=native_shape,
@@ -407,10 +411,14 @@ def normalize_plane_result_v2(
             orientationTransform=metadata.get("inputOrientationTransform"),
             spacingXyzMm=float_list_or_none(metadata.get("spacingXyz")),
             canonicalAxisSpacingMm=float_list_or_none(metadata.get("arrayAxisSpacingCanonical")),
+            originMm=float_list_or_none(metadata.get("originMm")),
+            directionMatrix=float_list_or_none(metadata.get("directionMatrix")),
+            geometryComplete=bool(metadata.get("geometryComplete", False)),
             selectedSliceIndex=selected_slice,
             sliceCount=int_or_none(metadata.get("sliceCount")),
             selectedAxis=selected_axis,
             inPlaneSpacingMm=float_list_or_none(metadata.get("inPlaneSpacing")),
+            slices=slices_v2(metadata.get("slices")),
         ),
         coordinateSpace=coordinate_space,
         series=series_v2(plane, response.get("series"), selected_slice, strict=strict),
@@ -489,14 +497,51 @@ def assets_v2(plane: PlaneNameV2, run_id: str, metadata: dict[str, Any]) -> list
     return [
         PlaneAssetV2(
             assetName=name,
-            role=role,  # type: ignore[arg-type]
+            role=asset_role_for_name(name, role),  # type: ignore[arg-type]
             contentType=content_type,
             generated=True,
             relativePath=f"/assets/{run_id}/{plane}/{name}",
         )
-        for name, (role, content_type) in names.items()
-        if name in generated
+        for name, (role, content_type) in sorted(asset_name_catalog(generated, names).items())
     ]
+
+
+def asset_name_catalog(generated: set[str], legacy_names: dict[str, tuple[str, str]]) -> dict[str, tuple[str, str]]:
+    catalog = {name: value for name, value in legacy_names.items() if name in generated}
+    for name in generated:
+        if is_slice_preview_name(name):
+            catalog[name] = ("slice_preview", "image/png")
+        elif is_slice_overlay_name(name):
+            catalog[name] = ("slice_overlay", "image/png")
+    return catalog
+
+
+def asset_role_for_name(name: str, default_role: str) -> str:
+    if is_slice_preview_name(name):
+        return "slice_preview"
+    if is_slice_overlay_name(name):
+        return "slice_overlay"
+    return default_role
+
+
+def is_slice_preview_name(name: str) -> bool:
+    return is_slice_preview_asset_name(name)
+
+
+def is_slice_overlay_name(name: str) -> bool:
+    return is_slice_overlay_asset_name(name)
+
+
+def slices_v2(raw: Any) -> list[PlaneSliceV2]:
+    entries: list[PlaneSliceV2] = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            entries.append(PlaneSliceV2.model_validate(item))
+        except ValidationError:
+            continue
+    return sorted(entries, key=lambda entry: entry.index)
 
 
 def masks_v2(plane: PlaneNameV2, raw: Any, coordinate_space: str) -> list[PlaneMaskV2]:
@@ -792,6 +837,13 @@ def float_list_or_none(value: Any) -> list[float] | None:
         return None
 
 
+def text_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
 def list_string(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -917,7 +969,21 @@ class LegacyMultiplanarV1Adapter:
             "metadata": {
                 "inferenceMode": plane.effectiveInferenceMode,
                 "allowContractFallback": legacy_allow_contract_fallback(plane),
+                "seriesId": plane.input.seriesId,
                 "inputFormat": f".{plane.input.format}" if plane.input.format else None,
+                "sourceFormat": plane.input.sourceFormat,
+                "inputShapeNative": plane.input.nativeShape,
+                "inputShapeCanonical": plane.input.canonicalShape,
+                "spacingXyz": plane.input.spacingXyzMm,
+                "arrayAxisSpacingCanonical": plane.input.canonicalAxisSpacingMm,
+                "originMm": plane.input.originMm,
+                "directionMatrix": plane.input.directionMatrix,
+                "geometryComplete": plane.input.geometryComplete,
+                "selectedSlice": plane.input.selectedSliceIndex,
+                "sliceCount": plane.input.sliceCount,
+                "selectedAxis": plane.input.selectedAxis,
+                "inPlaneSpacing": plane.input.inPlaneSpacingMm,
+                "slices": [entry.model_dump(mode="json") for entry in plane.input.slices],
                 "outputFiles": legacy_output_files(plane.assets),
                 "synthetic": plane.synthetic,
                 "fallbackReason": plane.fallbackReason,

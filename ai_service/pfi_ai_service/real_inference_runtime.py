@@ -334,6 +334,138 @@ def in_plane_spacing(loaded: LoadedInput, selected_axis: int) -> tuple[float, fl
     return None
 
 
+def slice_asset_name(index: int) -> str:
+    if index < 0 or index > 999:
+        raise ValueError("slice_index_out_of_catalog_range")
+    return f"slice-{index:03d}.png"
+
+
+def slice_overlay_asset_name(index: int) -> str:
+    if index < 0 or index > 999:
+        raise ValueError("slice_index_out_of_catalog_range")
+    return f"slice-{index:03d}-overlay.png"
+
+
+def slice_count_for_catalog(loaded: LoadedInput, selected_axis: int) -> int:
+    if loaded.array.ndim == 2:
+        return 1
+    return int(loaded.array.shape[selected_axis])
+
+
+def slice_image_for_catalog(loaded: LoadedInput, index: int, selected_axis: int, target_size: tuple[int, int]) -> np.ndarray:
+    if loaded.array.ndim == 2:
+        if index != 0:
+            raise ValueError("slice_index_out_of_range")
+        source = loaded.array
+    else:
+        source = np.take(loaded.array, index, axis=selected_axis)
+    return resize_image(source, target_size)
+
+
+def save_slice_catalog_assets(
+    run_id: str,
+    plane: str,
+    loaded: LoadedInput,
+    selected_axis: int,
+    selected_slice: int,
+    target_size: tuple[int, int],
+    overlay_path: str,
+) -> dict[str, str]:
+    output_dir = get_settings().output_dir / "real_inference" / run_id / plane
+    output_dir.mkdir(parents=True, exist_ok=True)
+    outputs: dict[str, str] = {}
+    count = slice_count_for_catalog(loaded, selected_axis)
+    for index in range(count):
+        asset_name = slice_asset_name(index)
+        preview_path = output_dir / asset_name
+        image = slice_image_for_catalog(loaded, index, selected_axis, target_size)
+        Image.fromarray(np.clip(image * 255.0, 0, 255).astype(np.uint8)).save(preview_path)
+        outputs[f"slicePreview{index:03d}Path"] = str(preview_path)
+
+    overlay_source = Path(overlay_path)
+    if overlay_source.exists() and overlay_source.is_file():
+        overlay_asset = slice_overlay_asset_name(selected_slice)
+        overlay_target = output_dir / overlay_asset
+        overlay_target.write_bytes(overlay_source.read_bytes())
+        outputs[f"sliceOverlay{selected_slice:03d}Path"] = str(overlay_target)
+    register_run_assets(run_id, plane, outputs)
+    return outputs
+
+
+def input_geometry_metadata(loaded: LoadedInput) -> dict[str, Any]:
+    origin = float_list_or_none(loaded.metadata.get("origin"))
+    direction = float_list_or_none(loaded.metadata.get("direction"))
+    spacing = float_list_or_none(loaded.metadata.get("spacingXyz"))
+    canonical_spacing = float_list_or_none(loaded.metadata.get("arrayAxisSpacingCanonical"))
+    origin_mm = origin if origin and any(abs(value) > 1e-9 for value in origin) else None
+    direction_matrix = direction if direction and len(direction) in {4, 9} else None
+    geometry_complete = bool(spacing and canonical_spacing and origin_mm and direction_matrix)
+    return {
+        "originMm": origin_mm,
+        "directionMatrix": direction_matrix,
+        "geometryComplete": geometry_complete,
+        "geometryMetadataSource": "image_header" if geometry_complete else "incomplete_image_header",
+    }
+
+
+def float_list_or_none(value: Any) -> list[float] | None:
+    if not isinstance(value, (list, tuple)):
+        return None
+    try:
+        return [float(item) for item in value]
+    except (TypeError, ValueError):
+        return None
+
+
+def strip_dot(value: str) -> str:
+    return str(value).lstrip(".")
+
+
+def build_volume_slice_catalog(
+    *,
+    run_id: str,
+    plane: str,
+    slice_count: int,
+    selected_slice: int,
+    measurement_values: list[Dict[str, Any]],
+    landmarks: list[Dict[str, Any]],
+) -> list[Dict[str, Any]]:
+    catalog: list[Dict[str, Any]] = []
+    measurement_ids = [str(item["id"]) for item in measurement_values if isinstance(item, dict) and item.get("id")]
+    landmark_ids = [str(item["id"]) for item in landmarks if isinstance(item, dict) and item.get("id")]
+    for index in range(slice_count):
+        preview_name = slice_asset_name(index)
+        has_results = index == selected_slice
+        entry: Dict[str, Any] = {
+            "index": index,
+            "displayIndex": index + 1,
+            "previewAsset": {
+                "assetName": preview_name,
+                "role": "slice-preview",
+                "contentType": "image/png",
+                "generated": True,
+                "url": f"/assets/{run_id}/{plane}/{preview_name}",
+            },
+            "hasResults": has_results,
+            "overlayAsset": None,
+            "measurementIds": [],
+            "landmarkIds": [],
+        }
+        if has_results:
+            overlay_name = slice_overlay_asset_name(index)
+            entry["overlayAsset"] = {
+                "assetName": overlay_name,
+                "role": "slice-overlay",
+                "contentType": "image/png",
+                "generated": True,
+                "url": f"/assets/{run_id}/{plane}/{overlay_name}",
+            }
+            entry["measurementIds"] = measurement_ids
+            entry["landmarkIds"] = landmark_ids
+        catalog.append(entry)
+    return catalog
+
+
 def boundary_polygon(binary: np.ndarray, max_points: int = 96) -> list[Dict[str, float]]:
     mask = np.asarray(binary, dtype=bool)
     if not mask.any():
@@ -512,12 +644,31 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
 
     series_id = "series-sag-t2" if request.plane == "sagittal" else "series-ax-t2"
     outputs = save_outputs(run_id, request.plane, image, prediction, confidence)
-    assets = registered_assets_for_run(run_id, request.plane)
     spacing = in_plane_spacing(loaded, selected_axis)
     spacing_unit = "mm" if spacing else None
     masks = build_masks(request.model_key, request.plane, prediction, confidence, series_id, selected_slice)
     landmarks = build_landmarks(masks)
     measurement_values = build_measurements(request.model_key, request.plane, prediction, confidence, spacing)
+    catalog_outputs = save_slice_catalog_assets(
+        run_id,
+        request.plane,
+        loaded,
+        selected_axis,
+        selected_slice,
+        (int(target_size[0]), int(target_size[1])),
+        outputs["overlayPath"],
+    )
+    outputs = {**outputs, **catalog_outputs}
+    assets = registered_assets_for_run(run_id, request.plane)
+    slice_catalog = build_volume_slice_catalog(
+        run_id=run_id,
+        plane=request.plane,
+        slice_count=slice_count,
+        selected_slice=selected_slice,
+        measurement_values=measurement_values,
+        landmarks=landmarks,
+    )
+    geometry = input_geometry_metadata(loaded)
 
     flags = ["real_baseline_inference_completed"]
     if not present_classes:
@@ -571,6 +722,7 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
             "plane": request.plane,
             "sequence": "T2",
             "sliceCount": slice_count,
+            "slices": slice_catalog,
             "selectedSlice": selected_slice,
             "imageUrl": None,
             "overlayUrl": None,
@@ -627,14 +779,21 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
             "selectedAxis": selected_axis,
             "sliceCount": slice_count,
             "sagittalAxis": selected_axis if request.plane == "sagittal" else None,
+            "seriesId": request.input_id or series_id,
+            "sourceFormat": strip_dot(loaded.suffix),
             "inputShapeNative": loaded.metadata.get("inputShapeNative"),
             "inputShapeCanonical": loaded.metadata.get("inputShapeCanonical"),
             "inputOrientationTransform": loaded.metadata.get("inputOrientationTransform"),
             "spacingXyz": loaded.metadata.get("spacingXyz"),
             "arrayAxisSpacingNative": loaded.metadata.get("arrayAxisSpacingNative"),
             "arrayAxisSpacingCanonical": loaded.metadata.get("arrayAxisSpacingCanonical"),
+            "originMm": geometry["originMm"],
+            "directionMatrix": geometry["directionMatrix"],
+            "geometryComplete": geometry["geometryComplete"],
+            "geometryMetadataSource": geometry["geometryMetadataSource"],
             "inPlaneSpacing": list(spacing) if spacing else None,
             "inPlaneSpacingUnit": spacing_unit,
+            "slices": slice_catalog,
             "sourceShape": [int(value) for value in loaded.array.shape],
             "processedShape": [int(value) for value in prediction.shape],
             "inputFormat": loaded.suffix,
