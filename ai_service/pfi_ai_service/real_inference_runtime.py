@@ -10,7 +10,7 @@ import torch
 from PIL import Image
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS, build_agent_decision
-from .asset_registry import registered_assets_for_run, register_run_assets
+from .asset_registry import is_slice_asset_name, registered_assets_for_run, register_run_assets, slice_asset_name
 from .model_architectures import build_checkpoint_model
 from .model_artifacts import model_artifact_path, model_status
 from .settings import MODEL_REGISTRY, get_settings
@@ -333,6 +333,29 @@ def resize_image(array: np.ndarray, target_size: tuple[int, int]) -> np.ndarray:
     return np.asarray(resized, dtype=np.float32) / 255.0
 
 
+def native_slice(loaded: LoadedInput, axis: int, index: int) -> np.ndarray:
+    """Corte en su resolucion original, sin el resize a la grilla del modelo.
+
+    El resize a targetSize existe solo porque es la entrada que el checkpoint
+    espera. Guardar esa version como input.png hacia que el visor mostrara una
+    imagen de 256x256: el frente dimensiona el marco con naturalWidth/Height, asi
+    que el medico veia el estudio escalado a 256 px y con la relacion de aspecto
+    deformada. Los PNG se generan desde el corte nativo; la mascara y la
+    confianza siguen viviendo en la grilla del modelo, que es donde se midieron.
+    """
+    raw = loaded.array if loaded.array.ndim == 2 else np.take(loaded.array, index, axis=axis)
+    return robust_percentile_normalize(raw)
+
+
+def upsample_labels(labels: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    """Lleva un mapa de clases a `shape` sin inventar clases intermedias."""
+    if labels.shape == shape:
+        return labels
+    image = Image.fromarray(labels.astype(np.uint8))
+    resized = image.resize((shape[1], shape[0]), resample=Image.Resampling.NEAREST)
+    return np.asarray(resized, dtype=np.uint8)
+
+
 def slice_axis_for(loaded: LoadedInput, plane: str, checkpoint: Any, metadata: Dict[str, Any]) -> int:
     if loaded.array.ndim == 2:
         return 0
@@ -473,45 +496,172 @@ def build_landmarks(masks: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
     return landmarks
 
 
+LUMBAR_DISC_LEVELS = ("L1-L2", "L2-L3", "L3-L4", "L4-L5", "L5-S1")
+
+
+def connected_instances(binary: np.ndarray, min_pixels: int = 20) -> list[np.ndarray]:
+    """Separa una mascara de clase en sus componentes conexas, de superior a inferior.
+
+    El modelo sagital segmenta `disc_group` como una unica clase, no un disco por
+    instancia. Las componentes conexas de esa mascara son los espacios discales
+    individuales, que es lo unico que permite hablar de un nivel concreto.
+
+    En el arreglo sagital canonico la fila 0 es superior, asi que ordenar por
+    centroide de fila da los discos de arriba hacia abajo.
+    """
+    try:
+        import SimpleITK as sitk
+    except Exception:  # pragma: no cover - dependency guard
+        return []
+    labelled = sitk.GetArrayFromImage(sitk.ConnectedComponent(sitk.GetImageFromArray(binary.astype(np.uint8))))
+    instances = [
+        component
+        for value in sorted(int(item) for item in np.unique(labelled) if int(item) != 0)
+        if int((component := labelled == value).sum()) >= min_pixels
+    ]
+    instances.sort(key=lambda mask: float(np.where(mask)[0].mean()))
+    return instances
+
+
+def lumbar_disc_levels(count: int) -> list[str | None]:
+    """Nivel anatomico de cada espacio discal detectado, de superior a inferior.
+
+    Se cuenta desde abajo, que es como se numera una lumbar en la practica: el
+    espacio discal mas inferior del estudio es L5-S1 y desde ahi se sube L4-L5,
+    L3-L4, L2-L3, L1-L2. Los espacios por encima del quinto quedan sin nivel: son
+    T12-L1 o mas altos, fuera de la nomenclatura lumbar.
+
+    El supuesto es que el encuadre llega a la union lumbosacra, que es lo que
+    define a un protocolo de RM lumbar y el revisor puede verificar de un vistazo
+    en la imagen. Si el estudio muestra menos de cinco espacios discales el
+    encuadre no es una lumbar completa: no se sabe desde donde empezar a contar y
+    todas las mediciones quedan sin nivel, agrupadas aparte, antes que
+    desplazar la numeracion entera en un nivel.
+    """
+    if count < len(LUMBAR_DISC_LEVELS):
+        return [None] * count
+    unassigned = count - len(LUMBAR_DISC_LEVELS)
+    return [None] * unassigned + list(LUMBAR_DISC_LEVELS)
+
+
 def build_measurements(
     model_key: str,
     plane: str,
     prediction: np.ndarray,
     confidence: np.ndarray,
     spacing: tuple[float, float] | None,
+    slice_index: int,
 ) -> list[Dict[str, Any]]:
     values: list[Dict[str, Any]] = []
     row_spacing, col_spacing = spacing if spacing else (1.0, 1.0)
     physical = spacing is not None
-    for class_id in sorted(int(value) for value in np.unique(prediction) if int(value) != 0):
-        binary = prediction == class_id
+    dimension_unit = "mm" if physical else "px"
+    area_unit = "mm2" if physical else "px2"
+
+    def emit(identifier: str, label: str, binary: np.ndarray, level: str | None, linked: list[str]) -> None:
         ys, xs = np.where(binary)
         if len(xs) == 0:
-            continue
-        label = class_name(model_key, class_id)
-        class_confidence = float(confidence[binary].mean())
+            return
         width = float(xs.max() - xs.min() + 1) * col_spacing
         height = float(ys.max() - ys.min() + 1) * row_spacing
         area = float(len(xs)) * row_spacing * col_spacing
-        dimension_unit = "mm" if physical else "px"
-        area_unit = "mm2" if physical else "px2"
         common = {
-            "level": plane,
+            "level": level,
+            # Todas las mediciones de una corrida salen del unico corte inferido.
+            "sliceIndex": slice_index,
             "source": "AI",
-            "confidence": round(class_confidence, 4),
+            "confidence": round(float(confidence[binary].mean()), 4),
             "status": "pendiente",
             "outlier": False,
-            "linkedLandmarks": [f"lm-mask-{plane}-{label.replace('_', '-')}-centroid"],
+            "linkedLandmarks": linked,
         }
-        values.extend([
-            {"id": f"{plane}-{label}-area", "label": f"{label} area", "value": round(area, 2), "aiValue": round(area, 2), "reviewerValue": None, "unit": area_unit, **common},
-            {"id": f"{plane}-{label}-width", "label": f"{label} width", "value": round(width, 2), "aiValue": round(width, 2), "reviewerValue": None, "unit": dimension_unit, **common},
-            {"id": f"{plane}-{label}-height", "label": f"{label} height", "value": round(height, 2), "aiValue": round(height, 2), "reviewerValue": None, "unit": dimension_unit, **common},
-        ])
+        for metric, magnitude, unit in (
+            ("area", area, area_unit),
+            ("width", width, dimension_unit),
+            ("height", height, dimension_unit),
+        ):
+            values.append({
+                "id": f"{identifier}-{metric}",
+                "label": f"{label} {metric}",
+                "labelKey": f"{label} {metric}",
+                "value": round(magnitude, 2),
+                "aiValue": round(magnitude, 2),
+                "reviewerValue": None,
+                "unit": unit,
+                **common,
+            })
+
+    for class_id in sorted(int(value) for value in np.unique(prediction) if int(value) != 0):
+        binary = prediction == class_id
+        label = class_name(model_key, class_id)
+        centroid_landmark = f"lm-mask-{plane}-{label.replace('_', '-')}-centroid"
+
+        if label == "disc_group":
+            # Un disco por instancia: "altura del disco L4-L5" es un hallazgo
+            # reportable, "altura del grupo de discos" no significa nada clinico.
+            instances = connected_instances(binary)
+            if instances:
+                levels = lumbar_disc_levels(len(instances))
+                for position, (component, level) in enumerate(zip(instances, levels), start=1):
+                    slug = level.lower() if level else f"d{position}"
+                    # Sin nivel confirmado el landmark del grupo no identifica a
+                    # este disco en particular: se deja sin vinculo antes que
+                    # apuntar a un punto que no le corresponde.
+                    emit(f"{plane}-disc-{slug}", "disc", component, level, [])
+                continue
+
+        emit(f"{plane}-{label}", label, binary, None, [centroid_landmark])
+
     return values
 
 
-def save_outputs(run_id: str, plane: str, image: np.ndarray, prediction: np.ndarray, confidence: np.ndarray) -> Dict[str, str]:
+#: Techo del catalogo de previsualizaciones. Una serie mas larga que esto no se
+#: recorta: se deja sin catalogo y el visor lo informa, antes que persistir un
+#: subconjunto que haria que unos cortes tengan imagen y otros no sin explicacion.
+MAX_SLICE_PREVIEWS = 512
+
+
+def save_slice_previews(run_id: str, plane: str, loaded: LoadedInput, axis: int) -> Dict[str, str]:
+    """Escribe un PNG por corte de la serie, en resolucion nativa.
+
+    Sin esto solo el corte que la IA analizo tiene imagen persistida, y navegar la
+    serie muestra el estudio completo en la barra de cortes pero un unico cuadro
+    con contenido. Cada PNG es la imagen sola, sin superposicion: la segmentacion
+    existe unicamente para el corte inferido y pintarla sobre los demas mostraria
+    una mascara que no les corresponde.
+    """
+    if loaded.array.ndim != 3:
+        return {}
+    count = int(loaded.array.shape[axis])
+    if count <= 1 or count > MAX_SLICE_PREVIEWS:
+        return {}
+    output_dir = get_settings().output_dir / "real_inference" / run_id / plane
+    output_dir.mkdir(parents=True, exist_ok=True)
+    outputs: Dict[str, str] = {}
+    for index in range(count):
+        frame = robust_percentile_normalize(np.take(loaded.array, index, axis=axis))
+        path = output_dir / slice_asset_name(index)
+        Image.fromarray(np.clip(frame * 255.0, 0, 255).astype(np.uint8)).save(path)
+        outputs[f"slice{index}"] = str(path)
+    register_run_assets(run_id, plane, outputs)
+    return outputs
+
+
+def save_outputs(
+    run_id: str,
+    plane: str,
+    image: np.ndarray,
+    prediction: np.ndarray,
+    confidence: np.ndarray,
+    render_image: np.ndarray | None = None,
+) -> Dict[str, str]:
+    """Persiste los artefactos de la corrida.
+
+    `image`/`prediction`/`confidence` estan en la grilla del modelo y definen las
+    mediciones. `render_image` es el mismo corte en resolucion nativa y es lo que
+    se dibuja: los PNG salen de ahi, con la mascara remuestreada por vecino mas
+    cercano para que superponga exactamente sobre esos pixeles.
+    """
     output_dir = get_settings().output_dir / "real_inference" / run_id / plane
     output_dir.mkdir(parents=True, exist_ok=True)
     image_path = output_dir / "input.png"
@@ -520,22 +670,25 @@ def save_outputs(run_id: str, plane: str, image: np.ndarray, prediction: np.ndar
     overlay_path = output_dir / "overlay.png"
     mask_preview_path = output_dir / "mask-preview.png"
 
-    Image.fromarray(np.clip(image * 255.0, 0, 255).astype(np.uint8)).save(image_path)
+    render = image if render_image is None else np.asarray(render_image, dtype=np.float32)
+    render_mask = upsample_labels(prediction, (int(render.shape[0]), int(render.shape[1])))
+    present = sorted(int(value) for value in np.unique(prediction) if int(value) != 0)
+
+    Image.fromarray(np.clip(render * 255.0, 0, 255).astype(np.uint8)).save(image_path)
     np.save(mask_path, prediction.astype(np.uint8))
     np.save(confidence_path, confidence.astype(np.float32))
 
-    gray = np.stack([image, image, image], axis=-1)
-    overlay = gray.copy()
+    overlay = np.stack([render, render, render], axis=-1)
     alpha = 0.42
-    for class_id in sorted(int(value) for value in np.unique(prediction) if int(value) != 0):
+    for class_id in present:
         color = np.asarray(PALETTE.get(class_id, (255, 255, 0)), dtype=np.float32) / 255.0
-        selected = prediction == class_id
+        selected = render_mask == class_id
         overlay[selected] = (1.0 - alpha) * overlay[selected] + alpha * color
     Image.fromarray(np.clip(overlay * 255.0, 0, 255).astype(np.uint8)).save(overlay_path)
 
-    preview = np.zeros((*prediction.shape, 3), dtype=np.float32)
-    for class_id in sorted(int(value) for value in np.unique(prediction) if int(value) != 0):
-        preview[prediction == class_id] = np.asarray(PALETTE.get(class_id, (255, 255, 0)), dtype=np.float32) / 255.0
+    preview = np.zeros((*render_mask.shape, 3), dtype=np.float32)
+    for class_id in present:
+        preview[render_mask == class_id] = np.asarray(PALETTE.get(class_id, (255, 255, 0)), dtype=np.float32) / 255.0
     Image.fromarray(np.clip(preview * 255.0, 0, 255).astype(np.uint8)).save(mask_preview_path)
     outputs = {
         "imagePath": str(image_path),
@@ -577,13 +730,28 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
     present_classes = sorted(int(value) for value in np.unique(prediction) if int(value) != 0)
 
     series_id = "series-sag-t2" if request.plane == "sagittal" else "series-ax-t2"
-    outputs = save_outputs(run_id, request.plane, image, prediction, confidence)
-    assets = registered_assets_for_run(run_id, request.plane)
+    outputs = save_outputs(
+        run_id,
+        request.plane,
+        image,
+        prediction,
+        confidence,
+        native_slice(loaded, selected_axis, selected_slice),
+    )
+    slice_previews = save_slice_previews(run_id, request.plane, loaded, selected_axis)
+    # Los PNG por corte quedan registrados para poder servirlos, pero fuera de la
+    # lista de assets del contrato: son cientos de entradas que solo repetirian el
+    # patron `slice-NNN.png`. El consumidor necesita un numero, no el catalogo.
+    assets = {
+        name: metadata
+        for name, metadata in registered_assets_for_run(run_id, request.plane).items()
+        if not is_slice_asset_name(name)
+    }
     spacing = in_plane_spacing(loaded, selected_axis)
     spacing_unit = "mm" if spacing else None
     masks = build_masks(request.model_key, request.plane, prediction, confidence, series_id, selected_slice)
     landmarks = build_landmarks(masks)
-    measurement_values = build_measurements(request.model_key, request.plane, prediction, confidence, spacing)
+    measurement_values = build_measurements(request.model_key, request.plane, prediction, confidence, spacing, selected_slice)
 
     flags = ["real_baseline_inference_completed"]
     if not present_classes:
@@ -604,6 +772,7 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
         "inPlaneSpacing": list(spacing) if spacing else None,
         "inPlaneSpacingUnit": spacing_unit,
         "measurementsDerivedFromPredictionMask": True,
+        "slicePreviewCount": len(slice_previews),
     }
     requested_mode = str(request.metadata.get("inferenceMode", "real_baseline"))
     allow_contract_fallback = metadata_bool(request.metadata, "allowContractFallback", True)

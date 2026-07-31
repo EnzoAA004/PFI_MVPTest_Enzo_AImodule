@@ -9,6 +9,23 @@ from typing import Literal
 ALLOWED_ASSET_NAMES = frozenset({"input.png", "mask.npy", "confidence.npy", "overlay.png", "mask-preview.png", "lumbar-3d-mesh.json"})
 PUBLIC_BROWSER_ASSET_NAMES = frozenset({"input.png", "overlay.png", "mask-preview.png", "lumbar-3d-mesh.json"})
 INTERNAL_RAW_ASSET_NAMES = ALLOWED_ASSET_NAMES - PUBLIC_BROWSER_ASSET_NAMES
+
+# Catalogo de previsualizaciones por corte: `slice-007.png`. Es el unico nombre de
+# asset que no puede estar en una lista fija, porque la cantidad de cortes depende
+# del estudio. El patron es igual de estricto que la lista: solo digitos, sin
+# separadores de ruta ni extension arbitraria, de modo que no amplia la superficie
+# de path traversal que la lista ya cerraba.
+_SLICE_ASSET_PATTERN = re.compile(r"^slice-\d{3,5}\.png$")
+
+
+def is_slice_asset_name(asset_name: str) -> bool:
+    return bool(_SLICE_ASSET_PATTERN.fullmatch(asset_name))
+
+
+def slice_asset_name(index: int) -> str:
+    return f"slice-{int(index):03d}.png"
+
+
 _VALID_PLANES = {"sagittal", "axial", "workspace"}
 _RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,96}$")
 
@@ -42,7 +59,7 @@ def register_run_assets(run_id: str, plane: str, outputs: dict[str, str]) -> dic
     for raw_path in outputs.values():
         path = Path(raw_path)
         asset_name = path.name
-        if asset_name not in ALLOWED_ASSET_NAMES:
+        if asset_name not in ALLOWED_ASSET_NAMES and not is_slice_asset_name(asset_name):
             continue
         if not path.exists() or not path.is_file():
             continue
@@ -169,10 +186,11 @@ def validate_asset_name(asset_name: str) -> str:
     normalized = str(asset_name).strip()
     if normalized != Path(normalized).name or "/" in normalized or "\\" in normalized or ".." in normalized:
         raise AssetRegistryError("assetName invalido", status_code=403)
-    if normalized not in ALLOWED_ASSET_NAMES:
+    if normalized not in ALLOWED_ASSET_NAMES and not is_slice_asset_name(normalized):
         raise AssetRegistryError("assetName no permitido", status_code=403)
     return normalized
 
 
 def is_public_browser_asset(asset_name: str) -> bool:
-    return validate_asset_name(asset_name) in PUBLIC_BROWSER_ASSET_NAMES
+    normalized = validate_asset_name(asset_name)
+    return normalized in PUBLIC_BROWSER_ASSET_NAMES or is_slice_asset_name(normalized)

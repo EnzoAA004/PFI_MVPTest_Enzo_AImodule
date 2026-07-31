@@ -163,6 +163,9 @@ class PlaneMeasurementV2(PublicResponseModel):
     status: Literal["pending_review"]
     plane: PlaneNameV2
     level: str | None = None
+    #: Corte sobre el que se midio. Sin esto una medicion no se puede ubicar en la
+    #: serie: el revisor ve el numero pero no que imagen lo produjo.
+    sliceIndex: int | None = None
     measurementBasis: Literal["physical_spacing", "pixel_space"]
     linkedLandmarkIds: list[str] = Field(default_factory=list)
 
@@ -174,6 +177,10 @@ class PlaneQualityV2(PublicResponseModel):
     meanConfidence: float | None = None
     meanForegroundConfidence: float | None = None
     foregroundRatio: float | None = None
+    #: Cortes de la serie con previsualizacion persistida. 0 significa que solo el
+    #: corte inferido tiene imagen, que es el caso de toda corrida anterior al
+    #: catalogo; el visor lo usa para no prometer una imagen que no existe.
+    slicePreviewCount: int = 0
     warnings: list[str] = Field(default_factory=list)
 
 

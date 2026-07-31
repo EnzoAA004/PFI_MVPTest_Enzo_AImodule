@@ -553,7 +553,12 @@ def measurements_v2(plane: PlaneNameV2, raw: Any, metadata: dict[str, Any]) -> l
             source="ai",
             status="pending_review",
             plane=plane,
-            level=None,
+            # El runtime asigna el nivel lumbar por disco (L1-L2 ... L5-S1) cuando
+            # el encuadre lo permite, y deja None cuando no puede afirmarlo. Fijarlo
+            # en None aca descartaba esa asignacion y todas las mediciones llegaban
+            # al revisor agrupadas como "sin nivel".
+            level=text_or_none(item.get("level")),
+            sliceIndex=int_or_none(item.get("sliceIndex")),
             measurementBasis="physical_spacing" if physical else "pixel_space",
             linkedLandmarkIds=list_string(item.get("linkedLandmarks")),
         ))
@@ -569,6 +574,7 @@ def plane_quality_v2(raw: Any) -> PlaneQualityV2:
         meanConfidence=float_or_none(quality.get("meanConfidence")),
         meanForegroundConfidence=float_or_none(quality.get("meanForegroundConfidence")),
         foregroundRatio=float_or_none(quality.get("foregroundRatio")),
+        slicePreviewCount=int(quality.get("slicePreviewCount", 0) or 0),
         warnings=[],
     )
 
@@ -763,6 +769,22 @@ def int_or_none(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def int_or_none(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def text_or_none(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
 
 
 def float_or_none(value: Any) -> float | None:
