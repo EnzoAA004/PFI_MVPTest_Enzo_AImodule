@@ -1,0 +1,7 @@
+# Los scripts de shell se guardan y se registran siempre con finales de linea LF.
+#
+# El repo se clona en Windows con core.autocrlf=true, asi que sin esta regla cada
+# .sh queda con CRLF en el arbol de trabajo. Dentro de un contenedor Linux eso no
+# es cosmetico: bash lee el CR como parte del argumento y `set -o pipefail` falla
+# con "invalid option name" antes de ejecutar una sola linea util.
+*.sh text eol=lf
