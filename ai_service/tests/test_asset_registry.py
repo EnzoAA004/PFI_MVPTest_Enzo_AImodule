@@ -53,7 +53,19 @@ def test_asset_registry_registers_real_run_assets(monkeypatch, tmp_path) -> None
     run_id = body["runId"]
     assets = body["assets"]
 
-    assert set(assets) == {"input.png", "mask.npy", "confidence.npy", "overlay.png", "mask-preview.png"}
+    # Las tres mascaras por clase de sagittal_spider se suman a los assets fijos: es
+    # lo que permite apagar una estructura sin apagar las demas. Se listan y no se
+    # derivan del registro, porque son las clases de un artefacto congelado.
+    assert set(assets) == {
+        "input.png",
+        "mask.npy",
+        "confidence.npy",
+        "overlay.png",
+        "mask-preview.png",
+        "mask-canal.png",
+        "mask-disc_group.png",
+        "mask-vertebra_group.png",
+    }
     assert_public_assets_have_no_paths(assets)
     for asset_name, metadata in assets.items():
         assert metadata["runId"] == run_id

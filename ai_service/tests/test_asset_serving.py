@@ -37,7 +37,20 @@ def run_sagittal_fixture(monkeypatch, tmp_path) -> dict:
     body = response.json()
     assert body["metadata"]["requestedInferenceMode"] == "real_baseline"
     assert body["metadata"]["runtime"] == "pytorch"
-    assert set(body["assets"]) == {"input.png", "mask.npy", "confidence.npy", "overlay.png", "mask-preview.png"}
+    # A los assets fijos se suma una mascara por clase del modelo. Se listan las tres
+    # de sagittal_spider en vez de derivarlas del registro: son las clases de un
+    # artefacto congelado, y derivarlas haria que la prueba se acomode sola a
+    # cualquier cambio en vez de avisar.
+    assert set(body["assets"]) == {
+        "input.png",
+        "mask.npy",
+        "confidence.npy",
+        "overlay.png",
+        "mask-preview.png",
+        "mask-canal.png",
+        "mask-disc_group.png",
+        "mask-vertebra_group.png",
+    }
     return body
 
 
