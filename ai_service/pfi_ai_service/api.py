@@ -312,7 +312,14 @@ def get_run_asset(run_id: str, plane: str, asset_name: str):
 
     if not is_public_browser_asset(record.asset_name):
         raise HTTPException(status_code=403, detail="asset interno no disponible publicamente")
-    media_type = "application/json" if record.asset_name.endswith(".json") else "image/png"
+    # Un corte crudo no es una imagen: son enteros de 16 bits que el visor ventanea.
+    # Servirlo como image/png haria que el navegador intentara decodificarlo.
+    if record.asset_name.endswith(".json"):
+        media_type = "application/json"
+    elif record.asset_name.endswith(".raw"):
+        media_type = "application/octet-stream"
+    else:
+        media_type = "image/png"
     return FileResponse(record.path, media_type=media_type, filename=record.asset_name)
 
 @app.get("/study/demo-review")

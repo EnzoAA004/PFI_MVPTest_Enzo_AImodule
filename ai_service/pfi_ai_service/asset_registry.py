@@ -15,15 +15,29 @@ INTERNAL_RAW_ASSET_NAMES = ALLOWED_ASSET_NAMES - PUBLIC_BROWSER_ASSET_NAMES
 # del estudio. El patron es igual de estricto que la lista: solo digitos, sin
 # separadores de ruta ni extension arbitraria, de modo que no amplia la superficie
 # de path traversal que la lista ya cerraba.
-_SLICE_ASSET_PATTERN = re.compile(r"^slice-\d{3,5}\.png$")
+_SLICE_ASSET_PATTERN = re.compile(r"^slice-\d{3,5}\.(png|raw)$")
+
+# Mascara de una clase de segmentacion: `mask-vertebra_group.png`. Tampoco puede ir
+# en una lista fija, porque las clases dependen del modelo. El patron acepta solo
+# minusculas, digitos y guion bajo -el formato de los class_names del registro- asi
+# que no admite separadores de ruta ni extension arbitraria.
+_CLASS_MASK_PATTERN = re.compile(r"^mask-[a-z][a-z0-9_]{0,31}\.png$")
 
 
 def is_slice_asset_name(asset_name: str) -> bool:
     return bool(_SLICE_ASSET_PATTERN.fullmatch(asset_name))
 
 
+def is_class_mask_asset_name(asset_name: str) -> bool:
+    return bool(_CLASS_MASK_PATTERN.fullmatch(asset_name))
+
+
 def slice_asset_name(index: int) -> str:
     return f"slice-{int(index):03d}.png"
+
+
+def slice_pixels_asset_name(index: int) -> str:
+    return f"slice-{int(index):03d}.raw"
 
 
 _VALID_PLANES = {"sagittal", "axial", "workspace"}
@@ -59,7 +73,7 @@ def register_run_assets(run_id: str, plane: str, outputs: dict[str, str]) -> dic
     for raw_path in outputs.values():
         path = Path(raw_path)
         asset_name = path.name
-        if asset_name not in ALLOWED_ASSET_NAMES and not is_slice_asset_name(asset_name):
+        if asset_name not in ALLOWED_ASSET_NAMES and not is_slice_asset_name(asset_name) and not is_class_mask_asset_name(asset_name):
             continue
         if not path.exists() or not path.is_file():
             continue
@@ -186,11 +200,11 @@ def validate_asset_name(asset_name: str) -> str:
     normalized = str(asset_name).strip()
     if normalized != Path(normalized).name or "/" in normalized or "\\" in normalized or ".." in normalized:
         raise AssetRegistryError("assetName invalido", status_code=403)
-    if normalized not in ALLOWED_ASSET_NAMES and not is_slice_asset_name(normalized):
+    if normalized not in ALLOWED_ASSET_NAMES and not is_slice_asset_name(normalized) and not is_class_mask_asset_name(normalized):
         raise AssetRegistryError("assetName no permitido", status_code=403)
     return normalized
 
 
 def is_public_browser_asset(asset_name: str) -> bool:
     normalized = validate_asset_name(asset_name)
-    return normalized in PUBLIC_BROWSER_ASSET_NAMES or is_slice_asset_name(normalized)
+    return normalized in PUBLIC_BROWSER_ASSET_NAMES or is_slice_asset_name(normalized) or is_class_mask_asset_name(normalized)
