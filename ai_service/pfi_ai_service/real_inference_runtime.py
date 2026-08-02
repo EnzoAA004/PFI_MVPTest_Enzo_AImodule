@@ -874,6 +874,58 @@ def prediction_grid_spacing(
     )
 
 
+def oriented_extent(
+    binary: np.ndarray,
+    row_spacing: float,
+    col_spacing: float,
+) -> tuple[float, float]:
+    """Ancho y alto de una estructura medidos sobre sus propios ejes.
+
+    La caja alineada a la imagen no mide el disco: mide la caja que lo contiene. En
+    L5-S1, que es el nivel mas angulado de la columna, eso daba 25 mm de alto para un
+    disco que anda por 8-12. Cuanto mas inclinada la estructura, mas mide de mas.
+
+    Los ejes propios salen de la nube de pixeles: los autovectores de su covarianza
+    son las direcciones en las que la estructura se extiende. Se calcula sobre las
+    coordenadas ya en milimetros y no en pixeles, para que un spacing anisotropico no
+    incline los ejes por si solo -en mm el disco esta donde esta, en pixeles estaria
+    estirado.
+
+    El eje mas horizontal se informa como ancho y el otro como alto: el que rota es
+    el instrumento, no el significado. En un sagital el ancho sigue siendo el
+    anteroposterior y el alto el craneocaudal, que es como se lee un informe. Ordenar
+    por eje mayor y menor los intercambiaria en cualquier vertebra mas alta que ancha,
+    y llamaria "ancho" al largo del canal, que es una estructura vertical.
+
+    A 45 grados exactos los dos ejes estan igual de cerca de la horizontal y el
+    rotulo deja de significar algo. Las dos magnitudes siguen siendo correctas; cual
+    es el ancho y cual el alto, en ese caso, no lo decide la geometria.
+
+    Se suma la huella del pixel proyectada sobre cada eje, que es lo que hacia el
+    `+1` de la caja: sin eso una estructura de un pixel de espesor mediria cero. A
+    cero grados la formula da exactamente lo mismo que la caja, que es la unica forma
+    de que este cambio no mueva las medidas que ya estaban bien.
+    """
+    ys, xs = np.where(binary)
+    if len(xs) == 0:
+        return 0.0, 0.0
+    points = np.stack((xs * col_spacing, ys * row_spacing), axis=1)
+    if len(xs) < 2:
+        return col_spacing, row_spacing
+    centered = points - points.mean(axis=0)
+    # `eigh` en vez de `eig`: la covarianza es simetrica y garantiza autovectores
+    # reales y ortonormales, sin la parte imaginaria residual que trae el caso general.
+    _, vectors = np.linalg.eigh(np.cov(centered, rowvar=False))
+    horizontal, vertical = sorted(vectors.T, key=lambda vector: abs(float(vector[0])), reverse=True)
+
+    def extent(axis: np.ndarray) -> float:
+        projected = centered @ axis
+        footprint = abs(float(axis[0])) * col_spacing + abs(float(axis[1])) * row_spacing
+        return float(projected.max() - projected.min()) + footprint
+
+    return extent(horizontal), extent(vertical)
+
+
 def build_measurements(
     model_key: str,
     plane: str,
@@ -892,8 +944,9 @@ def build_measurements(
         ys, xs = np.where(binary)
         if len(xs) == 0:
             return
-        width = float(xs.max() - xs.min() + 1) * col_spacing
-        height = float(ys.max() - ys.min() + 1) * row_spacing
+        width, height = oriented_extent(binary, row_spacing, col_spacing)
+        # El area cuenta pixeles, asi que no depende de como este orientada la
+        # estructura: es la unica de las tres magnitudes que la caja no distorsionaba.
         area = float(len(xs)) * row_spacing * col_spacing
         common = {
             "level": level,
@@ -962,16 +1015,21 @@ def build_measurements(
     #
     # No se publica un diametro anteroposterior por nivel, aunque el calculo esta
     # implementado (canal_ap_diameter) y seria la medicion de estenosis que un
-    # informe reporta. Medido sobre un estudio real, el ancho de esta mascara da
-    # entre 4.7 y 12.9 mm en todos los niveles. Un canal lumbar normal mide 15-25 mm
-    # y por debajo de ~12 se habla de estenosis: publicar estos numeros con el
-    # rotulo "diametro AP del canal" describiria una estenosis critica en los cinco
-    # niveles de cualquier estudio.
+    # informe reporta.
     #
-    # El spacing no es el problema: en la misma corrida los discos miden 25-30 mm de
-    # ancho y 8-12 de alto, que es lo anatomicamente esperable. Lo que no cierra es
-    # que la clase `canal` del checkpoint sea el canal: un ancho de ~10 mm es mas
-    # compatible con la medula que con el canal.
+    # La primera vez que se decidio esto, la evidencia estaba medida con el spacing
+    # equivocado. Repetida sobre el mismo estudio ya corregido, el diametro AP da
+    # 13.1, 14.2, 13.1, 12.0, 9.8, 12.0 y 2.2 mm de T11-T12 a L5-S1. Un canal lumbar
+    # normal mide 15-25 mm y por debajo de ~12 se habla de estenosis: publicar esto
+    # describiria estenosis en casi todos los niveles de un estudio, y un bloqueo
+    # completo en L5-S1.
+    #
+    # La escala ya no explica la diferencia: en la misma corrida los cuerpos
+    # vertebrales miden 31-40 mm de ancho por 27-30 de alto y los discos 29-37 por
+    # 6-16, que es exactamente lo que se espera de una lumbar. Lo que no cierra es la
+    # mascara: ocupa 47 mm de ancho total, demasiado para un canal, y a la altura de
+    # L5-S1 apenas toca las filas del disco. La clase `canal` del checkpoint no esta
+    # delimitando lo que su nombre dice.
     #
     # Hasta confirmar que segmenta esa clase contra el dataset de origen, se informa
     # solo el area -que describe la mascara sin afirmar que estructura es- y sin
@@ -991,27 +1049,27 @@ def build_measurements(
 
     # --- Cuerpos vertebrales -------------------------------------------------
     #
-    # No se separan por componente conexa, a diferencia de los discos. La clase
-    # `vertebra_group` no contiene solo cuerpos vertebrales: incluye los elementos
-    # posteriores, que en un corte sagital aparecen como blobs aparte. Sobre un
-    # estudio real la mascara da 13 componentes para ~7 cuerpos, y no hay forma de
-    # distinguir un cuerpo de un elemento posterior desde la mascara sola. Nombrar
-    # esos componentes L1..L5 etiquetaria astillas con nombre de vertebra, que es
-    # peor que no asignarles nivel.
+    # La clase `vertebra_group` no contiene solo cuerpos: incluye los elementos
+    # posteriores, que en un sagital aparecen como blobs aparte. Se separan con el
+    # mismo criterio que usa la segmentacion -los discos como ancla- y se nombran
+    # desde los discos ya identificados, asi que la altura de un cuerpo viaja con su
+    # nivel. Esa altura es un hallazgo reportable: una perdida de altura del cuerpo
+    # es como se describe un aplastamiento.
     #
-    # Se informa solo el area, que describe la mascara. El alto y el ancho de la
-    # caja que envuelve toda la columna no son medidas de nada.
+    # No se mide el arco posterior. Se ve en la segmentacion y lleva su nivel, pero
+    # el ancho de un arco no es una magnitud que un informe reporte.
+    #
+    # Un cuerpo que el encuadre corto se mide igual pero sin nivel: la medicion
+    # describe la mascara, y es el nombre lo que no se puede afirmar.
     vertebra_group = by_class.get("vertebra_group")
     if vertebra_group is not None and vertebra_group.any():
-        _, xs = np.where(vertebra_group)
-        emit_single(
-            f"{plane}-vertebra_group-area",
-            "vertebra_group area",
-            float(len(xs)) * row_spacing * col_spacing,
-            area_unit,
-            None,
-            vertebra_group,
-        )
+        bodies, _ = split_vertebral_bodies(connected_instances(vertebra_group), disc_instances)
+        body_levels = name_vertebral_bodies(bodies, disc_instances, disc_levels)
+        # El id es posicional y el nivel viaja aparte, por lo mismo que en la
+        # segmentacion: derivarlo del nombre produce colisiones cuando dos
+        # componentes reciben el mismo nivel, y el id es la clave de la lista.
+        for position, (component, level) in enumerate(zip(bodies, body_levels), start=1):
+            emit(f"{plane}-vertebra-v{position}", "vertebra", component, level, [])
 
     # --- Clases que el modelo no separa en instancias ------------------------
     for label, binary in by_class.items():

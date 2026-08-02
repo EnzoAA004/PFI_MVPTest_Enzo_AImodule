@@ -95,13 +95,24 @@ def test_volume_without_spacing_reports_no_in_plane_spacing() -> None:
 
 
 def test_measurements_use_row_sy_and_column_sx_not_slice_spacing() -> None:
-    prediction = np.zeros((4, 5), dtype=np.uint8)
-    prediction[1:3, 1:4] = 1
+    """Cada eje se mide con su propio spacing, y ninguno con el del corte.
+
+    El bloque es de 10 filas por 20 columnas con pixeles de 0.8 x 0.7 mm: el alto
+    tiene que salir de las filas -8.0 mm- y el ancho de las columnas -14.0 mm. Si se
+    intercambiaran daria 7.0 y 16.0, que es el error que esta prueba existe para
+    encontrar.
+
+    Se mide un cuerpo vertebral y no el grupo entero: la clase se separa en
+    instancias, asi que lo que se informa es una vertebra, no la caja que envuelve
+    toda la columna.
+    """
+    prediction = np.zeros((40, 50), dtype=np.uint8)
+    prediction[10:20, 10:30] = 1
     confidence = np.ones_like(prediction, dtype=np.float32)
-    values = build_measurements("sagittal_spider", "sagittal", prediction, confidence, (0.8, 0.7))
+    values = build_measurements("sagittal_spider", "sagittal", prediction, confidence, (0.8, 0.7), 7)
     by_id = {item["id"]: item for item in values}
 
-    assert by_id["sagittal-vertebra_group-area"]["value"] == 3.36
-    assert by_id["sagittal-vertebra_group-width"]["value"] == 2.1
-    assert by_id["sagittal-vertebra_group-height"]["value"] == 1.6
-    assert by_id["sagittal-vertebra_group-area"]["unit"] == "mm2"
+    assert by_id["sagittal-vertebra-v1-area"]["value"] == 112.0
+    assert by_id["sagittal-vertebra-v1-width"]["value"] == 14.0
+    assert by_id["sagittal-vertebra-v1-height"]["value"] == 8.0
+    assert by_id["sagittal-vertebra-v1-area"]["unit"] == "mm2"
