@@ -136,10 +136,19 @@ class PlaneMaskV2(PublicResponseModel):
     id: str
     classKey: str
     classId: int | None = None
+    #: Nivel lumbar de la instancia, cuando se lo pudo determinar.
+    level: str | None = None
+    #: Color asignado a la instancia, para distinguirla de sus vecinas.
+    color: str | None = None
     confidence: float | None
     enabled: bool
     editable: bool
     coordinateSpace: str
+    #: Contorno de la instancia: {"points": [{"x","y"}, ...]} en `coordinateSpace`.
+    #:
+    #: Es lo que convierte a la mascara en un dato corregible. Mientras el unico
+    #: transporte fue el PNG, el medico podia ver que la IA se equivoco y no tenia
+    #: como decirlo: los puntos ya se calculaban en el modulo y se descartaban aca.
     geometry: dict[str, Any] | None = None
 
 
@@ -170,6 +179,31 @@ class PlaneMeasurementV2(PublicResponseModel):
     linkedLandmarkIds: list[str] = Field(default_factory=list)
 
 
+class SegmentationInstanceV2(PublicResponseModel):
+    index: int
+    id: str
+    label: str
+    classKey: str
+    level: str | None = None
+
+
+class PlaneSegmentationV2(PublicResponseModel):
+    """Mapa de instancias del corte inferido, no una imagen ya pintada.
+
+    Cada pixel lleva el indice de la instancia a la que pertenece (0 = ninguna).
+    El color es una decision de presentacion y la toma el visor: asi puede pintar
+    cada vertebra de un color, ocultar una sin tocar las demas y editarla, sin
+    volver a pedirle nada al backend.
+    """
+
+    encoding: Literal["rle-v1"]
+    width: int
+    height: int
+    #: Pares (valor, repeticiones) recorriendo la imagen por filas.
+    data: list[int]
+    instances: list[SegmentationInstanceV2] = Field(default_factory=list)
+
+
 class PlaneQualityV2(PublicResponseModel):
     maskCount: int
     landmarkCount: int
@@ -181,6 +215,9 @@ class PlaneQualityV2(PublicResponseModel):
     #: corte inferido tiene imagen, que es el caso de toda corrida anterior al
     #: catalogo; el visor lo usa para no prometer una imagen que no existe.
     slicePreviewCount: int = 0
+    #: Datos crudos por corte: {count,width,height,dtype,byteOrder,min,max}.
+    #: Es lo que permite ventanear de verdad en vez de filtrar brillo sobre 8 bits.
+    slicePixels: dict[str, Any] | None = None
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -197,6 +234,7 @@ class PlaneRunV2Result(PublicResponseModel):
     masks: list[PlaneMaskV2]
     landmarks: list[PlaneLandmarkV2]
     measurements: list[PlaneMeasurementV2]
+    segmentation: PlaneSegmentationV2 | None = None
     quality: PlaneQualityV2
     synthetic: bool
     fallbackReason: str | None = None

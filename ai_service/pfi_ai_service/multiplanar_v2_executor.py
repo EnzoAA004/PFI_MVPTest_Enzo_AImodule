@@ -30,6 +30,8 @@ from .multiplanar_v2_models import (
     PlaneModelV2,
     PlaneNameV2,
     PlaneQualityV2,
+    PlaneSegmentationV2,
+    SegmentationInstanceV2,
     PlaneRunV2Result,
     PlaneSeriesV2,
     ReviewPolicyV2,
@@ -391,7 +393,9 @@ def normalize_plane_result_v2(
         sourceSliceIndex=selected_slice,
         sourceAxis=selected_axis,
     )
-    quality = plane_quality_v2(response.get("quality"))
+    quality_raw = response.get("quality")
+    quality = plane_quality_v2(quality_raw)
+    segmentation = plane_segmentation_v2((quality_raw or {}).get("segmentation") if isinstance(quality_raw, dict) else None)
     return PlaneRunV2Result(
         status="ready",
         plane=plane,
@@ -418,6 +422,7 @@ def normalize_plane_result_v2(
         masks=masks_v2(plane, response.get("masks"), coordinate_space.name),
         landmarks=landmarks_v2(plane, response.get("landmarks"), coordinate_space.name),
         measurements=measurements_v2(plane, response.get("measurementValues") or (response.get("measurements") or {}).get("values"), metadata),
+        segmentation=segmentation,
         quality=quality,
         synthetic=False,
         fallbackReason=None,
@@ -509,11 +514,15 @@ def masks_v2(plane: PlaneNameV2, raw: Any, coordinate_space: str) -> list[PlaneM
             id=required_text(item.get("id"), "mask.id", plane),
             classKey=class_key,
             classId=int_or_none(item.get("classId")),
+            level=text_or_none(item.get("level")),
+            color=text_or_none(item.get("color")),
             confidence=float_or_none(item.get("confidence")),
             enabled=bool(item.get("enabled", True)),
-            editable=False,
+            # El contorno viaja, asi que la mascara deja de ser una imagen fija y
+            # pasa a ser una propuesta que el revisor puede corregir.
+            editable=True,
             coordinateSpace=coordinate_space,
-            geometry=None,
+            geometry=mask_geometry(item.get("contours")),
         ))
     return masks
 
@@ -565,6 +574,64 @@ def measurements_v2(plane: PlaneNameV2, raw: Any, metadata: dict[str, Any]) -> l
     return values
 
 
+def mask_geometry(contours: Any) -> dict[str, Any] | None:
+    """Contorno de la instancia en la forma que consume el visor.
+
+    Se toma el del corte inferido, que es el unico que la corrida produjo. Un punto
+    sin coordenadas numericas se descarta en vez de viajar como null: un poligono a
+    medias dibuja una figura que no es la que la IA segmento.
+    """
+    if not isinstance(contours, list) or not contours:
+        return None
+    first = contours[0]
+    if not isinstance(first, dict):
+        return None
+    points = [
+        {"x": float(point["x"]), "y": float(point["y"])}
+        for point in (first.get("points") or [])
+        if isinstance(point, dict) and isinstance(point.get("x"), (int, float)) and isinstance(point.get("y"), (int, float))
+    ]
+    if len(points) < 3:
+        return None
+    return {"kind": "polygon", "sliceIndex": first.get("sliceIndex"), "points": points}
+
+
+def plane_segmentation_v2(raw: Any) -> PlaneSegmentationV2 | None:
+    """Mapa de instancias tal como lo produjo el runtime.
+
+    Se descarta entero si viene incompleto en vez de publicar un mapa a medias: un
+    RLE truncado pinta regiones donde no las hay, que es peor que no pintar nada.
+    """
+    segmentation = raw if isinstance(raw, dict) else None
+    if not segmentation or segmentation.get("encoding") != "rle-v1":
+        return None
+    data = segmentation.get("data")
+    width = int_or_none(segmentation.get("width"))
+    height = int_or_none(segmentation.get("height"))
+    if not isinstance(data, list) or not data or len(data) % 2 != 0 or not width or not height:
+        return None
+    if sum(data[1::2]) != width * height:
+        return None
+    instances = [
+        SegmentationInstanceV2(
+            index=int(item["index"]),
+            id=str(item["id"]),
+            label=str(item.get("label") or item.get("classKey") or ""),
+            classKey=str(item.get("classKey") or ""),
+            level=text_or_none(item.get("level")),
+        )
+        for item in (segmentation.get("instances") or [])
+        if isinstance(item, dict) and int_or_none(item.get("index")) is not None and item.get("id")
+    ]
+    return PlaneSegmentationV2(
+        encoding="rle-v1",
+        width=width,
+        height=height,
+        data=[int(value) for value in data],
+        instances=instances,
+    )
+
+
 def plane_quality_v2(raw: Any) -> PlaneQualityV2:
     quality = raw if isinstance(raw, dict) else {}
     return PlaneQualityV2(
@@ -575,6 +642,7 @@ def plane_quality_v2(raw: Any) -> PlaneQualityV2:
         meanForegroundConfidence=float_or_none(quality.get("meanForegroundConfidence")),
         foregroundRatio=float_or_none(quality.get("foregroundRatio")),
         slicePreviewCount=int(quality.get("slicePreviewCount", 0) or 0),
+        slicePixels=quality.get("slicePixels") if isinstance(quality.get("slicePixels"), dict) else None,
         warnings=[],
     )
 
