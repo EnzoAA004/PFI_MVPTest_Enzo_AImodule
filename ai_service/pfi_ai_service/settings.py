@@ -103,6 +103,19 @@ MODEL_REGISTRY = {
         "plane": "axial",
         "num_classes": 6,
         "class_names": {
+            # Los nombres son los valores de gris de la mascara original, no
+            # nombres clinicos, y se dejan asi a proposito: el manifest del artefacto
+            # declara esta misma lista y el validador la compara contra el registro.
+            # Renombrarlos aca invalidaba el manifest y deshabilitaba el modelo, que
+            # es el guard funcionando: el codigo y el artefacto tienen que decir lo
+            # mismo sobre lo que se entreno.
+            #
+            # La traduccion clinica vive en el frontend (clinicalDisplay), que es
+            # donde ya se traducen las clases del sagital. Correspondencia del
+            # dataset Al-Kafri: raw_0=fondo, raw_50=disco intervertebral,
+            # raw_100=elemento posterior, raw_150=saco tecal, raw_200=area
+            # anteroposterior. Ojo: el dataset Mendeley "Medical Lumbar Spine 3D
+            # Axial MRI" usa otro orden para los mismos valores.
             0: "background_250",
             1: "raw_0",
             2: "raw_50",
