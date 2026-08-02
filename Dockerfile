@@ -21,6 +21,15 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
 COPY ai_service /app/ai_service
 COPY config /app/config
 COPY models/final /app/models/final
+# Los scripts de evaluacion y los de infraestructura acompanan a los tests, que ya
+# viajan dentro de `ai_service`. Sin ellos la suite no se puede correr contra la
+# imagen: veintiuna pruebas fallaban siempre por un archivo ausente, y una tanda de
+# fallas permanentes entrena a ignorar el resultado de la suite entera.
+#
+# Son texto y no se ejecutan en runtime: 220 KB de shell y Python que no agregan
+# dependencias ni abren un camino de ejecucion nuevo.
+COPY scripts /app/scripts
+COPY infra /app/infra
 
 RUN mkdir -p /app/models/final /app/outputs
 
