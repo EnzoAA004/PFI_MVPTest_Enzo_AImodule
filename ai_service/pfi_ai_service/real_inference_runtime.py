@@ -10,7 +10,7 @@ import torch
 from PIL import Image
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS, build_agent_decision
-from .asset_registry import is_slice_asset_name, registered_assets_for_run, register_run_assets, slice_asset_name
+from .asset_registry import is_slice_asset_name, registered_assets_for_run, register_run_assets, slice_asset_name, slice_pixels_asset_name
 from .model_architectures import build_checkpoint_model
 from .model_artifacts import model_artifact_path, model_status
 from .settings import MODEL_REGISTRY, get_settings
@@ -423,6 +423,25 @@ def in_plane_spacing(loaded: LoadedInput, selected_axis: int) -> tuple[float, fl
     return None
 
 
+def is_compact(binary: np.ndarray, max_elongation: float = 4.0) -> bool:
+    """Si la forma es lo bastante compacta como para describirla con un poligono
+    ordenado por angulo alrededor de su centroide.
+
+    Se mide la relacion entre el lado largo y el corto de su caja: un disco o un
+    cuerpo vertebral quedan por debajo de 4, el canal de un estudio lumbar completo
+    la supera holgadamente. No es una constante arbitraria sino el limite donde el
+    ordenamiento angular deja de describir el borde real.
+    """
+    rows = np.where(binary.any(axis=1))[0]
+    cols = np.where(binary.any(axis=0))[0]
+    if rows.size == 0 or cols.size == 0:
+        return False
+    height = float(rows.max() - rows.min() + 1)
+    width = float(cols.max() - cols.min() + 1)
+    short = min(height, width)
+    return short > 0 and max(height, width) / short <= max_elongation
+
+
 def boundary_polygon(binary: np.ndarray, max_points: int = 96) -> list[Dict[str, float]]:
     mask = np.asarray(binary, dtype=bool)
     if not mask.any():
@@ -452,25 +471,295 @@ def class_color(class_id: int) -> str:
     return f"#{red:02x}{green:02x}{blue:02x}"
 
 
-def build_masks(model_key: str, plane: str, prediction: np.ndarray, confidence: np.ndarray, series_id: str, slice_index: int) -> list[Dict[str, Any]]:
-    masks: list[Dict[str, Any]] = []
-    for class_id in sorted(int(value) for value in np.unique(prediction) if int(value) != 0):
-        binary = prediction == class_id
-        points = boundary_polygon(binary)
-        if not points:
+#: Paleta cualitativa para distinguir instancias entre si.
+#:
+#: No codifica clase ni severidad: su unico trabajo es que dos estructuras vecinas
+#: no compartan color, para que el medico vea de un vistazo si la IA separo los
+#: discos donde correspondia o fusiono dos. Los colores por clase (PALETTE) siguen
+#: usandose para el overlay compuesto y para las capas por clase.
+INSTANCE_COLORS = [
+    "#e6194b", "#3cb44b", "#ffe119", "#4363d8", "#f58231",
+    "#911eb4", "#42d4f4", "#f032e6", "#bfef45", "#fabed4",
+    "#469990", "#dcbeff", "#9a6324", "#800000", "#808000",
+]
+
+
+def instance_color(index: int) -> str:
+    return INSTANCE_COLORS[index % len(INSTANCE_COLORS)]
+
+
+#: Clases que son fondo y no se pintan ni se miden.
+#:
+#: El modelo axial tiene dos: `background_250`, que quedo como id 0 en el remapeo
+#: del entrenamiento, y `raw_0`, que es el fondo del dataset Al-Kafri. Pintar la segunda dibujaba un
+#: marco rojo alrededor del estudio, porque es justamente lo que rodea al paciente.
+BACKGROUND_CLASSES = {"background", "background_250", "raw_0"}
+
+
+def is_background_class(name: str) -> bool:
+    return name in BACKGROUND_CLASSES
+
+
+def rle_encode(labels: np.ndarray) -> list[int]:
+    """Codifica un mapa de etiquetas como pares (valor, repeticiones).
+
+    Es el transporte de la segmentacion: exacto -no hay perdida ni interpolacion-
+    y mas chico que el PNG equivalente, porque una segmentacion son pocas regiones
+    grandes. Sobre un corte real de 256x256 da unos 1200 pares, ~9 KB en JSON.
+
+    Se manda el mapa y no una imagen ya pintada porque el color es una decision de
+    presentacion: quien dibuja elige que instancia resalta, cual oculta y con que
+    opacidad, sin volver a pedirle nada al backend.
+    """
+    flat = np.asarray(labels, dtype=np.int32).ravel()
+    if flat.size == 0:
+        return []
+    changes = np.flatnonzero(np.diff(flat))
+    starts = np.concatenate(([0], changes + 1))
+    lengths = np.diff(np.concatenate((starts, [flat.size])))
+    encoded: list[int] = []
+    for value, length in zip(flat[starts], lengths):
+        encoded.append(int(value))
+        encoded.append(int(length))
+    return encoded
+
+
+def build_segmentation(
+    model_key: str,
+    plane: str,
+    prediction: np.ndarray,
+) -> Dict[str, Any]:
+    """Segmentacion como mapa de instancias, no como imagen.
+
+    Cada pixel lleva el indice de la instancia a la que pertenece (0 = ninguna), y
+    aparte viaja la lista de instancias con su clase y su nivel. Asi el visor pinta
+    cada vertebra y cada disco de un color propio, puede ocultar una sin tocar las
+    demas, y tiene el dato exacto para corregirlo -sin reconstruir el borde con un
+    poligono, que sobre formas no compactas une puntos que no son.
+    """
+    labels = np.zeros(prediction.shape, dtype=np.int32)
+    instances: list[Dict[str, Any]] = []
+    class_ids = {
+        name: class_id
+        for class_id in sorted(int(value) for value in np.unique(prediction) if int(value) != 0)
+        if not is_background_class(name := class_name(model_key, class_id))
+    }
+
+    def register(identifier: str, label: str, class_key: str, binary: np.ndarray, level: str | None) -> None:
+        index = len(instances) + 1
+        labels[binary] = index
+        instances.append({
+            "index": index,
+            "id": identifier,
+            "label": label,
+            "classKey": class_key,
+            "level": level,
+        })
+
+    if "disc_group" in class_ids:
+        components = connected_instances(prediction == class_ids["disc_group"])
+        for position, (component, level) in enumerate(zip(components, lumbar_disc_levels(len(components))), start=1):
+            slug = level.lower() if level else f"d{position}"
+            register(f"{plane}-disc-{slug}", "disc", "disc_group", component, level)
+
+    if "vertebra_group" in class_ids:
+        discs = connected_instances(prediction == class_ids["disc_group"]) if "disc_group" in class_ids else []
+        bodies, posterior = split_vertebral_bodies(connected_instances(prediction == class_ids["vertebra_group"]), discs)
+        body_names = name_vertebral_bodies(bodies, discs, lumbar_disc_levels(len(discs)))
+        # El id es posicional y el nivel viaja aparte. Derivarlo del nivel producia
+        # ids repetidos: cuando la segmentacion parte el arco de una vertebra en dos
+        # componentes, ambos son legitimamente "L4" y colisionaban en un mismo id,
+        # que es justo lo que el front usa como clave de lista.
+        for index, (component, name) in enumerate(zip(bodies, body_names), start=1):
+            register(f"{plane}-vertebra-b{index}", "vertebra", "vertebra_group", component, name)
+        for position, (component, name) in enumerate(zip(posterior, name_posterior_elements(posterior, bodies, body_names)), start=1):
+            register(f"{plane}-posterior-p{position}", "posterior_element", "vertebra_group", component, name)
+
+    for label, class_id in class_ids.items():
+        if label in {"disc_group", "vertebra_group"}:
             continue
-        class_confidence = float(confidence[binary].mean()) if binary.any() else 0.0
+        register(f"{plane}-{label}", label, label, prediction == class_id, None)
+
+    return {
+        "encoding": "rle-v1",
+        "width": int(prediction.shape[1]),
+        "height": int(prediction.shape[0]),
+        "data": rle_encode(labels),
+        "instances": instances,
+    }
+
+
+def split_vertebral_bodies(
+    vertebrae: list[np.ndarray],
+    discs: list[np.ndarray],
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Separa cuerpos vertebrales de elementos posteriores.
+
+    La clase `vertebra_group` no distingue uno de otro: sobre un estudio real da 14
+    componentes para 7 vertebras, porque cada una aporta su cuerpo y su arco
+    posterior. En un corte sagital el eje horizontal es el anteroposterior, y el
+    cuerpo esta delante mientras el arco esta detras.
+
+    El corte se ancla en los discos y no en un umbral inventado: los discos estan
+    alineados con los cuerpos por definicion -son lo que hay entre dos cuerpos-, asi
+    que su borde posterior marca donde termina la columna anterior. Sin discos no
+    hay ancla y se devuelven todos como cuerpos, que es lo que se veia antes.
+    """
+    if not vertebrae:
+        return [], []
+    if not discs:
+        return list(vertebrae), []
+    disc_backs = [float(np.where(mask.any(axis=0))[0].max()) for mask in discs]
+    boundary = float(np.median(disc_backs))
+    bodies: list[np.ndarray] = []
+    posterior: list[np.ndarray] = []
+    for mask in vertebrae:
+        columns = np.where(mask.any(axis=0))[0]
+        (bodies if float(columns.mean()) <= boundary else posterior).append(mask)
+    return bodies, posterior
+
+
+def name_posterior_elements(
+    posterior: list[np.ndarray],
+    bodies: list[np.ndarray],
+    body_names: list[str | None],
+) -> list[str | None]:
+    """Nombra cada arco posterior por el cuerpo que tiene enfrente.
+
+    El arco posterior de L4 esta a la misma altura que el cuerpo de L4: comparten el
+    rango de filas porque son la misma vertebra vista de perfil. Asi que se empareja
+    por solapamiento vertical en vez de contar de nuevo desde abajo, que volveria a
+    introducir el supuesto de donde empieza la lumbar.
+
+    Un arco que no solapa con ningun cuerpo nombrado queda sin nivel. Se sigue viendo
+    como elemento posterior -eso lo dice la estructura, no el nombre- pero no se le
+    inventa una vertebra que el encuadre no muestra.
+    """
+    names: list[str | None] = [None] * len(posterior)
+    if not posterior or not bodies:
+        return names
+    spans = [(float(np.where(mask.any(axis=1))[0].min()), float(np.where(mask.any(axis=1))[0].max())) for mask in bodies]
+    for index, mask in enumerate(posterior):
+        rows = np.where(mask.any(axis=1))[0]
+        top, bottom = float(rows.min()), float(rows.max())
+        overlaps = [
+            (min(bottom, span_bottom) - max(top, span_top), position)
+            for position, (span_top, span_bottom) in enumerate(spans)
+        ]
+        overlap, position = max(overlaps)
+        if overlap > 0 and body_names[position]:
+            names[index] = body_names[position]
+    return names
+
+
+def name_vertebral_bodies(
+    bodies: list[np.ndarray],
+    discs: list[np.ndarray],
+    disc_levels: list[str | None],
+) -> list[str | None]:
+    """Nombra cada cuerpo a partir de los discos ya identificados.
+
+    No se vuelve a contar desde cero: el cuerpo inmediatamente superior al disco
+    L4-L5 es L4, y el inferior al ultimo disco lumbar es S1. Anclar en los discos
+    evita introducir un segundo supuesto sobre donde empieza la lumbar que podria
+    contradecir al primero.
+
+    Un cuerpo que no queda entre dos discos identificados se deja sin nombre: es el
+    que el encuadre corto por arriba o por abajo.
+    """
+    names: list[str | None] = [None] * len(bodies)
+    if not bodies or not discs:
+        return names
+    tops = [float(np.where(mask.any(axis=1))[0].min()) for mask in bodies]
+    for disc, level in zip(discs, disc_levels):
+        if not level or "-" not in level:
+            continue
+        upper, lower = level.split("-", 1)
+        disc_top = float(np.where(disc.any(axis=1))[0].min())
+        disc_bottom = float(np.where(disc.any(axis=1))[0].max())
+        above = [index for index, top in enumerate(tops) if top < disc_top]
+        if above:
+            names[max(above, key=lambda index: tops[index])] = upper
+        below = [index for index, top in enumerate(tops) if top > disc_bottom]
+        if below:
+            candidate = min(below, key=lambda index: tops[index])
+            if names[candidate] is None:
+                names[candidate] = lower
+    return names
+
+
+def build_masks(
+    model_key: str,
+    plane: str,
+    prediction: np.ndarray,
+    confidence: np.ndarray,
+    series_id: str,
+    slice_index: int,
+) -> list[Dict[str, Any]]:
+    """Una mascara por instancia, con su contorno propio.
+
+    Antes se emitia una mascara por clase, con un unico poligono calculado sobre
+    toda la clase: el contorno de `disc_group` envolvia los seis discos juntos, un
+    trazo que no corresponde a ninguna estructura y que el revisor no puede
+    corregir. Por instancia, cada disco tiene su borde, su color y -cuando se pudo
+    determinar- su nivel.
+
+    Los cuerpos vertebrales se emiten por instancia aunque no se les pueda asignar
+    nivel: verlos separados es justamente lo que deja ver que la clase
+    `vertebra_group` no contiene solo cuerpos, y esa evidencia le sirve al medico
+    mas que un unico contorno que la esconde.
+    """
+    masks: list[Dict[str, Any]] = []
+    class_ids = {
+        name: class_id
+        for class_id in sorted(int(value) for value in np.unique(prediction) if int(value) != 0)
+        if not is_background_class(name := class_name(model_key, class_id))
+    }
+
+    def add(identifier: str, label: str, class_id: int, binary: np.ndarray, level: str | None) -> None:
+        # El contorno se ordena por angulo alrededor del centroide, lo que solo
+        # describe una figura estrellada respecto de ese centro. Sirve para discos y
+        # cuerpos vertebrales, que son compactos; sobre el canal -un tubo largo y
+        # curvo- el poligono se cruza a si mismo y dibuja una estrella que no es la
+        # estructura. Para esas formas no se emite geometria: el PNG por clase la
+        # muestra bien, y un contorno falso seria peor que ninguno.
+        points = boundary_polygon(binary) if is_compact(binary) else []
         masks.append({
-            "id": f"mask-{plane}-{class_name(model_key, class_id).replace('_', '-')}",
-            "label": class_name(model_key, class_id),
+            "id": identifier,
+            "label": label,
             "className": class_name(model_key, class_id),
             "classId": class_id,
-            "color": class_color(class_id),
-            "confidence": round(class_confidence, 4),
+            "level": level,
+            "color": instance_color(len(masks)),
+            "confidence": round(float(confidence[binary].mean()), 4) if binary.any() else 0.0,
             "editable": True,
             "enabled": True,
-            "contours": [{"seriesId": series_id, "sliceIndex": slice_index, "points": points}],
+            "contours": [{"seriesId": series_id, "sliceIndex": slice_index, "points": points}] if points else [],
         })
+
+    if "disc_group" in class_ids:
+        class_id = class_ids["disc_group"]
+        instances = connected_instances(prediction == class_id)
+        levels = lumbar_disc_levels(len(instances))
+        for position, (component, level) in enumerate(zip(instances, levels), start=1):
+            slug = level.lower() if level else f"d{position}"
+            add(f"mask-{plane}-disc-{slug}", "disc", class_id, component, level)
+
+    if "vertebra_group" in class_ids:
+        class_id = class_ids["vertebra_group"]
+        discs = connected_instances(prediction == class_ids["disc_group"]) if "disc_group" in class_ids else []
+        bodies, posterior = split_vertebral_bodies(connected_instances(prediction == class_id), discs)
+        for component, name in zip(bodies, name_vertebral_bodies(bodies, discs, lumbar_disc_levels(len(discs)))):
+            slug = name.lower() if name else f"b{bodies.index(component) + 1}"
+            add(f"mask-{plane}-vertebra-{slug}", "vertebra", class_id, component, name)
+        for position, component in enumerate(posterior, start=1):
+            add(f"mask-{plane}-posterior-p{position}", "posterior_element", class_id, component, None)
+
+    for label, class_id in class_ids.items():
+        if label in {"disc_group", "vertebra_group"}:
+            continue
+        add(f"mask-{plane}-{label.replace('_', '-')}", label, class_id, prediction == class_id, None)
+
     return masks
 
 
@@ -523,6 +812,12 @@ def connected_instances(binary: np.ndarray, min_pixels: int = 20) -> list[np.nda
     return instances
 
 
+#: Espacios discales por encima de L1-L2, hacia arriba. Un encuadre lumbar suele
+#: incluir uno o dos: nombrarlos evita que caigan en "sin nivel asignado" cuando en
+#: realidad se sabe cuales son.
+THORACIC_DISC_LEVELS = ("T12-L1", "T11-T12", "T10-T11", "T9-T10", "T8-T9")
+
+
 def lumbar_disc_levels(count: int) -> list[str | None]:
     """Nivel anatomico de cada espacio discal detectado, de superior a inferior.
 
@@ -540,8 +835,43 @@ def lumbar_disc_levels(count: int) -> list[str | None]:
     """
     if count < len(LUMBAR_DISC_LEVELS):
         return [None] * count
-    unassigned = count - len(LUMBAR_DISC_LEVELS)
-    return [None] * unassigned + list(LUMBAR_DISC_LEVELS)
+    extra = count - len(LUMBAR_DISC_LEVELS)
+    # Los que sobran por encima de L1-L2 son toracicos, y se nombran hacia arriba
+    # desde T12-L1. Mas alla de lo que cubre la tabla quedan sin nivel antes que
+    # seguir contando vertebras que el encuadre ya casi no muestra.
+    above = [THORACIC_DISC_LEVELS[index] if index < len(THORACIC_DISC_LEVELS) else None for index in range(extra)]
+    return list(reversed(above)) + list(LUMBAR_DISC_LEVELS)
+
+
+def prediction_grid_spacing(
+    spacing: tuple[float, float] | None,
+    array_shape: tuple[int, ...],
+    selected_axis: int,
+    prediction_shape: tuple[int, ...],
+) -> tuple[float, float] | None:
+    """Convierte el spacing nativo al de la grilla de la prediccion.
+
+    La red recibe el corte reescalado a su tamano de entrada -384x384 pasa a
+    256x256-, asi que un pixel de la prediccion cubre 1.5 pixeles nativos. Medir
+    contando pixeles de la prediccion y multiplicar por el spacing nativo mezclaba
+    dos grillas distintas y devolvia todo un 33% mas chico: un disco de 28 mm se
+    informaba como 19 mm, y las areas quedaban a menos de la mitad porque el error
+    entra al cuadrado.
+
+    Lo que se ajusta es el spacing, no la medicion, porque el error no esta en el
+    conteo de pixeles sino en cuanto mide cada pixel de esa grilla.
+    """
+    if spacing is None:
+        return None
+    native = [dim for index, dim in enumerate(array_shape) if index != selected_axis]
+    if len(native) < 2 or len(prediction_shape) < 2:
+        return spacing
+    if prediction_shape[0] <= 0 or prediction_shape[1] <= 0:
+        return spacing
+    return (
+        float(spacing[0]) * float(native[0]) / float(prediction_shape[0]),
+        float(spacing[1]) * float(native[1]) / float(prediction_shape[1]),
+    )
 
 
 def build_measurements(
@@ -591,34 +921,182 @@ def build_measurements(
                 **common,
             })
 
-    for class_id in sorted(int(value) for value in np.unique(prediction) if int(value) != 0):
-        binary = prediction == class_id
-        label = class_name(model_key, class_id)
-        centroid_landmark = f"lm-mask-{plane}-{label.replace('_', '-')}-centroid"
+    def emit_single(identifier, label, magnitude, unit, level, binary):
+        """Una sola magnitud, para lo que no tiene sentido medir en tres ejes."""
+        values.append({
+            "id": identifier,
+            "label": label,
+            "labelKey": label,
+            "value": round(magnitude, 2),
+            "aiValue": round(magnitude, 2),
+            "reviewerValue": None,
+            "unit": unit,
+            "level": level,
+            "sliceIndex": slice_index,
+            "source": "AI",
+            "confidence": round(float(confidence[binary].mean()), 4) if binary.any() else 0.0,
+            "status": "pendiente",
+            "outlier": False,
+            "linkedLandmarks": [],
+        })
 
-        if label == "disc_group":
-            # Un disco por instancia: "altura del disco L4-L5" es un hallazgo
-            # reportable, "altura del grupo de discos" no significa nada clinico.
-            instances = connected_instances(binary)
-            if instances:
-                levels = lumbar_disc_levels(len(instances))
-                for position, (component, level) in enumerate(zip(instances, levels), start=1):
-                    slug = level.lower() if level else f"d{position}"
-                    # Sin nivel confirmado el landmark del grupo no identifica a
-                    # este disco en particular: se deja sin vinculo antes que
-                    # apuntar a un punto que no le corresponde.
-                    emit(f"{plane}-disc-{slug}", "disc", component, level, [])
-                continue
+    by_class = {
+        name: prediction == class_id
+        for class_id in sorted(int(value) for value in np.unique(prediction) if int(value) != 0)
+        if not is_background_class(name := class_name(model_key, class_id))
+    }
 
-        emit(f"{plane}-{label}", label, binary, None, [centroid_landmark])
+    # --- Discos: una instancia por espacio discal ---------------------------
+    #
+    # "altura del disco L4-L5" es un hallazgo reportable; "altura del grupo de
+    # discos" no significa nada clinico.
+    disc_instances = connected_instances(by_class["disc_group"]) if "disc_group" in by_class else []
+    disc_levels = lumbar_disc_levels(len(disc_instances))
+    for position, (component, level) in enumerate(zip(disc_instances, disc_levels), start=1):
+        slug = level.lower() if level else f"d{position}"
+        # Sin nivel confirmado el landmark del grupo no identifica a este disco en
+        # particular: se deja sin vinculo antes que apuntar a un punto ajeno.
+        emit(f"{plane}-disc-{slug}", "disc", component, level, [])
+
+    # --- Canal ---------------------------------------------------------------
+    #
+    # No se publica un diametro anteroposterior por nivel, aunque el calculo esta
+    # implementado (canal_ap_diameter) y seria la medicion de estenosis que un
+    # informe reporta. Medido sobre un estudio real, el ancho de esta mascara da
+    # entre 4.7 y 12.9 mm en todos los niveles. Un canal lumbar normal mide 15-25 mm
+    # y por debajo de ~12 se habla de estenosis: publicar estos numeros con el
+    # rotulo "diametro AP del canal" describiria una estenosis critica en los cinco
+    # niveles de cualquier estudio.
+    #
+    # El spacing no es el problema: en la misma corrida los discos miden 25-30 mm de
+    # ancho y 8-12 de alto, que es lo anatomicamente esperable. Lo que no cierra es
+    # que la clase `canal` del checkpoint sea el canal: un ancho de ~10 mm es mas
+    # compatible con la medula que con el canal.
+    #
+    # Hasta confirmar que segmenta esa clase contra el dataset de origen, se informa
+    # solo el area -que describe la mascara sin afirmar que estructura es- y sin
+    # nivel. Ponerle nombre clinico y milimetros a una mascara que no se sabe que
+    # contiene es el error que este cambio vino a evitar, no a cometer.
+    canal = by_class.get("canal")
+    if canal is not None and canal.any():
+        _, xs = np.where(canal)
+        emit_single(
+            f"{plane}-canal-area",
+            "canal area",
+            float(len(xs)) * row_spacing * col_spacing,
+            area_unit,
+            None,
+            canal,
+        )
+
+    # --- Cuerpos vertebrales -------------------------------------------------
+    #
+    # No se separan por componente conexa, a diferencia de los discos. La clase
+    # `vertebra_group` no contiene solo cuerpos vertebrales: incluye los elementos
+    # posteriores, que en un corte sagital aparecen como blobs aparte. Sobre un
+    # estudio real la mascara da 13 componentes para ~7 cuerpos, y no hay forma de
+    # distinguir un cuerpo de un elemento posterior desde la mascara sola. Nombrar
+    # esos componentes L1..L5 etiquetaria astillas con nombre de vertebra, que es
+    # peor que no asignarles nivel.
+    #
+    # Se informa solo el area, que describe la mascara. El alto y el ancho de la
+    # caja que envuelve toda la columna no son medidas de nada.
+    vertebra_group = by_class.get("vertebra_group")
+    if vertebra_group is not None and vertebra_group.any():
+        _, xs = np.where(vertebra_group)
+        emit_single(
+            f"{plane}-vertebra_group-area",
+            "vertebra_group area",
+            float(len(xs)) * row_spacing * col_spacing,
+            area_unit,
+            None,
+            vertebra_group,
+        )
+
+    # --- Clases que el modelo no separa en instancias ------------------------
+    for label, binary in by_class.items():
+        if label in {"disc_group", "canal", "vertebra_group"}:
+            continue
+        emit(f"{plane}-{label}", label, binary, None, [f"lm-mask-{plane}-{label.replace('_', '-')}-centroid"])
 
     return values
+
+
+def canal_ap_diameter(canal, disc, col_spacing):
+    """Diametro anteroposterior del canal a la altura de un disco.
+
+    En un corte sagital el eje horizontal es el anteroposterior, asi que el ancho
+    del canal medido en las filas que ocupa el disco es el diametro AP a ese nivel
+    -la medicion con la que se describe una estenosis.
+
+    Se toma el **minimo** de esas filas y no el promedio: una estenosis se define
+    por el punto mas estrecho, y promediarlo lo diluiria justo donde importa.
+
+    Devuelve None si el canal no aparece en ninguna de esas filas: no se puede
+    medir lo que la segmentacion no encontro.
+    """
+    rows = np.where(disc.any(axis=1))[0]
+    if rows.size == 0:
+        return None
+    widths = []
+    for row in range(int(rows.min()), int(rows.max()) + 1):
+        columns = np.where(canal[row])[0]
+        if columns.size == 0:
+            continue
+        widths.append(float(columns.max() - columns.min() + 1))
+    if not widths:
+        return None
+    return min(widths) * col_spacing
 
 
 #: Techo del catalogo de previsualizaciones. Una serie mas larga que esto no se
 #: recorta: se deja sin catalogo y el visor lo informa, antes que persistir un
 #: subconjunto que haria que unos cortes tengan imagen y otros no sin explicacion.
 MAX_SLICE_PREVIEWS = 512
+
+
+def save_slice_pixels(run_id: str, plane: str, loaded: LoadedInput, axis: int) -> Dict[str, Any]:
+    """Escribe cada corte como enteros de 16 bits, sin ventanear.
+
+    El PNG que se servia ya venia a 8 bits y con una ventana aplicada: el W/L del
+    visor era un filtro de brillo y contraste sobre esa imagen, no ventaneo. Con las
+    intensidades originales el visor puede mapear centro y ancho de verdad, que es
+    lo que hace un PACS y lo que permite ver una hernia contra el disco.
+
+    Se manda int16 little-endian, el mismo tipo en el que viene una RM, y aparte el
+    rango real de la serie para que el visor pueda proponer una ventana inicial sin
+    tener que recorrer el volumen entero.
+    """
+    if loaded.array.ndim != 3:
+        return {}
+    count = int(loaded.array.shape[axis])
+    if count <= 0 or count > MAX_SLICE_PREVIEWS:
+        return {}
+    output_dir = get_settings().output_dir / "real_inference" / run_id / plane
+    output_dir.mkdir(parents=True, exist_ok=True)
+    volume = np.asarray(loaded.array)
+    finite = volume[np.isfinite(volume)]
+    if finite.size == 0:
+        return {}
+    minimum = float(finite.min())
+    maximum = float(finite.max())
+    outputs: Dict[str, str] = {}
+    for index in range(count):
+        frame = np.nan_to_num(np.take(volume, index, axis=axis), nan=minimum)
+        path = output_dir / slice_pixels_asset_name(index)
+        path.write_bytes(np.clip(frame, -32768, 32767).astype("<i2").tobytes())
+        outputs[f"slicePixels{index}"] = str(path)
+    register_run_assets(run_id, plane, outputs)
+    height, width = np.take(volume, 0, axis=axis).shape
+    return {
+        "count": count,
+        "width": int(width),
+        "height": int(height),
+        "dtype": "int16",
+        "byteOrder": "little",
+        "min": minimum,
+        "max": maximum,
+    }
 
 
 def save_slice_previews(run_id: str, plane: str, loaded: LoadedInput, axis: int) -> Dict[str, str]:
@@ -647,9 +1125,47 @@ def save_slice_previews(run_id: str, plane: str, loaded: LoadedInput, axis: int)
     return outputs
 
 
+def class_mask_asset_name(class_name_value: str) -> str:
+    return f"mask-{class_name_value}.png"
+
+
+def save_class_masks(
+    output_dir: Path,
+    model_key: str,
+    render_mask: np.ndarray,
+    present: list[int],
+) -> Dict[str, str]:
+    """Escribe una mascara por clase, en RGBA con fondo transparente.
+
+    El overlay compuesto en un solo PNG es lo que obliga al visor a mostrar la
+    segmentacion entera o nada: no hay forma de ocultar el canal y dejar los discos.
+    Con una capa por clase el medico elige que mira, que es como se lee cuando una
+    estructura tapa a la que interesa.
+
+    El alfa es binario -0 o 255- y no lleva la opacidad de presentacion: esa la
+    decide el visor con su propio control, y hornearla aca la volveria imposible de
+    cambiar sin reprocesar el estudio.
+    """
+    outputs: Dict[str, str] = {}
+    for class_id in present:
+        name = class_name(model_key, class_id)
+        if is_background_class(name):
+            continue
+        color = np.asarray(PALETTE.get(class_id, (255, 255, 0)), dtype=np.uint8)
+        selected = render_mask == class_id
+        rgba = np.zeros((*render_mask.shape, 4), dtype=np.uint8)
+        rgba[selected, 0:3] = color
+        rgba[selected, 3] = 255
+        path = output_dir / class_mask_asset_name(name)
+        Image.fromarray(rgba, mode="RGBA").save(path)
+        outputs[f"classMask_{name}"] = str(path)
+    return outputs
+
+
 def save_outputs(
     run_id: str,
     plane: str,
+    model_key: str,
     image: np.ndarray,
     prediction: np.ndarray,
     confidence: np.ndarray,
@@ -696,6 +1212,9 @@ def save_outputs(
         "confidencePath": str(confidence_path),
         "overlayPath": str(overlay_path),
         "maskPreviewPath": str(mask_preview_path),
+        # El overlay compuesto se conserva: es lo que ve un consumidor que no sabe
+        # componer capas, y evita romper corridas ya persistidas.
+        **save_class_masks(output_dir, model_key, render_mask, present),
     }
     register_run_assets(run_id, plane, outputs)
     return outputs
@@ -733,12 +1252,14 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
     outputs = save_outputs(
         run_id,
         request.plane,
+        request.model_key,
         image,
         prediction,
         confidence,
         native_slice(loaded, selected_axis, selected_slice),
     )
     slice_previews = save_slice_previews(run_id, request.plane, loaded, selected_axis)
+    slice_pixels = save_slice_pixels(run_id, request.plane, loaded, selected_axis)
     # Los PNG por corte quedan registrados para poder servirlos, pero fuera de la
     # lista de assets del contrato: son cientos de entradas que solo repetirian el
     # patron `slice-NNN.png`. El consumidor necesita un numero, no el catalogo.
@@ -750,8 +1271,20 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
     spacing = in_plane_spacing(loaded, selected_axis)
     spacing_unit = "mm" if spacing else None
     masks = build_masks(request.model_key, request.plane, prediction, confidence, series_id, selected_slice)
+    segmentation = build_segmentation(request.model_key, request.plane, prediction)
     landmarks = build_landmarks(masks)
-    measurement_values = build_measurements(request.model_key, request.plane, prediction, confidence, spacing, selected_slice)
+    measurement_values = build_measurements(
+        request.model_key,
+        request.plane,
+        prediction,
+        confidence,
+        # Las mediciones se cuentan en pixeles de la prediccion, no de la imagen
+        # original, asi que necesitan el spacing de esa grilla. `spacing` sigue siendo
+        # el nativo porque describe la imagen que se muestra, y es el que usa la
+        # herramienta de medir del visor.
+        prediction_grid_spacing(spacing, loaded.array.shape, selected_axis, prediction.shape),
+        selected_slice,
+    )
 
     flags = ["real_baseline_inference_completed"]
     if not present_classes:
@@ -772,7 +1305,9 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
         "inPlaneSpacing": list(spacing) if spacing else None,
         "inPlaneSpacingUnit": spacing_unit,
         "measurementsDerivedFromPredictionMask": True,
+        "segmentation": segmentation,
         "slicePreviewCount": len(slice_previews),
+        "slicePixels": slice_pixels or None,
     }
     requested_mode = str(request.metadata.get("inferenceMode", "real_baseline"))
     allow_contract_fallback = metadata_bool(request.metadata, "allowContractFallback", True)
