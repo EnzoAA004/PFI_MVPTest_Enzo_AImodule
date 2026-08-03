@@ -1245,22 +1245,28 @@ def build_measurements(
                 points=angle_points,
                 experimental=True,
             )
-            listhesis = vertebral_listhesis(upper, lower, col_spacing, row_spacing)
-            if listhesis is None:
-                continue
-            slip, grade, slip_points = listhesis
-            emit_single(
-                f"{plane}-listhesis-{level.lower()}",
-                "listhesis",
-                slip,
-                dimension_unit,
-                level,
-                bodies[position] | bodies[position + 1],
-                level_scope="level",
-                points=slip_points,
-                experimental=True,
-                detail=grade,
-            )
+            # La listesis no se publica, aunque el calculo esta implementado
+            # (vertebral_listhesis) y es el segundo hallazgo estructural mas reportado
+            # despues de la estenosis.
+            #
+            # Toda la medicion depende de un solo punto: la esquina posterior del
+            # platillo. Y ese punto es justo donde la segmentacion es menos precisa,
+            # porque es el borde del cuerpo que toca el disco. Sobre el estudio de
+            # prueba, derivarlo del eje de ancho -que cruza el centroide- y derivarlo
+            # del borde de la mascara dan resultados que difieren hasta 17 mm en el
+            # mismo nivel: 7.30 contra 24.06 en L1-L2, 6.64 contra 20.78 en L2-L3.
+            # Con esa dispersion, cualquiera de los dos numeros que se publique es
+            # arbitrario.
+            #
+            # La diferencia con el angulo segmentario, que si se publica, no es de
+            # metodo sino de verificacion: el angulo se pudo contrastar contra un
+            # rango conocido -la lordosis lumbar anda entre 40 y 60 grados, y la suma
+            # de L1 a L5 dio 36- mientras que para la listesis haria falta un estudio
+            # con un deslizamiento medido por alguien. Sin eso, medirla mejor tampoco
+            # alcanzaria: seguiria siendo un numero sin contra que validarse.
+            #
+            # Mientras tanto el revisor la mide a mano con su propia herramienta, que
+            # es donde corresponde: es el quien reconoce las esquinas del platillo.
 
     # --- Clases que el modelo no separa en instancias ------------------------
     for label, binary in by_class.items():
