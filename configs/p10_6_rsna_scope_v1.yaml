@@ -1,0 +1,46 @@
+project:
+  ticket: P10.6
+  dataset: RSNA_LumbarDISC
+  purpose: candidate_degenerative_findings
+  commercialUse: false
+
+governance:
+  humanReviewRequired: true
+  notClinicalDiagnosis: true
+  autonomousDiagnosis: false
+
+conditions:
+  - spinal_canal_stenosis
+  - neural_foraminal_narrowing_left
+  - neural_foraminal_narrowing_right
+  - subarticular_stenosis_left
+  - subarticular_stenosis_right
+
+levels:
+  - L1-L2
+  - L2-L3
+  - L3-L4
+  - L4-L5
+  - L5-S1
+
+severity:
+  - normal_mild
+  - moderate
+  - severe
+
+excludedFromRsnaTraining:
+  - disc_bulge
+  - disc_protrusion
+  - disc_extrusion
+  - disc_sequestration
+  - tumor
+  - infection
+  - fracture
+
+split:
+  unit: study_id
+  testPolicy: official_test_forbidden
+  internalTrainFraction: null
+  internalValidationFraction: null
+  internalHoldoutFraction: null
+  seed: 2026
