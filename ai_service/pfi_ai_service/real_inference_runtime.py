@@ -1025,28 +1025,28 @@ def build_measurements(
 
     # --- Canal ---------------------------------------------------------------
     #
-    # No se publica un diametro anteroposterior por nivel, aunque el calculo esta
-    # implementado (canal_ap_diameter) y seria la medicion de estenosis que un
-    # informe reporta.
+    # El diametro AP por nivel es la medicion con la que se describe una estenosis, y
+    # se publica. Costo dos intentos llegar aca, los dos por medir mal antes que por
+    # el modelo.
     #
-    # La primera vez que se decidio esto, la evidencia estaba medida con el spacing
-    # equivocado. Repetida sobre el mismo estudio ya corregido, el diametro AP da
-    # 13.1, 14.2, 13.1, 12.0, 9.8, 12.0 y 2.2 mm de T11-T12 a L5-S1. Un canal lumbar
-    # normal mide 15-25 mm y por debajo de ~12 se habla de estenosis: publicar esto
-    # describiria estenosis en casi todos los niveles de un estudio, y un bloqueo
-    # completo en L5-S1.
+    # La primera vez la evidencia estaba tomada con el spacing equivocado. La segunda,
+    # el argumento para retenerla fue que la mascara ocupa 47 mm de ancho, demasiado
+    # para un canal. Ese 47 era la caja envolvente: el mismo error que se acababa de
+    # corregir en los discos. El canal recorre la lordosis, asi que su centro se
+    # desplaza 35 mm de arriba abajo y la caja mide el recorrido, no el canal.
     #
-    # La escala ya no explica la diferencia: en la misma corrida los cuerpos
-    # vertebrales miden 31-40 mm de ancho por 27-30 de alto y los discos 29-37 por
-    # 6-16, que es exactamente lo que se espera de una lumbar. Lo que no cierra es la
-    # mascara: ocupa 47 mm de ancho total, demasiado para un canal, y a la altura de
-    # L5-S1 apenas toca las filas del disco. La clase `canal` del checkpoint no esta
-    # delimitando lo que su nombre dice.
+    # Medido fila por fila, que es como corresponde, la mascara es un canal: una sola
+    # componente conexa, continua a lo largo de 230 mm, de 10 a 15 mm de ancho con
+    # mediana en 13.1. Por nivel da 13.1, 14.2, 13.1, 12.0, 9.8 y 12.0 mm de T11-T12
+    # a L4-L5, valores compatibles con el saco tecal y con un hallazgo real en L3-L4.
     #
-    # Hasta confirmar que segmenta esa clase contra el dataset de origen, se informa
-    # solo el area -que describe la mascara sin afirmar que estructura es- y sin
-    # nivel. Ponerle nombre clinico y milimetros a una mascara que no se sabe que
-    # contiene es el error que este cambio vino a evitar, no a cometer.
+    # Lo que se sigue sin afirmar es si la clase delimita el canal oseo o su contenido
+    # dural: el dataset la nombra "canal espinal" y nada en el repo lo precisa mas. La
+    # medicion describe la mascara segmentada y el umbral de estenosis de las dos
+    # lecturas -12 mm para el canal, 10 para el saco- cae del mismo lado en este
+    # estudio, asi que la conclusion clinica no depende de cual sea.
+    #
+    # El area va aparte y sin nivel, porque describe la mascara entera y no un nivel.
     canal = by_class.get("canal")
     if canal is not None and canal.any():
         _, xs = np.where(canal)
@@ -1058,6 +1058,25 @@ def build_measurements(
             None,
             canal,
         )
+        for position, (component, level) in enumerate(zip(disc_instances, disc_levels), start=1):
+            diameter = canal_ap_diameter(canal, component, col_spacing)
+            if diameter is None:
+                continue
+            slug = level.lower() if level else f"d{position}"
+            rows = np.where(component.any(axis=1))[0]
+            # La confianza es la de la porcion de canal que se midio, no la de toda la
+            # mascara: un canal bien segmentado arriba no avala el numero de abajo.
+            band = np.zeros_like(canal)
+            band[int(rows.min()):int(rows.max()) + 1] = canal[int(rows.min()):int(rows.max()) + 1]
+            emit_single(
+                f"{plane}-canal-ap-{slug}",
+                "canal ap",
+                diameter,
+                dimension_unit,
+                level,
+                band,
+                level_scope="level",
+            )
 
     # --- Cuerpos vertebrales -------------------------------------------------
     #
@@ -1102,14 +1121,24 @@ def canal_ap_diameter(canal, disc, col_spacing):
     Se toma el **minimo** de esas filas y no el promedio: una estenosis se define
     por el punto mas estrecho, y promediarlo lo diluiria justo donde importa.
 
-    Devuelve None si el canal no aparece en ninguna de esas filas: no se puede
-    medir lo que la segmentacion no encontro.
+    No se informa nada cuando la mascara del canal empieza o termina dentro de las
+    filas del disco. En ese borde la mascara se adelgaza hasta desaparecer, y esa
+    caida es indistinguible de un estrechamiento real: sobre el estudio de prueba el
+    canal terminaba en la ultima fila de L5-S1 y el minimo daba 2.19 mm, que leido
+    como diametro AP describe un bloqueo completo donde solo hay un encuadre que se
+    acaba. Se exige que el canal se extienda mas alla del disco por arriba y por
+    abajo, que es la unica forma de saber que lo que se mide es el canal y no su
+    final.
     """
     rows = np.where(disc.any(axis=1))[0]
-    if rows.size == 0:
+    canal_rows = np.where(canal.any(axis=1))[0]
+    if rows.size == 0 or canal_rows.size == 0:
+        return None
+    top, bottom = int(rows.min()), int(rows.max())
+    if int(canal_rows.min()) >= top or int(canal_rows.max()) <= bottom:
         return None
     widths = []
-    for row in range(int(rows.min()), int(rows.max()) + 1):
+    for row in range(top, bottom + 1):
         columns = np.where(canal[row])[0]
         if columns.size == 0:
             continue
