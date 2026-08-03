@@ -569,6 +569,8 @@ def measurements_v2(plane: PlaneNameV2, raw: Any, metadata: dict[str, Any]) -> l
             level=text_or_none(item.get("level")),
             levelScope="study" if item.get("levelScope") == "study" else "level",
             points=measurement_points(item.get("points")),
+            experimental=bool(item.get("experimental", False)),
+            detail=text_or_none(item.get("detail")),
             sliceIndex=int_or_none(item.get("sliceIndex")),
             measurementBasis="physical_spacing" if physical else "pixel_space",
             linkedLandmarkIds=list_string(item.get("linkedLandmarks")),
@@ -577,19 +579,21 @@ def measurements_v2(plane: PlaneNameV2, raw: Any, metadata: dict[str, Any]) -> l
 
 
 def measurement_points(raw: Any) -> list[dict[str, float]]:
-    """Los dos extremos de una medicion, o ninguno.
+    """Los puntos que definen la figura de una medicion, o ninguno.
 
-    Un punto a medias no viaja: dibujar un segmento con un extremo inventado ubicaria
-    la medicion sobre anatomia que no es la que se midio, que es peor que no dibujarla.
+    La cantidad depende de que se midio: dos una distancia, tres una listesis, cuatro
+    un angulo. Un punto a medias no viaja: dibujar una figura con un vertice inventado
+    ubicaria la medicion sobre anatomia que no es la que se midio, que es peor que no
+    dibujarla. Por eso se exige que sobrevivan todos o ninguno.
     """
-    if not isinstance(raw, list) or len(raw) != 2:
+    if not isinstance(raw, list) or not 2 <= len(raw) <= 4:
         return []
     points = [
         {"x": float(point["x"]), "y": float(point["y"])}
         for point in raw
         if isinstance(point, dict) and isinstance(point.get("x"), (int, float)) and isinstance(point.get("y"), (int, float))
     ]
-    return points if len(points) == 2 else []
+    return points if len(points) == len(raw) else []
 
 
 def mask_geometry(contours: Any) -> dict[str, Any] | None:

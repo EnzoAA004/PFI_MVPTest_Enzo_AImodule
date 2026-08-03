@@ -187,6 +187,15 @@ class PlaneMeasurementV2(PublicResponseModel):
     #: extremos- y el largo del segmento es exactamente `value`, porque salen del
     #: mismo calculo.
     points: list[dict[str, float]] = Field(default_factory=list)
+    #: Derivada de la geometria de otras estructuras, no de una mascara propia.
+    #:
+    #: El angulo segmentario y la listesis salen de los ejes de dos cuerpos vecinos.
+    #: Son las dos mediciones que un informe de columna reporta y que el modelo no fue
+    #: entrenado para dar, asi que viajan marcadas: el visor las muestra en su propia
+    #: capa y la decision de usarlas queda del lado del medico.
+    experimental: bool = False
+    #: Segunda magnitud, cuando la medicion la tiene: el grado de Meyerding.
+    detail: str | None = None
     #: Corte sobre el que se midio. Sin esto una medicion no se puede ubicar en la
     #: serie: el revisor ve el numero pero no que imagen lo produjo.
     sliceIndex: int | None = None

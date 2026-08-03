@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -953,6 +954,64 @@ def oriented_extent(
     return measure(horizontal), measure(vertical)
 
 
+def segmental_angle(upper: AxisMeasure, lower: AxisMeasure) -> tuple[float, list[Dict[str, float]]]:
+    """Angulo entre los platillos de dos cuerpos vertebrales consecutivos.
+
+    Sale de los ejes propios de cada cuerpo, que ya se calcularon para medir su ancho:
+    el eje mas horizontal de un cuerpo vertebral es la direccion de sus platillos. No
+    se introduce ninguna geometria nueva, y la figura que se dibuja -los dos segmentos
+    de ancho- es literalmente la que produjo el numero.
+
+    Se informa el angulo agudo porque una recta no tiene sentido: si dependiera de en
+    que orden quedaron los extremos, el mismo segmento daria 8 grados o 172.
+    """
+    first = math.atan2(upper.end[1] - upper.start[1], upper.end[0] - upper.start[0])
+    second = math.atan2(lower.end[1] - lower.start[1], lower.end[0] - lower.start[0])
+    degrees = abs(math.degrees(first - second)) % 180
+    if degrees > 90:
+        degrees = 180 - degrees
+    return degrees, segment_points(upper) + segment_points(lower)
+
+
+def vertebral_listhesis(
+    upper: AxisMeasure,
+    lower: AxisMeasure,
+    col_spacing: float,
+    row_spacing: float,
+) -> tuple[float, str, list[Dict[str, float]]] | None:
+    """Cuanto se corrio un cuerpo vertebral sobre el de abajo.
+
+    En un corte sagital el eje horizontal es el anteroposterior, asi que de cada
+    segmento de ancho el extremo de mayor columna es la esquina posterior. El
+    deslizamiento es la proyeccion sobre el platillo inferior y no la distancia
+    directa: lo que se informa es cuanto se corrio hacia adelante o atras, no cuanto se
+    separo en altura.
+
+    El grado de Meyerding sale de la proporcion contra la longitud anteroposterior del
+    cuerpo inferior, que es la misma que se midio como su ancho.
+    """
+    def corners(segment: AxisMeasure) -> tuple[tuple[float, float], tuple[float, float]]:
+        return (segment.start, segment.end) if segment.start[0] <= segment.end[0] else (segment.end, segment.start)
+
+    lower_anterior, lower_posterior = corners(lower)
+    _, upper_posterior = corners(upper)
+    axis_x = (lower_posterior[0] - lower_anterior[0]) * col_spacing
+    axis_y = (lower_posterior[1] - lower_anterior[1]) * row_spacing
+    endplate = math.hypot(axis_x, axis_y)
+    if endplate == 0:
+        return None
+    delta_x = (upper_posterior[0] - lower_posterior[0]) * col_spacing
+    delta_y = (upper_posterior[1] - lower_posterior[1]) * row_spacing
+    slip = abs((delta_x * axis_x + delta_y * axis_y) / endplate)
+    grade = "I" if slip / endplate <= 0.25 else "II" if slip / endplate <= 0.5 else "III" if slip / endplate <= 0.75 else "IV" if slip / endplate <= 1 else "V"
+    points = [
+        {"x": lower_anterior[0], "y": lower_anterior[1]},
+        {"x": lower_posterior[0], "y": lower_posterior[1]},
+        {"x": upper_posterior[0], "y": upper_posterior[1]},
+    ]
+    return slip, f"grado {grade}", points
+
+
 def segment_points(segment: AxisMeasure | None) -> list[Dict[str, float]]:
     """Los dos extremos de la medicion, en la forma que consume el visor.
 
@@ -990,6 +1049,8 @@ def build_measurements(
         area = float(len(xs)) * row_spacing * col_spacing
         common = {
             "level": level,
+            # Estas miden su propia mascara, no se derivan de otras mediciones.
+            "experimental": False,
             # Distingue "no le pude asignar nivel" de "no corresponde a un nivel".
             # Sin esto las dos llegan como level=null y la pantalla las junta bajo el
             # mismo rotulo, que en el segundo caso acusa a la IA de un fallo que no
@@ -1018,11 +1079,11 @@ def build_measurements(
                 "aiValue": round(magnitude, 2),
                 "reviewerValue": None,
                 "unit": unit,
-                "points": segment_points(segment),
                 **common,
             })
 
-    def emit_single(identifier, label, magnitude, unit, level, binary, level_scope="study", segment=None):
+    def emit_single(identifier, label, magnitude, unit, level, binary, level_scope="study", segment=None,
+                    points=None, experimental=False, detail=None):
         """Una sola magnitud, para lo que no tiene sentido medir en tres ejes.
 
         Por defecto describe el estudio y no un nivel: es el caso del canal, una
@@ -1038,11 +1099,16 @@ def build_measurements(
             "aiValue": round(magnitude, 2),
             "reviewerValue": None,
             "unit": unit,
-            "points": segment_points(segment),
+            "points": points if points is not None else segment_points(segment),
             "level": level,
             "levelScope": level_scope,
             "sliceIndex": slice_index,
             "source": "AI",
+            # Una medicion derivada no se apoya en su propia mascara sino en la
+            # geometria de otras dos, asi que se marca para que el visor pueda
+            # mostrarla aparte y el medico decida si la quiere.
+            "experimental": experimental,
+            "detail": detail,
             "confidence": round(float(confidence[binary].mean()), 4) if binary.any() else 0.0,
             "status": "pendiente",
             "outlier": False,
@@ -1144,8 +1210,57 @@ def build_measurements(
         # El id es posicional y el nivel viaja aparte, por lo mismo que en la
         # segmentacion: derivarlo del nombre produce colisiones cuando dos
         # componentes reciben el mismo nivel, y el id es la clave de la lista.
+        body_segments: list[AxisMeasure] = []
         for position, (component, level) in enumerate(zip(bodies, body_levels), start=1):
             emit(f"{plane}-vertebra-v{position}", "vertebra", component, level, [])
+            body_segments.append(oriented_extent(component, row_spacing, col_spacing)[0])
+
+        # --- Derivadas de dos cuerpos: angulo segmentario y listesis ---------
+        #
+        # No salen de una mascara propia sino de la geometria de dos cuerpos vecinos,
+        # que ya se calculo para medir su ancho. Se publican marcadas como
+        # experimentales para que el visor las muestre en su propia capa: son las dos
+        # mediciones que un informe de columna reporta y que el modelo no fue
+        # entrenado para dar, asi que la decision de usarlas es del medico y no del
+        # sistema.
+        #
+        # El nivel es el espacio discal entre los dos cuerpos, que es el segmento de
+        # movimiento al que pertenece la medida. Si alguno de los dos no tiene nombre,
+        # no se publica: sin saber entre que vertebras esta, el numero no ubica nada.
+        for position in range(len(bodies) - 1):
+            upper_name, lower_name = body_levels[position], body_levels[position + 1]
+            if not upper_name or not lower_name:
+                continue
+            level = f"{upper_name}-{lower_name}"
+            upper, lower = body_segments[position], body_segments[position + 1]
+            degrees, angle_points = segmental_angle(upper, lower)
+            emit_single(
+                f"{plane}-segmental-angle-{level.lower()}",
+                "segmental angle",
+                degrees,
+                "deg",
+                level,
+                bodies[position] | bodies[position + 1],
+                level_scope="level",
+                points=angle_points,
+                experimental=True,
+            )
+            listhesis = vertebral_listhesis(upper, lower, col_spacing, row_spacing)
+            if listhesis is None:
+                continue
+            slip, grade, slip_points = listhesis
+            emit_single(
+                f"{plane}-listhesis-{level.lower()}",
+                "listhesis",
+                slip,
+                dimension_unit,
+                level,
+                bodies[position] | bodies[position + 1],
+                level_scope="level",
+                points=slip_points,
+                experimental=True,
+                detail=grade,
+            )
 
     # --- Clases que el modelo no separa en instancias ------------------------
     for label, binary in by_class.items():
