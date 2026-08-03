@@ -568,11 +568,28 @@ def measurements_v2(plane: PlaneNameV2, raw: Any, metadata: dict[str, Any]) -> l
             # al revisor agrupadas como "sin nivel".
             level=text_or_none(item.get("level")),
             levelScope="study" if item.get("levelScope") == "study" else "level",
+            points=measurement_points(item.get("points")),
             sliceIndex=int_or_none(item.get("sliceIndex")),
             measurementBasis="physical_spacing" if physical else "pixel_space",
             linkedLandmarkIds=list_string(item.get("linkedLandmarks")),
         ))
     return values
+
+
+def measurement_points(raw: Any) -> list[dict[str, float]]:
+    """Los dos extremos de una medicion, o ninguno.
+
+    Un punto a medias no viaja: dibujar un segmento con un extremo inventado ubicaria
+    la medicion sobre anatomia que no es la que se midio, que es peor que no dibujarla.
+    """
+    if not isinstance(raw, list) or len(raw) != 2:
+        return []
+    points = [
+        {"x": float(point["x"]), "y": float(point["y"])}
+        for point in raw
+        if isinstance(point, dict) and isinstance(point.get("x"), (int, float)) and isinstance(point.get("y"), (int, float))
+    ]
+    return points if len(points) == 2 else []
 
 
 def mask_geometry(contours: Any) -> dict[str, Any] | None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, NamedTuple
 
 import numpy as np
 import torch
@@ -874,11 +874,28 @@ def prediction_grid_spacing(
     )
 
 
+class AxisMeasure(NamedTuple):
+    """Una magnitud y los dos puntos de los que salio.
+
+    Van juntas a proposito. El visor dibuja el segmento sobre la imagen para que el
+    medico vea de donde a donde se midio, y si el numero y la linea se calcularan por
+    separado podrian discrepar: la pantalla mostraria una medicion que no es la que
+    dice la tabla. Aca `length` es exactamente la distancia entre `start` y `end`.
+
+    Los puntos van en la grilla de la prediccion, que es el mismo espacio en el que
+    viajan mascaras y landmarks.
+    """
+
+    length: float
+    start: tuple[float, float]
+    end: tuple[float, float]
+
+
 def oriented_extent(
     binary: np.ndarray,
     row_spacing: float,
     col_spacing: float,
-) -> tuple[float, float]:
+) -> tuple[AxisMeasure, AxisMeasure]:
     """Ancho y alto de una estructura medidos sobre sus propios ejes.
 
     La caja alineada a la imagen no mide el disco: mide la caja que lo contiene. En
@@ -904,26 +921,49 @@ def oriented_extent(
     Se suma la huella del pixel proyectada sobre cada eje, que es lo que hacia el
     `+1` de la caja: sin eso una estructura de un pixel de espesor mediria cero. A
     cero grados la formula da exactamente lo mismo que la caja, que es la unica forma
-    de que este cambio no mueva las medidas que ya estaban bien.
+    de que este cambio no mueva las medidas que ya estaban bien. El segmento se
+    extiende media huella por punta, asi que su largo es el valor informado: llega
+    hasta el borde exterior del pixel, no hasta su centro.
     """
     ys, xs = np.where(binary)
     if len(xs) == 0:
-        return 0.0, 0.0
+        return AxisMeasure(0.0, (0.0, 0.0), (0.0, 0.0)), AxisMeasure(0.0, (0.0, 0.0), (0.0, 0.0))
     points = np.stack((xs * col_spacing, ys * row_spacing), axis=1)
+    center = points.mean(axis=0)
+    grid = lambda point: (round(float(point[0]) / col_spacing, 2), round(float(point[1]) / row_spacing, 2))
     if len(xs) < 2:
-        return col_spacing, row_spacing
-    centered = points - points.mean(axis=0)
+        half = np.array([col_spacing / 2, row_spacing / 2])
+        return (
+            AxisMeasure(col_spacing, grid(center - [half[0], 0]), grid(center + [half[0], 0])),
+            AxisMeasure(row_spacing, grid(center - [0, half[1]]), grid(center + [0, half[1]])),
+        )
+    centered = points - center
     # `eigh` en vez de `eig`: la covarianza es simetrica y garantiza autovectores
     # reales y ortonormales, sin la parte imaginaria residual que trae el caso general.
     _, vectors = np.linalg.eigh(np.cov(centered, rowvar=False))
     horizontal, vertical = sorted(vectors.T, key=lambda vector: abs(float(vector[0])), reverse=True)
 
-    def extent(axis: np.ndarray) -> float:
+    def measure(axis: np.ndarray) -> AxisMeasure:
         projected = centered @ axis
         footprint = abs(float(axis[0])) * col_spacing + abs(float(axis[1])) * row_spacing
-        return float(projected.max() - projected.min()) + footprint
+        low = center + axis * (float(projected.min()) - footprint / 2)
+        high = center + axis * (float(projected.max()) + footprint / 2)
+        return AxisMeasure(float(projected.max() - projected.min()) + footprint, grid(low), grid(high))
 
-    return extent(horizontal), extent(vertical)
+    return measure(horizontal), measure(vertical)
+
+
+def segment_points(segment: AxisMeasure | None) -> list[Dict[str, float]]:
+    """Los dos extremos de la medicion, en la forma que consume el visor.
+
+    Vacio cuando la magnitud no es una distancia. Un area no tiene de donde a donde.
+    """
+    if segment is None:
+        return []
+    return [
+        {"x": segment.start[0], "y": segment.start[1]},
+        {"x": segment.end[0], "y": segment.end[1]},
+    ]
 
 
 def build_measurements(
@@ -963,10 +1003,12 @@ def build_measurements(
             "outlier": False,
             "linkedLandmarks": linked,
         }
-        for metric, magnitude, unit in (
-            ("area", area, area_unit),
-            ("width", width, dimension_unit),
-            ("height", height, dimension_unit),
+        for metric, magnitude, unit, segment in (
+            # El area no lleva segmento: no tiene dos extremos, y la mascara pintada
+            # ya la muestra. Dibujarle una linea seria decorar, no ubicar la medicion.
+            ("area", area, area_unit, None),
+            ("width", width.length, dimension_unit, width),
+            ("height", height.length, dimension_unit, height),
         ):
             values.append({
                 "id": f"{identifier}-{metric}",
@@ -976,10 +1018,11 @@ def build_measurements(
                 "aiValue": round(magnitude, 2),
                 "reviewerValue": None,
                 "unit": unit,
+                "points": segment_points(segment),
                 **common,
             })
 
-    def emit_single(identifier, label, magnitude, unit, level, binary, level_scope="study"):
+    def emit_single(identifier, label, magnitude, unit, level, binary, level_scope="study", segment=None):
         """Una sola magnitud, para lo que no tiene sentido medir en tres ejes.
 
         Por defecto describe el estudio y no un nivel: es el caso del canal, una
@@ -995,6 +1038,7 @@ def build_measurements(
             "aiValue": round(magnitude, 2),
             "reviewerValue": None,
             "unit": unit,
+            "points": segment_points(segment),
             "level": level,
             "levelScope": level_scope,
             "sliceIndex": slice_index,
@@ -1071,11 +1115,12 @@ def build_measurements(
             emit_single(
                 f"{plane}-canal-ap-{slug}",
                 "canal ap",
-                diameter,
+                diameter.length,
                 dimension_unit,
                 level,
                 band,
                 level_scope="level",
+                segment=diameter,
             )
 
     # --- Cuerpos vertebrales -------------------------------------------------
@@ -1142,10 +1187,13 @@ def canal_ap_diameter(canal, disc, col_spacing):
         columns = np.where(canal[row])[0]
         if columns.size == 0:
             continue
-        widths.append(float(columns.max() - columns.min() + 1))
+        widths.append((float(columns.max() - columns.min() + 1), row, float(columns.min()), float(columns.max())))
     if not widths:
         return None
-    return min(widths) * col_spacing
+    span, row, left, right = min(widths)
+    # El segmento va de borde a borde del pixel, no de centro a centro, para que su
+    # largo sea exactamente el valor informado.
+    return AxisMeasure(span * col_spacing, (left - 0.5, float(row)), (right + 0.5, float(row)))
 
 
 #: Techo del catalogo de previsualizaciones. Una serie mas larga que esto no se

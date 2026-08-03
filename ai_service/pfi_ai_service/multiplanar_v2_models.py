@@ -179,6 +179,14 @@ class PlaneMeasurementV2(PublicResponseModel):
     #: el segundo caso acusa a la IA de un fallo que no tuvo: el area del canal no
     #: tiene nivel porque la mascara atraviesa toda la columna.
     levelScope: Literal["level", "study"] = "level"
+    #: Los dos extremos entre los que se midio, en `coordinateSpace` del plano.
+    #:
+    #: Es lo que le da un lugar al numero. Sin esto el revisor ve "37.37 mm" y no
+    #: tiene como saber de donde a donde: no puede verificar la medicion ni
+    #: corregirla. Vacio cuando la magnitud no es una distancia -un area no tiene dos
+    #: extremos- y el largo del segmento es exactamente `value`, porque salen del
+    #: mismo calculo.
+    points: list[dict[str, float]] = Field(default_factory=list)
     #: Corte sobre el que se midio. Sin esto una medicion no se puede ubicar en la
     #: serie: el revisor ve el numero pero no que imagen lo produjo.
     sliceIndex: int | None = None

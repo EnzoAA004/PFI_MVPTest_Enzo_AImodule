@@ -11,6 +11,7 @@ encuadre que se acaba.
 """
 
 import numpy as np
+import pytest
 
 from pfi_ai_service.real_inference_runtime import canal_ap_diameter
 
@@ -30,14 +31,14 @@ def disc_band(top: int, bottom: int, size: int = 200) -> np.ndarray:
 
 def test_mide_el_ancho_del_canal_en_las_filas_del_disco():
     canal = canal_band(0, 200, 100, 12)
-    assert canal_ap_diameter(canal, disc_band(90, 100), 0.5) == 6.0
+    assert canal_ap_diameter(canal, disc_band(90, 100), 0.5).length == 6.0
 
 
 def test_toma_el_punto_mas_estrecho_y_no_el_promedio():
     """Una estenosis se define por donde mas se cierra; promediar la diluiria."""
     canal = canal_band(0, 200, 100, 12)
     canal[95, 106:112] = False  # una fila de 6 en vez de 12
-    assert canal_ap_diameter(canal, disc_band(90, 100), 1.0) == 6.0
+    assert canal_ap_diameter(canal, disc_band(90, 100), 1.0).length == 6.0
 
 
 def test_no_informa_nada_si_el_canal_termina_dentro_del_disco():
@@ -56,7 +57,7 @@ def test_no_informa_nada_si_el_canal_empieza_dentro_del_disco():
 
 def test_un_canal_que_atraviesa_el_disco_por_completo_si_se_informa():
     """El guard tiene que dejar pasar el caso normal, no solo bloquear el roto."""
-    assert canal_ap_diameter(canal_band(50, 150, 100, 12), disc_band(90, 100), 1.0) == 12.0
+    assert canal_ap_diameter(canal_band(50, 150, 100, 12), disc_band(90, 100), 1.0).length == 12.0
 
 
 def test_sin_canal_no_se_inventa_un_diametro():
@@ -70,4 +71,17 @@ def test_sin_disco_no_hay_nivel_al_que_referir_la_medida():
 def test_el_diametro_se_mide_con_el_spacing_de_las_columnas():
     """El AP es horizontal en un sagital: sale del spacing de columnas, no del de filas."""
     canal = canal_band(0, 200, 100, 10)
-    assert canal_ap_diameter(canal, disc_band(90, 100), 0.729) == 7.29
+    assert canal_ap_diameter(canal, disc_band(90, 100), 0.729).length == 7.29
+
+
+def test_el_segmento_es_la_fila_mas_estrecha_y_mide_lo_que_dice():
+    """La linea que se dibuja tiene que ser la que produjo el numero.
+
+    Se ancla en la fila del estrechamiento -no en el medio del disco- porque es ahi
+    donde se tomo la medida, y su largo es exactamente el diametro informado.
+    """
+    canal = canal_band(0, 200, 100, 12)
+    canal[95, 106:112] = False  # la fila estrecha
+    medida = canal_ap_diameter(canal, disc_band(90, 100), 0.729)
+    assert medida.start[1] == 95 and medida.end[1] == 95
+    assert (medida.end[0] - medida.start[0]) * 0.729 == pytest.approx(medida.length)
