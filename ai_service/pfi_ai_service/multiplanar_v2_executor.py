@@ -567,6 +567,7 @@ def measurements_v2(plane: PlaneNameV2, raw: Any, metadata: dict[str, Any]) -> l
             # en None aca descartaba esa asignacion y todas las mediciones llegaban
             # al revisor agrupadas como "sin nivel".
             level=text_or_none(item.get("level")),
+            levelScope="study" if item.get("levelScope") == "study" else "level",
             sliceIndex=int_or_none(item.get("sliceIndex")),
             measurementBasis="physical_spacing" if physical else "pixel_space",
             linkedLandmarkIds=list_string(item.get("linkedLandmarks")),

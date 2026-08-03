@@ -172,6 +172,13 @@ class PlaneMeasurementV2(PublicResponseModel):
     status: Literal["pending_review"]
     plane: PlaneNameV2
     level: str | None = None
+    #: Que describe la medicion: un nivel vertebral o el estudio entero.
+    #:
+    #: Separa "no le pude asignar nivel" de "no corresponde a un nivel". Sin esto las
+    #: dos llegan como level=null y la pantalla las junta bajo el mismo rotulo, que en
+    #: el segundo caso acusa a la IA de un fallo que no tuvo: el area del canal no
+    #: tiene nivel porque la mascara atraviesa toda la columna.
+    levelScope: Literal["level", "study"] = "level"
     #: Corte sobre el que se midio. Sin esto una medicion no se puede ubicar en la
     #: serie: el revisor ve el numero pero no que imagen lo produjo.
     sliceIndex: int | None = None

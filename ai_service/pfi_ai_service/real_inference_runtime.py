@@ -950,6 +950,11 @@ def build_measurements(
         area = float(len(xs)) * row_spacing * col_spacing
         common = {
             "level": level,
+            # Distingue "no le pude asignar nivel" de "no corresponde a un nivel".
+            # Sin esto las dos llegan como level=null y la pantalla las junta bajo el
+            # mismo rotulo, que en el segundo caso acusa a la IA de un fallo que no
+            # tuvo. Aca el nivel siempre corresponde, aunque a veces no se conozca.
+            "levelScope": "level",
             # Todas las mediciones de una corrida salen del unico corte inferido.
             "sliceIndex": slice_index,
             "source": "AI",
@@ -974,8 +979,14 @@ def build_measurements(
                 **common,
             })
 
-    def emit_single(identifier, label, magnitude, unit, level, binary):
-        """Una sola magnitud, para lo que no tiene sentido medir en tres ejes."""
+    def emit_single(identifier, label, magnitude, unit, level, binary, level_scope="study"):
+        """Una sola magnitud, para lo que no tiene sentido medir en tres ejes.
+
+        Por defecto describe el estudio y no un nivel: es el caso del canal, una
+        mascara continua que atraviesa toda la columna. Que no tenga nivel no es una
+        falla de la IA, y el `levelScope` es lo que permite decirlo en la pantalla en
+        vez de mostrarlo junto a lo que si quedo sin identificar.
+        """
         values.append({
             "id": identifier,
             "label": label,
@@ -985,6 +996,7 @@ def build_measurements(
             "reviewerValue": None,
             "unit": unit,
             "level": level,
+            "levelScope": level_scope,
             "sliceIndex": slice_index,
             "source": "AI",
             "confidence": round(float(confidence[binary].mean()), 4) if binary.any() else 0.0,
