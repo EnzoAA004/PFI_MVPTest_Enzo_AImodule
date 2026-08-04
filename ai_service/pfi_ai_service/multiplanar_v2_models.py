@@ -239,6 +239,13 @@ class PlaneQualityV2(PublicResponseModel):
     #: corte inferido tiene imagen, que es el caso de toda corrida anterior al
     #: catalogo; el visor lo usa para no prometer una imagen que no existe.
     slicePreviewCount: int = 0
+    #: Geometria del volumen en el espacio del paciente.
+    #:
+    #: {origin, direction, spacingXyz, sliceAxis, sliceCount, frameOfReferenceUid,
+    #: inputOrientationTransform}. Es lo que permite ubicar un corte de un plano sobre
+    #: el otro; sin esto una linea de referencia entre sagital y axial seria una
+    #: coordenada inventada. Vacio cuando el formato de entrada no trae geometria.
+    volumeGeometry: dict[str, Any] | None = None
     #: Datos crudos por corte: {count,width,height,dtype,byteOrder,min,max}.
     #: Es lo que permite ventanear de verdad en vez de filtrar brillo sobre 8 bits.
     slicePixels: dict[str, Any] | None = None

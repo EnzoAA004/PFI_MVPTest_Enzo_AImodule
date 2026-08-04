@@ -664,6 +664,7 @@ def plane_quality_v2(raw: Any) -> PlaneQualityV2:
         meanForegroundConfidence=float_or_none(quality.get("meanForegroundConfidence")),
         foregroundRatio=float_or_none(quality.get("foregroundRatio")),
         slicePreviewCount=int(quality.get("slicePreviewCount", 0) or 0),
+        volumeGeometry=quality.get("volumeGeometry") if isinstance(quality.get("volumeGeometry"), dict) else None,
         slicePixels=quality.get("slicePixels") if isinstance(quality.get("slicePixels"), dict) else None,
         warnings=[],
     )

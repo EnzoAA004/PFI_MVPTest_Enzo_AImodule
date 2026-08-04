@@ -185,6 +185,8 @@ def read_dicom_series(directory: Path) -> tuple[np.ndarray, tuple[float, ...] | 
     if len(file_names) < 2:
         raise ValueError(f"La serie DICOM debe tener al menos 2 cortes; encontrados={len(file_names)}")
     reader.SetFileNames(file_names)
+    reader.MetaDataDictionaryArrayUpdateOn()
+    reader.LoadPrivateTagsOff()
     image = reader.Execute()
     array = sitk.GetArrayFromImage(image)
     spacing = tuple(float(value) for value in image.GetSpacing())
@@ -192,6 +194,13 @@ def read_dicom_series(directory: Path) -> tuple[np.ndarray, tuple[float, ...] | 
         "seriesInstanceUid": best_id,
         "origin": tuple(float(value) for value in image.GetOrigin()),
         "direction": tuple(float(value) for value in image.GetDirection()),
+        # El marco de referencia es lo que decide si dos series se pueden comparar en
+        # el espacio. Dos estudios distintos tienen origenes y direcciones bien
+        # formados y completamente incomparables entre si: sin este identificador, una
+        # linea de referencia entre planos podria trazarse con geometria valida y
+        # apuntar a un lugar que no existe en la otra imagen.
+        "frameOfReferenceUid": reader.GetMetaData(0, "0020|0052").strip()
+        if reader.HasMetaDataKey(0, "0020|0052") else None,
         "sliceCount": int(array.shape[0]),
     }
     return array, spacing, metadata
@@ -842,6 +851,39 @@ def lumbar_disc_levels(count: int) -> list[str | None]:
     # seguir contando vertebras que el encuadre ya casi no muestra.
     above = [THORACIC_DISC_LEVELS[index] if index < len(THORACIC_DISC_LEVELS) else None for index in range(extra)]
     return list(reversed(above)) + list(LUMBAR_DISC_LEVELS)
+
+
+def volume_geometry(loaded: LoadedInput, selected_axis: int, slice_count: int) -> Dict[str, Any] | None:
+    """Geometria del volumen en el espacio del paciente, para ubicar un corte.
+
+    Es lo que falta para trazar una linea de referencia real entre el sagital y el
+    axial: sin origen, direccion y spacing no hay forma de saber donde corta un plano
+    al otro, y dibujar una linea sin eso seria inventar una coordenada.
+
+    Se publica el `inputOrientationTransform` junto con la geometria y no por separado.
+    El origen y la direccion describen el arreglo **nativo**, mientras que el analisis
+    corre sobre el canonico; entregarlos sin decir que transformacion los separa
+    invitaria a leerlos contra los ejes equivocados, que es la clase de error que la
+    correccion de escala ya costo una vez.
+
+    Devuelve None cuando el formato de entrada no trae geometria -un PNG o un .npy no
+    la tienen- en vez de rellenar con una identidad que se leeria como un dato.
+    """
+    origin = loaded.metadata.get("origin")
+    direction = loaded.metadata.get("direction")
+    if not origin or not direction:
+        return None
+    return {
+        "origin": [float(value) for value in origin],
+        "direction": [float(value) for value in direction],
+        "spacingXyz": loaded.metadata.get("spacingXyz"),
+        "arrayAxisSpacingNative": loaded.metadata.get("arrayAxisSpacingNative"),
+        "inputShapeNative": loaded.metadata.get("inputShapeNative"),
+        "inputOrientationTransform": loaded.metadata.get("inputOrientationTransform"),
+        "frameOfReferenceUid": loaded.metadata.get("frameOfReferenceUid"),
+        "sliceAxis": int(selected_axis),
+        "sliceCount": int(slice_count),
+    }
 
 
 def prediction_grid_spacing(
@@ -1574,6 +1616,7 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
         "inPlaneSpacingUnit": spacing_unit,
         "measurementsDerivedFromPredictionMask": True,
         "segmentation": segmentation,
+        "volumeGeometry": volume_geometry(loaded, selected_axis, slice_count),
         "slicePreviewCount": len(slice_previews),
         "slicePixels": slice_pixels or None,
     }
