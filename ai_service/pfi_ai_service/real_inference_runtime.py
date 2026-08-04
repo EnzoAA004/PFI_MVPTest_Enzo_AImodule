@@ -873,10 +873,23 @@ def volume_geometry(loaded: LoadedInput, selected_axis: int, slice_count: int) -
     direction = loaded.metadata.get("direction")
     if not origin or not direction:
         return None
+    origin_values = [float(value) for value in origin]
+    direction_values = [float(value) for value in direction]
+    spacing = loaded.metadata.get("spacingXyz")
+    # Un origen todo en cero y una matriz de largo raro son cabeceras por defecto, no
+    # geometria: el archivo trae los campos pero no dice donde esta el paciente.
+    # Publicarlos igual y dejar que el consumidor lo deduzca es pedirle que repita esta
+    # verificacion, y que la haga mal el dia que no la haga.
+    complete = bool(
+        spacing
+        and any(abs(value) > 1e-9 for value in origin_values)
+        and len(direction_values) in {4, 9}
+    )
     return {
-        "origin": [float(value) for value in origin],
-        "direction": [float(value) for value in direction],
-        "spacingXyz": loaded.metadata.get("spacingXyz"),
+        "origin": origin_values,
+        "direction": direction_values,
+        "geometryComplete": complete,
+        "spacingXyz": spacing,
         "arrayAxisSpacingNative": loaded.metadata.get("arrayAxisSpacingNative"),
         "inputShapeNative": loaded.metadata.get("inputShapeNative"),
         "inputOrientationTransform": loaded.metadata.get("inputOrientationTransform"),
