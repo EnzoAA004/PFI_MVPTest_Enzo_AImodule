@@ -188,6 +188,7 @@ def read_dicom_series(directory: Path) -> tuple[np.ndarray, tuple[float, ...] | 
     reader.MetaDataDictionaryArrayUpdateOn()
     reader.LoadPrivateTagsOff()
     image = reader.Execute()
+    slice_positions = dicom_slice_positions(reader, len(file_names))
     array = sitk.GetArrayFromImage(image)
     spacing = tuple(float(value) for value in image.GetSpacing())
     metadata: Dict[str, Any] = {
@@ -201,9 +202,67 @@ def read_dicom_series(directory: Path) -> tuple[np.ndarray, tuple[float, ...] | 
         # apuntar a un lugar que no existe en la otra imagen.
         "frameOfReferenceUid": reader.GetMetaData(0, "0020|0052").strip()
         if reader.HasMetaDataKey(0, "0020|0052") else None,
+        "slicePositions": slice_positions,
+        "sliceSpacingUniform": spacing_is_uniform(slice_positions),
         "sliceCount": int(array.shape[0]),
     }
     return array, spacing, metadata
+
+
+def dicom_slice_positions(reader: Any, count: int) -> list[list[float]] | None:
+    """Posicion declarada de cada corte de la serie, en coordenadas del paciente.
+
+    Es el dato exacto, y evita el supuesto de que los cortes estan a pasos parejos.
+    Sin esto habria que ubicar el corte N como `origen + N x espaciado`, que es
+    correcto hasta el primer salto de la serie y falso despues: en este dataset las
+    series axiales tienen huecos de decenas de milimetros, asi que la cuenta ubicaria
+    medio estudio en la altura equivocada.
+
+    Devuelve None si alguna posicion no se puede leer: es preferible caer al modelo
+    del espaciado unico -y declararlo- que mezclar posiciones reales con inventadas.
+    """
+    positions: list[list[float]] = []
+    for index in range(count):
+        try:
+            raw = reader.GetMetaData(index, "0020|0032")
+        except Exception:
+            return None
+        parts = [value.strip() for value in str(raw).split("\\")]
+        if len(parts) != 3:
+            return None
+        try:
+            positions.append([float(value) for value in parts])
+        except ValueError:
+            return None
+    return positions
+
+
+def spacing_is_uniform(positions: list[list[float]] | None, tolerance: float = 0.2) -> bool:
+    """Si los cortes de la serie estan a pasos parejos.
+
+    Importa para ubicar un corte en el espacio: la geometria que publica el modulo
+    describe la serie con un unico espaciado, y con esa cifra el corte N esta en
+    `origen + N x espaciado`. Si la serie tiene un salto -una region no adquirida, un
+    corte perdido- esa cuenta es correcta hasta el salto y falsa despues, y una linea
+    de referencia trazada con ella apuntaria a la altura equivocada sin avisar.
+
+    Se mide sobre las posiciones declaradas por cada archivo y no sobre el espaciado
+    que resume ITK, que ya asume uniformidad. Ante la duda -si las posiciones no se
+    pueden leer- se responde que no es uniforme: es la respuesta que hace que el
+    consumidor no extrapole.
+    """
+    if not positions:
+        return False
+    if len(positions) < 3:
+        return True
+    steps = [
+        sum((a - b) ** 2 for a, b in zip(first, second)) ** 0.5
+        for first, second in zip(positions, positions[1:])
+    ]
+    reference = sorted(steps)[len(steps) // 2]
+    if reference <= 0:
+        return False
+    return all(abs(step - reference) <= tolerance * reference for step in steps)
 
 
 def normalized_suffix(path: Path) -> str:
@@ -853,7 +912,89 @@ def lumbar_disc_levels(count: int) -> list[str | None]:
     return list(reversed(above)) + list(LUMBAR_DISC_LEVELS)
 
 
-def volume_geometry(loaded: LoadedInput, selected_axis: int, slice_count: int) -> Dict[str, Any] | None:
+#: Como se reordenan los ejes del arreglo al canonicalizar. El eje `i` de la lista es
+#: el eje canonico; su valor es el eje nativo del que salio.
+CANONICAL_TO_NATIVE_AXIS = {
+    "none": (0, 1, 2),
+    # `np.moveaxis(array, 0, -1)`: el eje nativo 0 pasa al final y los otros suben.
+    "move_axis_0_to_last": (1, 2, 0),
+}
+
+
+def native_axis_directions(direction: Any) -> list[list[float]] | None:
+    """Direccion en el paciente de cada eje del arreglo nativo.
+
+    ITK entrega la matriz de direccion por filas y sus **columnas** son los cosenos de
+    los ejes de indice i, j, k. El arreglo de numpy viene en orden (k, j, i), asi que
+    el eje 0 del arreglo corresponde a la tercera columna y no a la primera. Es
+    exactamente el tipo de inversion que, si se toma al reves, dibuja una linea de
+    referencia perpendicular a donde tiene que ir.
+    """
+    if not direction or len(direction) != 9:
+        return None
+    d = [float(value) for value in direction]
+    i_dir = [d[0], d[3], d[6]]
+    j_dir = [d[1], d[4], d[7]]
+    k_dir = [d[2], d[5], d[8]]
+    return [k_dir, j_dir, i_dir]
+
+
+def slice_plane_geometry(
+    loaded: LoadedInput,
+    selected_axis: int,
+    slice_index: int,
+) -> Dict[str, Any] | None:
+    """Ubica el corte que se muestra en el espacio del paciente.
+
+    Devuelve el origen del pixel (0,0) del corte y las direcciones de sus filas y
+    columnas, que es lo que permite pasar de un punto de la imagen a una coordenada
+    del paciente y al reves. Con eso, dos planos de un mismo estudio se pueden cruzar.
+
+    El razonamiento de ejes se hace aca y no en el visor a proposito: aca estan el
+    arreglo, su forma nativa y la transformacion que lo canonicalizo, y se puede
+    probar contra geometria conocida. Mandar la matriz cruda y que el cliente la
+    interprete es repartir el mismo razonamiento en dos lugares, donde uno de los dos
+    va a equivocarse de eje.
+    """
+    directions = native_axis_directions(loaded.metadata.get("direction"))
+    origin = loaded.metadata.get("origin")
+    spacing = loaded.metadata.get("arrayAxisSpacingNative")
+    transform = loaded.metadata.get("inputOrientationTransform") or "none"
+    mapping = CANONICAL_TO_NATIVE_AXIS.get(transform)
+    if not directions or not origin or not spacing or mapping is None or len(origin) != 3:
+        return None
+    if loaded.array.ndim != 3 or not 0 <= selected_axis < 3:
+        return None
+
+    native_slice_axis = mapping[selected_axis]
+    plane_axes = [axis for axis in range(3) if axis != selected_axis]
+    row_axis, col_axis = mapping[plane_axes[0]], mapping[plane_axes[1]]
+    step = float(spacing[native_slice_axis])
+    normal = directions[native_slice_axis]
+    # La posicion declarada por el propio corte, cuando la serie la trae. Solo si no
+    # esta se cae al modelo del espaciado unico, que supone la serie sin huecos.
+    declared = loaded.metadata.get("slicePositions")
+    exact = (
+        [float(value) for value in declared[slice_index]]
+        if isinstance(declared, list) and 0 <= slice_index < len(declared)
+        else None
+    )
+    return {
+        # Origen del pixel (0,0) del corte que se esta mostrando.
+        "position": exact or [float(origin[k]) + slice_index * step * normal[k] for k in range(3)],
+        "positionSource": "declared" if exact else "uniform_spacing",
+        "rowDirection": directions[row_axis],
+        "colDirection": directions[col_axis],
+        "normal": normal,
+        "rowSpacing": float(spacing[row_axis]),
+        "colSpacing": float(spacing[col_axis]),
+        "sliceSpacing": step,
+        "rowCount": int(loaded.array.shape[plane_axes[0]]),
+        "colCount": int(loaded.array.shape[plane_axes[1]]),
+    }
+
+
+def volume_geometry(loaded: LoadedInput, selected_axis: int, slice_count: int, slice_index: int = 0) -> Dict[str, Any] | None:
     """Geometria del volumen en el espacio del paciente, para ubicar un corte.
 
     Es lo que falta para trazar una linea de referencia real entre el sagital y el
@@ -896,6 +1037,10 @@ def volume_geometry(loaded: LoadedInput, selected_axis: int, slice_count: int) -
         "frameOfReferenceUid": loaded.metadata.get("frameOfReferenceUid"),
         "sliceAxis": int(selected_axis),
         "sliceCount": int(slice_count),
+        # Sin pasos parejos, el corte N no esta donde la cuenta dice. Se declara para
+        # que el consumidor no ubique un corte que la serie no garantiza.
+        "sliceSpacingUniform": bool(loaded.metadata.get("sliceSpacingUniform", False)),
+        "slicePlane": slice_plane_geometry(loaded, selected_axis, slice_index),
     }
 
 
@@ -1630,7 +1775,7 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
         "inPlaneSpacingUnit": spacing_unit,
         "measurementsDerivedFromPredictionMask": True,
         "segmentation": segmentation,
-        "volumeGeometry": volume_geometry(loaded, selected_axis, slice_count),
+        "volumeGeometry": volume_geometry(loaded, selected_axis, slice_count, selected_slice),
         "slicePreviewCount": len(slice_previews),
         "slicePixels": slice_pixels or None,
     }
