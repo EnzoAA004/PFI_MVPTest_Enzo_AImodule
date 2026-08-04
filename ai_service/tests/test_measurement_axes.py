@@ -188,3 +188,34 @@ def test_el_segmento_pasa_por_el_centro_de_la_estructura():
     ancho, _ = oriented_extent(mask, 1.0, 1.0)
     assert (ancho.start[0] + ancho.end[0]) / 2 == pytest.approx(float(xs.mean()), abs=0.5)
     assert (ancho.start[1] + ancho.end[1]) / 2 == pytest.approx(float(ys.mean()), abs=0.5)
+
+
+def test_cada_distancia_publicada_lleva_los_puntos_de_donde_salio():
+    """Regresion: el ancho y el alto viajaban sin figura y la cota no se dibujaba.
+
+    Las pruebas de `oriented_extent` seguian pasando porque el calculo estaba bien;
+    lo que se habia perdido era el paso de adjuntarlo a la medicion publicada. Por eso
+    se verifica la salida de `build_measurements` y no solo el calculador: es el
+    contrato que consume el visor.
+
+    El area no lleva puntos a proposito: no tiene dos extremos.
+    """
+    from pfi_ai_service.real_inference_runtime import build_measurements
+
+    prediction = np.zeros((200, 200), dtype=np.uint8)
+    rows = [(20, 45), (55, 80), (90, 115), (125, 150), (155, 180)]
+    for top, bottom in rows:
+        prediction[top:bottom, 40:80] = 1  # vertebra_group
+    for index, (_, bottom) in enumerate(rows[:-1]):
+        prediction[bottom:rows[index + 1][0], 40:80] = 3  # disc_group
+    confidence = np.ones((200, 200), dtype=np.float32)
+
+    values = build_measurements("sagittal_spider", "sagittal", prediction, confidence, (0.7, 0.7), 7)
+    distancias = [item for item in values if item["id"].endswith(("-width", "-height"))]
+    areas = [item for item in values if item["id"].endswith("-area")]
+
+    assert distancias, "la geometria sintetica tiene que producir anchos y altos"
+    for item in distancias:
+        assert len(item["points"]) == 2, f"{item['id']} sin figura"
+    for item in areas:
+        assert item["points"] == [], f"{item['id']} no deberia llevar figura"

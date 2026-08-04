@@ -1121,6 +1121,7 @@ def build_measurements(
                 "aiValue": round(magnitude, 2),
                 "reviewerValue": None,
                 "unit": unit,
+                "points": segment_points(segment),
                 **common,
             })
 
