@@ -13,6 +13,7 @@ from .input_registry import InputRegistryError, resolve_input_id
 from .model_artifacts import model_status
 from .real_inference_runtime import run_real_inference
 from .reporting import write_json
+from .security import safe_exception_type
 from .settings import MODEL_REGISTRY, get_settings
 
 
@@ -356,8 +357,8 @@ def run_pipeline(request: PipelineRunRequest) -> Dict[str, Any]:
                 raise
             fallback_metadata = dict(request.metadata)
             fallback_metadata["realInferenceFailure"] = {
-                "type": type(exc).__name__,
-                "message": str(exc)[:240],
+                "type": safe_exception_type(exc),
+                "message": "real_inference_failed",
             }
             fallback_metadata["realInferenceAttempted"] = True
             request = request.model_copy(update={"metadata": fallback_metadata})

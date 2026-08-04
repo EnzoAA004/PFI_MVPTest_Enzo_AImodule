@@ -39,18 +39,16 @@ def test_pipeline_run_strict_sagittal_real_baseline_fixture(monkeypatch, tmp_pat
     assert body["runId"]
     assert body["traceId"] == "trace-ai007-sagittal-fixture"
 
-    output_files = body["metadata"]["outputFiles"]
-    expected = {
-        "imagePath": "input.png",
-        "maskPath": "mask.npy",
-        "confidencePath": "confidence.npy",
-        "overlayPath": "overlay.png",
-    }
-    for key, suffix in expected.items():
-        output_path = Path(output_files[key])
-        assert output_path.name == suffix
-        assert output_path.exists()
-        assert output_path.stat().st_size > 0
+    assert "inputPath" not in body
+    assert "input_path" not in body
+    assert "overlayPath" not in body
+    assert "overlay_path" not in body
+    assert "sourcePath" not in body["metadata"]
+    assert "outputFiles" not in body["metadata"]
+    asset_names = {asset["assetName"] for asset in body["assets"].values()}
+    assert {"input.png", "mask.npy", "confidence.npy", "overlay.png", "mask-preview.png"} <= asset_names
+    assert "ai_service/tests/fixtures/real_baseline" not in response.text
+    assert str(tmp_path) not in response.text
 
     flags = body["aiOutput"]["agentDecision"].get("flags", [])
     assert "contract_fallback_after_real_inference_failure" not in flags

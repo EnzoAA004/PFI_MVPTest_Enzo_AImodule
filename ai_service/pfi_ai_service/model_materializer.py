@@ -10,6 +10,7 @@ from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS
 from .gcs_release_materializer import GcsReleaseConfig, materialize_sagittal_gcs_release
 from .model_artifacts import verify_model_artifacts
 from .model_manifest import manifest_path_for_artifact
+from .security import sanitize_public_payload
 from .settings import get_settings
 
 MODEL_SYNC_SPECS = {
@@ -68,7 +69,8 @@ def sync_model_artifacts(force: bool = False) -> Dict[str, Any]:
                         "modelKey": model_key,
                         "source": "gcs_verified_release",
                         "status": "sync_failed",
-                        "message": str(exc),
+                        "message": "model_sync_failed",
+                        "exceptionType": type(exc).__name__,
                         "artifactSynced": False,
                         "manifestSynced": False,
                         "modelCardSynced": False,
@@ -78,7 +80,7 @@ def sync_model_artifacts(force: bool = False) -> Dict[str, Any]:
             continue
         items.append(sync_one_model(model_key, artifact_uri, artifact_path, manifest_uri, force, settings.model_download_token))
     verification = verify_model_artifacts()
-    return {
+    return sanitize_public_payload({
         "status": "models_sync_completed",
         "items": items,
         "verification": verification,
@@ -87,7 +89,7 @@ def sync_model_artifacts(force: bool = False) -> Dict[str, Any]:
         "authenticatedDownloadConfigured": bool(settings.model_download_token),
         "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
         "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
-    }
+    })
 
 
 def sync_one_model(
@@ -102,8 +104,6 @@ def sync_one_model(
     manifest_path = manifest_path_for_artifact(artifact_path)
     result: Dict[str, Any] = {
         "modelKey": model_key,
-        "artifactPath": str(artifact_path),
-        "manifestPath": str(manifest_path),
         "artifactUriConfigured": bool(artifact_uri),
         "manifestUriConfigured": bool(manifest_uri),
     }
@@ -116,7 +116,7 @@ def sync_one_model(
     if manifest_uri:
         result["manifest"] = materialize_uri(manifest_uri, manifest_path, force, token)
     else:
-        result["manifest"] = {"status": "local_manifest", "path": str(manifest_path), "synced": manifest_path.exists()}
+        result["manifest"] = {"status": "local_manifest", "synced": manifest_path.exists()}
 
     result["artifactSynced"] = bool(result["artifact"].get("synced"))
     result["manifestSynced"] = bool(result["manifest"].get("synced"))
@@ -126,7 +126,7 @@ def sync_one_model(
 
 def materialize_uri(uri: str, destination: Path, force: bool, token: str | None = None) -> Dict[str, Any]:
     if destination.exists() and destination.is_file() and not force:
-        return {"status": "already_exists", "path": str(destination), "synced": True, "sizeBytes": destination.stat().st_size}
+        return {"status": "already_exists", "synced": True, "sizeBytes": destination.stat().st_size}
 
     parsed = urlparse(uri)
     try:
@@ -137,11 +137,11 @@ def materialize_uri(uri: str, destination: Path, force: bool, token: str | None 
         elif parsed.scheme == "":
             copy_local(Path(uri), destination)
         else:
-            return {"status": "unsupported_uri_scheme", "scheme": parsed.scheme, "path": str(destination), "synced": False}
+            return {"status": "unsupported_uri_scheme", "scheme": parsed.scheme, "synced": False}
     except Exception as exc:
-        return {"status": "sync_failed", "message": str(exc), "path": str(destination), "synced": False}
+        return {"status": "sync_failed", "message": "model_artifact_sync_failed", "exceptionType": type(exc).__name__, "synced": False}
 
-    return {"status": "synced", "path": str(destination), "synced": True, "sizeBytes": destination.stat().st_size}
+    return {"status": "synced", "synced": True, "sizeBytes": destination.stat().st_size}
 
 
 def download_http(uri: str, destination: Path, token: str | None = None) -> None:

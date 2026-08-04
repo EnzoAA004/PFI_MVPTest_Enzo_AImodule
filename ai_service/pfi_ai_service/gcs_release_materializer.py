@@ -309,7 +309,12 @@ def _local_release_status(config: GcsReleaseConfig) -> dict[str, Any]:
         manifest = load_json(manifest_path)
         validation = validate_manifest(manifest, artifact_path=model_path)
     except Exception as exc:
-        return {"complete": False, "reason": "local_release_provenance_invalid", "message": str(exc)}
+        return {
+            "complete": False,
+            "reason": "local_release_provenance_invalid",
+            "message": "local_release_provenance_invalid",
+            "exceptionType": type(exc).__name__,
+        }
     if validation.get("valid") and validation.get("baselineReady") and validation.get("sha256Status") == "MATCH" and not validation.get("validationErrors"):
         return {
             "complete": True,

@@ -122,6 +122,7 @@ def test_pipeline_real_baseline_with_uploaded_input_id(monkeypatch, tmp_path) ->
     assert body["aiOutput"]["inferenceMode"] == "real_baseline"
     assert body["inputId"] == upload["inputId"]
     assert body["traceId"] == "trace-ai014-upload-pipeline"
-    assert body["metadata"]["outputFiles"]["imagePath"] == {"generated": True, "fileName": "input.png"}
-    assert body["metadata"]["outputFiles"]["maskPath"] == {"generated": True, "fileName": "mask.npy"}
+    assert "outputFiles" not in body["metadata"]
+    assert body["assets"]["input.png"]["assetName"] == "input.png"
+    assert body["assets"]["mask.npy"]["assetName"] == "mask.npy"
     assert_no_internal_paths(body)

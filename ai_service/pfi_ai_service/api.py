@@ -29,6 +29,7 @@ from .pipeline import PipelineRunRequest, run_pipeline
 from .readiness import build_readiness
 from .report_summary import recent_agent_report_summaries, summarize_agent_report
 from .reporting import build_markdown_summary
+from .security import sanitize_public_payload
 from .study_contract import demo_study_review_contract
 
 TRACE_ID_HEADER = "X-Trace-Id"
@@ -67,10 +68,10 @@ def clean_for_json(value: Any) -> Any:
         return None
 
     if isinstance(value, Path):
-        return str(value)
+        return None
 
     if isinstance(value, dict):
-        return {str(k): clean_for_json(v) for k, v in value.items()}
+        return sanitize_public_payload({str(k): clean_for_json(v) for k, v in value.items()})
 
     if isinstance(value, list):
         return [clean_for_json(v) for v in value]
@@ -141,9 +142,9 @@ def health():
     return clean_for_json({
         "status": "ok",
         "service": "pfi-ai-module",
-        "pfi_root": str(settings.pfi_root),
-        "modelsRoot": str(settings.models_root),
-        "outputDir": str(settings.output_dir),
+        "runtimePathsExposed": False,
+        "modelsConfigured": bool(settings.models_root),
+        "outputStorageConfigured": bool(settings.output_dir),
         "artifactSummary": summary,
         "contract": contract_summary(),
         "defaultInferenceMode": summary["defaultInferenceMode"],
@@ -173,8 +174,9 @@ def warmup():
         "service": "pfi-ai-module",
         "ready": True,
         "modelsRegistered": len(MODEL_REGISTRY),
-        "modelsRoot": str(settings.models_root),
-        "outputDir": str(settings.output_dir),
+        "runtimePathsExposed": False,
+        "modelsConfigured": bool(settings.models_root),
+        "outputStorageConfigured": bool(settings.output_dir),
         "artifactSummary": summary,
         "contract": contract_summary(),
         "defaultInferenceMode": summary["defaultInferenceMode"],
@@ -190,11 +192,6 @@ def models():
     return clean_for_json({
         "models": models_with_status,
         "summary": artifact_summary(),
-        "paths": {
-            "modelsRoot": str(settings.models_root),
-            "sagittal_model_path": str(settings.sagittal_model_path),
-            "axial_model_path": str(settings.axial_model_path),
-        },
         "contract": {
             "realInferenceLoadsModels": False,
             "artifactCheckOnly": True,
@@ -332,7 +329,7 @@ def agent_worklist():
     settings = get_settings()
     worklist_path = settings.e14_results_root / "E14_agent_worklist.csv"
     if not worklist_path.exists():
-        raise HTTPException(status_code=404, detail=f"No existe {worklist_path}")
+        raise HTTPException(status_code=404, detail="worklist no disponible")
 
     df = pd.read_csv(worklist_path)
     return clean_for_json({
@@ -348,7 +345,7 @@ def agent_report():
     metrics_path = settings.e14_results_root / "E14_agent_metrics_summary.csv"
 
     if not worklist_path.exists():
-        raise HTTPException(status_code=404, detail=f"No existe {worklist_path}")
+        raise HTTPException(status_code=404, detail="worklist no disponible")
 
     worklist = pd.read_csv(worklist_path)
     decisions = build_agent_decisions(worklist)

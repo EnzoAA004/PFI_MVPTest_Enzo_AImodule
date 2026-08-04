@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from .input_registry import InputRegistryError
 from .multiplanar_routes import register_multiplanar_routes
 from .real_inference_routes import register_real_inference_routes
+from .security import sanitize_public_text, safe_exception_type
 
 TRACE_ID_HEADER = "X-Trace-Id"
 LOGGER = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ def register_error_handlers(app: FastAPI) -> None:
         body: dict[str, Any] = {
             "status": "error",
             "code": code_for_status(exc.status_code),
-            "message": exc.message,
+            "message": sanitize_public_text(exc.message),
             "traceId": trace_id,
             "path": request.url.path,
             "method": request.method,
@@ -39,7 +40,7 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
         trace_id = trace_id_from_request(request)
-        detail = exc.detail if isinstance(exc.detail, str) else "Error HTTP controlado"
+        detail = sanitize_public_text(exc.detail) if isinstance(exc.detail, str) else "Error HTTP controlado"
         body: dict[str, Any] = {
             "status": "error",
             "code": code_for_status(exc.status_code),
@@ -56,14 +57,13 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         trace_id = trace_id_from_request(request)
-        LOGGER.exception(
+        LOGGER.error(
             "ai_service_unhandled_exception",
             extra={
                 "traceId": trace_id,
                 "path": request.url.path,
                 "method": request.method,
-                "exceptionType": type(exc).__name__,
-                "errorMessage": str(exc)[:240],
+                "exceptionType": safe_exception_type(exc),
             },
         )
         body: dict[str, Any] = {

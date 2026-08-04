@@ -70,6 +70,12 @@ def test_pipeline_run_strict_axial_real_baseline_fixture(monkeypatch, tmp_path) 
     assert body["assets"]["overlay.png"]["size"] > 0
     assert body["assets"]["mask-preview.png"]["assetName"] == "mask-preview.png"
     assert body["assets"]["mask-preview.png"]["size"] > 0
+    assert "inputPath" not in body
+    assert "input_path" not in body
+    assert "sourcePath" not in body["metadata"]
+    assert "outputFiles" not in body["metadata"]
+    assert "ai_service/tests/fixtures/real_baseline" not in response.text
+    assert str(tmp_path) not in response.text
 
 
 def test_strict_axial_real_baseline_rejects_model_plane_mismatch(monkeypatch, tmp_path) -> None:
