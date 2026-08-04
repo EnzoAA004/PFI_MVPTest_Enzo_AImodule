@@ -101,9 +101,15 @@ def test_documentation_uses_candidate_review_language_and_excludes_rsna_disc_tar
     assert "hallazgo candidato" in text
     assert "clasificacion asistida" in text
     assert "requiere revision profesional" in text
+    assert "disc_bulge" in text
     assert "disc_protrusion" in text
     assert "disc_extrusion" in text
-    assert "no se entrenan con RSNA" in text
+    assert "disc_sequestration" in text
+    text_normalized = text.casefold()
+    assert re.search(
+        r"(no se entrenan|excluidas? de entrenamiento)\s+(?:con\s+)?rsna",
+        text_normalized,
+    )
     for forbidden in [
         "diagnostico automatico",
         "patologia confirmada",
@@ -155,8 +161,13 @@ def test_official_test_access_guard_fails_closed() -> None:
 
 def test_preliminary_contract_avoids_diagnostic_fields() -> None:
     text = DOC_PATH.read_text(encoding="utf-8")
-    contract_text = text[text.index('"findingId"') : text.index("```", text.index('"findingId"'))]
-    contract = json.loads("{" + contract_text.split("{", 1)[1])
+    matches = re.findall(r"```json\s*(.*?)\s*```", text, flags=re.DOTALL)
+    candidate_matches = [
+        match for match in matches
+        if all(token in match for token in ['"findingId"', '"findingType"', '"probabilities"'])
+    ]
+    assert len(candidate_matches) == 1
+    contract = json.loads(candidate_matches[0])
     assert contract["humanReviewRequired"] is True
     assert contract["notClinicalDiagnosis"] is True
     assert contract["status"] == "requires_professional_review"
