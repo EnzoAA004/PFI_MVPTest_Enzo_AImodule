@@ -994,6 +994,42 @@ def slice_plane_geometry(
     }
 
 
+def volume_bounds(loaded: LoadedInput, plane_geometry: Dict[str, Any] | None, slice_count: int) -> Dict[str, Any] | None:
+    """Caja que ocupa el volumen en coordenadas del paciente.
+
+    Es la evidencia que reemplaza al identificador cuando el identificador se perdio.
+    El `frameOfReferenceUid` es la garantia declarada de que dos series comparten
+    sistema de coordenadas, pero la anonimizacion de este dataset lo regenera por
+    serie: las coordenadas siguen siendo coherentes y el identificador ya no lo dice.
+    Con las cajas de los dos volumenes se puede verificar lo mismo por geometria -que
+    se solapen y que cada uno contenga el centro del otro- y decir en pantalla cual de
+    las dos evidencias sostiene la linea.
+    """
+    if plane_geometry is None:
+        return None
+    positions = loaded.metadata.get("slicePositions")
+    if not isinstance(positions, list) or not positions:
+        origin = plane_geometry["position"]
+        normal = plane_geometry["normal"]
+        step = plane_geometry["sliceSpacing"]
+        positions = [[origin[k] + index * step * normal[k] for k in range(3)] for index in range(slice_count)]
+
+    row = plane_geometry["rowDirection"]
+    col = plane_geometry["colDirection"]
+    height = (plane_geometry["rowCount"] - 1) * plane_geometry["rowSpacing"]
+    width = (plane_geometry["colCount"] - 1) * plane_geometry["colSpacing"]
+    corners = [
+        [float(position[k]) + row[k] * r + col[k] * c for k in range(3)]
+        for position in positions
+        for r in (0.0, height)
+        for c in (0.0, width)
+    ]
+    return {
+        "min": [min(corner[k] for corner in corners) for k in range(3)],
+        "max": [max(corner[k] for corner in corners) for k in range(3)],
+    }
+
+
 def volume_geometry(loaded: LoadedInput, selected_axis: int, slice_count: int, slice_index: int = 0) -> Dict[str, Any] | None:
     """Geometria del volumen en el espacio del paciente, para ubicar un corte.
 
@@ -1040,7 +1076,8 @@ def volume_geometry(loaded: LoadedInput, selected_axis: int, slice_count: int, s
         # Sin pasos parejos, el corte N no esta donde la cuenta dice. Se declara para
         # que el consumidor no ubique un corte que la serie no garantiza.
         "sliceSpacingUniform": bool(loaded.metadata.get("sliceSpacingUniform", False)),
-        "slicePlane": slice_plane_geometry(loaded, selected_axis, slice_index),
+        "slicePlane": (plane_geometry := slice_plane_geometry(loaded, selected_axis, slice_index)),
+        "boundsMm": volume_bounds(loaded, plane_geometry, slice_count),
     }
 
 
