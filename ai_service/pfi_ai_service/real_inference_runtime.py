@@ -1077,6 +1077,14 @@ def volume_geometry(loaded: LoadedInput, selected_axis: int, slice_count: int, s
         # que el consumidor no ubique un corte que la serie no garantiza.
         "sliceSpacingUniform": bool(loaded.metadata.get("sliceSpacingUniform", False)),
         "slicePlane": (plane_geometry := slice_plane_geometry(loaded, selected_axis, slice_index)),
+        # La posicion declarada de todos los cortes, no solo la del que se analizo.
+        #
+        # Es lo que permite que la linea de referencia se mueva mientras el medico
+        # recorre la serie. Con un solo plano, el visor tendria que extrapolar los
+        # demas como `origen + N x espaciado`, y en este dataset las series axiales
+        # tienen huecos: el corte 4 quedaria a 22 mm de donde esta. Son quince ternas
+        # de numeros, y evitan que el cliente rehaga -mal- una cuenta que aca es exacta.
+        "slicePositions": loaded.metadata.get("slicePositions"),
         "boundsMm": volume_bounds(loaded, plane_geometry, slice_count),
     }
 
