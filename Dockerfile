@@ -30,6 +30,10 @@ COPY models/final /app/models/final
 # dependencias ni abren un camino de ejecucion nuevo.
 COPY scripts /app/scripts
 COPY infra /app/infra
+# El contrato de hallazgos degenerativos vive en `docs/contracts` y sus pruebas lo
+# leen de ahi: es el esquema congelado, no documentacion decorativa. Sin copiarlo, dos
+# pruebas fallan contra la imagen aunque pasen desde el repo.
+COPY docs /app/docs
 
 RUN mkdir -p /app/models/final /app/outputs
 
