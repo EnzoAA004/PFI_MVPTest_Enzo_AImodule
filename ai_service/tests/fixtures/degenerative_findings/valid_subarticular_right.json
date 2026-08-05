@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "pfi.degenerative-findings.v1",
+  "findings": [
+    {
+      "findingId": "df-subarticular-right-l3-l4-001",
+      "findingType": "subarticular_stenosis",
+      "anatomy": { "level": "L3-L4", "side": "right" },
+      "classification": {
+        "label": "normal_mild",
+        "probabilities": { "normal_mild": 0.72, "moderate": 0.20, "severe": 0.08 }
+      },
+      "evaluation": { "status": "evaluated" },
+      "sourceSeries": { "role": "axial_t2", "position": 24 },
+      "localization": { "source": "model_generated_roi", "researchOnly": true },
+      "model": {
+        "modelId": "rsna-subarticular-research-v1",
+        "modelSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "review": { "required": true, "status": "pending" },
+      "notClinicalDiagnosis": true
+    }
+  ]
+}

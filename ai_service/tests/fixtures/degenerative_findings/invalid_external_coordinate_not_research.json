@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "pfi.degenerative-findings.v1",
+  "findings": [
+    {
+      "findingId": "df-invalid-external-coordinate",
+      "findingType": "neural_foraminal_narrowing",
+      "anatomy": { "level": "L5-S1", "side": "right" },
+      "classification": {
+        "label": "moderate",
+        "probabilities": { "normal_mild": 0.10, "moderate": 0.70, "severe": 0.20 }
+      },
+      "evaluation": { "status": "evaluated" },
+      "sourceSeries": { "role": "sagittal_t1", "position": 9 },
+      "localization": { "source": "external_coordinate", "researchOnly": false },
+      "model": {
+        "modelId": "rsna-foraminal-research-v1",
+        "modelSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "review": { "required": true, "status": "pending" },
+      "notClinicalDiagnosis": true
+    }
+  ]
+}
