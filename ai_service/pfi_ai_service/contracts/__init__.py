@@ -1,0 +1,2 @@
+"""Versioned public contracts for AI Module structured outputs."""
+

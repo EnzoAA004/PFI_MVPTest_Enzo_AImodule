@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pfi.local/contracts/degenerative-findings-v1.schema.json",
+  "title": "PFI degenerative findings associated with lumbar stenosis v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "findings"],
+  "properties": {
+    "schemaVersion": {
+      "const": "pfi.degenerative-findings.v1"
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "findingId",
+        "findingType",
+        "anatomy",
+        "classification",
+        "evaluation",
+        "sourceSeries",
+        "localization",
+        "model",
+        "review",
+        "notClinicalDiagnosis"
+      ],
+      "properties": {
+        "findingId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable opaque identifier. Must not be a DICOM UID or patient identifier."
+        },
+        "findingType": {
+          "enum": ["central_canal_stenosis", "neural_foraminal_narrowing", "subarticular_stenosis"]
+        },
+        "anatomy": { "$ref": "#/$defs/anatomy" },
+        "classification": { "$ref": "#/$defs/classification" },
+        "evaluation": { "$ref": "#/$defs/evaluation" },
+        "sourceSeries": { "$ref": "#/$defs/sourceSeries" },
+        "localization": { "$ref": "#/$defs/localization" },
+        "model": { "$ref": "#/$defs/model" },
+        "review": { "$ref": "#/$defs/review" },
+        "notClinicalDiagnosis": { "const": true }
+      }
+    },
+    "anatomy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "side"],
+      "properties": {
+        "level": { "enum": ["L1-L2", "L2-L3", "L3-L4", "L4-L5", "L5-S1"] },
+        "side": { "type": ["string", "null"], "enum": ["left", "right", null] }
+      }
+    },
+    "classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "probabilities"],
+      "properties": {
+        "label": { "enum": ["normal_mild", "moderate", "severe"] },
+        "probabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["normal_mild", "moderate", "severe"],
+          "properties": {
+            "normal_mild": { "type": "number", "minimum": 0, "maximum": 1 },
+            "moderate": { "type": "number", "minimum": 0, "maximum": 1 },
+            "severe": { "type": "number", "minimum": 0, "maximum": 1 }
+          },
+          "description": "The Python contract validator additionally enforces finite numbers, sum=1 tolerance and label=argmax."
+        }
+      }
+    },
+    "evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["evaluated", "not_evaluated", "unsupported", "failed"] },
+        "reasonCode": { "type": "string", "minLength": 1 }
+      }
+    },
+    "sourceSeries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "position"],
+      "properties": {
+        "role": { "enum": ["sagittal_t2", "sagittal_t1", "axial_t2"] },
+        "position": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "localization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "researchOnly"],
+      "properties": {
+        "source": { "enum": ["slice_index", "external_coordinate", "model_generated_roi", "not_available"] },
+        "researchOnly": { "type": "boolean" }
+      },
+      "description": "external_coordinate requires researchOnly=true. model_generated_roi is allowed by contract but not claimed as currently validated."
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modelId", "modelSha256"],
+      "properties": {
+        "modelId": { "type": "string", "minLength": 1 },
+        "modelSha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "status"],
+      "properties": {
+        "required": { "const": true },
+        "status": { "enum": ["pending", "accepted", "observed", "rejected", "edited"] }
+      }
+    }
+  }
+}
