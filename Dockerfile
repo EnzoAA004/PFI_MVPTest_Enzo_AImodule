@@ -15,7 +15,7 @@ RUN apt-get update \
 
 COPY ai_service/requirements-ai-service.txt /tmp/requirements-ai-service.txt
 RUN python -m pip install --no-cache-dir --upgrade pip \
-    && python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch \
+    && python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch torchvision \
     && python -m pip install --no-cache-dir -r /tmp/requirements-ai-service.txt
 
 COPY ai_service /app/ai_service
