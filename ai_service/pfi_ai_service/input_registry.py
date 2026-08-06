@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import zipfile
@@ -17,6 +18,8 @@ from .real_inference_runtime import SUPPORTED_EXTENSIONS
 # A .zip is accepted only at upload time as a container for a DICOM series; it is
 # never a direct inference format (SUPPORTED_EXTENSIONS drives inference dispatch).
 ALLOWED_UPLOAD_EXTENSIONS = SUPPORTED_EXTENSIONS | {".zip"}
+
+log = logging.getLogger(__name__)
 
 DEFAULT_MAX_UPLOAD_BYTES = 300 * 1024 * 1024
 DEFAULT_MAX_SERIES_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
@@ -114,8 +117,10 @@ def _persist_registry() -> None:
         temporary.replace(path)
     except OSError:
         # Que no se pueda persistir no invalida la operacion en curso: el registro en
-        # memoria sigue sirviendo mientras el proceso viva.
-        pass
+        # memoria sigue sirviendo mientras el proceso viva. Pero se avisa: el efecto
+        # -inputIds que dejan de resolver tras un reinicio- aparece mucho despues y en
+        # otro lugar, y sin este rastro no hay como conectarlo con su causa.
+        log.exception("event=input_registry_persist_failed path=%s", path)
 
 
 def _load_registry() -> None:

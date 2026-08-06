@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,8 @@ from .multiplanar_v2_models import (
     WorkspaceModeV2,
 )
 from .multiplanar_run import MultiplanarRunRequest
+
+log = logging.getLogger(__name__)
 
 MODEL_NOT_READY_MESSAGE = "Modelo no habilitado para real_baseline"
 
@@ -190,6 +193,16 @@ class CanonicalMultiplanarExecutor:
                         requested_planes=requested_planes,
                         details={"plane": plane, "type": type(exc).__name__},
                     ) from exc
+                # El unico rastro que sobrevivia de una inferencia real fallida era el
+                # nombre de la clase de la excepcion, dentro de un `fallbackReason`
+                # sanitizado. Con eso no se diagnostica nada: la corrida se degrada a modo
+                # contract, responde 200 y el motivo real se pierde. El log es interno y
+                # no sale al cliente, asi que aca si va la traza completa.
+                log.exception(
+                    "event=real_inference_failed plane=%s caseId=%s traceId=%s runId=%s "
+                    "action=degraded_to_contract",
+                    plane, request.caseId, trace_id, run_id,
+                )
                 reason = sanitize_fallback_reason(f"real_baseline_failed:{type(exc).__name__}")
                 for fallback_plane in requested_planes:
                     fallback_spec = getattr(request.planes, fallback_plane)
@@ -893,15 +906,8 @@ def sanitize_fallback_reason(value: str) -> str:
 
 
 def int_or_none(value: Any) -> int | None:
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def int_or_none(value: Any) -> int | None:
+    # `bool` es subclase de `int`, asi que sin el chequeo un True se convertiria en 1 y
+    # un campo booleano mal tipeado pasaria como un indice de corte.
     if value is None or isinstance(value, bool):
         return None
     try:

@@ -25,10 +25,17 @@ jobs:
       # pytest no va en requirements-ai-service.txt: ese archivo define la imagen de
       # produccion y no tiene por que cargar dependencias de test.
       - name: Install test dependencies
-        run: pip install pytest
+        run: pip install pytest ruff
 
       - name: Compile AI service
         run: python -m compileall ai_service/pfi_ai_service
+
+      # Solo errores reales, no estilo: sintaxis invalida, nombres indefinidos,
+      # comparaciones siempre falsas, f-strings sin placeholders. Adoptar el set completo
+      # de una vez sobre 10.9k lineas dejaria el CI en rojo por cosas que no son bugs;
+      # este subconjunto habria detectado el int_or_none duplicado que quedaba muerto.
+      - name: Lint (solo errores)
+        run: ruff check --select E9,F63,F7,F82,F811 ai_service/pfi_ai_service src
 
       # testpaths cubre tests/ y ai_service/tests/ (ver pyproject.toml). Los tests que
       # dependen de artefactos fuera de Git (marker real_checkpoint) o de dependencias

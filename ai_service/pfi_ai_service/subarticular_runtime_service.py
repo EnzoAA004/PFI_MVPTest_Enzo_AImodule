@@ -1,6 +1,7 @@
 """Lazy runtime bridge for the frozen RSNA subarticular classifier."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
@@ -21,6 +22,8 @@ from .subarticular_frozen_classifier import (
     SubarticularPrediction,
     SubarticularRoi,
 )
+
+log = logging.getLogger(__name__)
 
 ALLOWED_REGISTERED_FORMATS = {"dcm", "dicom", "dicom_series"}
 PUBLIC_ROI_LIMITATION = "requires_external_anatomical_coordinate; no automatic ROI localizer is validated"
@@ -86,6 +89,11 @@ def get_subarticular_runtime_status(*, verify_hash: bool = False) -> dict[str, A
                 if hash_status == "mismatch":
                     status = "invalid_hash"
             except Exception:
+                # "unavailable" no distingue un archivo ilegible de un import roto, y
+                # este chequeo es lo que decide si el checkpoint es el esperado. Sin el
+                # rastro, el readiness dice "no se pudo verificar" y nadie puede saber
+                # por que.
+                log.exception("event=subarticular_hash_check_failed path=%s", path)
                 hash_status = "unavailable"
 
     return {
