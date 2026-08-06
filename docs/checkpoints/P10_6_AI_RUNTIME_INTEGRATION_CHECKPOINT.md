@@ -1,8 +1,11 @@
 # P10.6 AI Runtime Integration Checkpoint
 
+## Identification
+
 - Branch: `enzo/p10-6-ai-rsna-findings`
 - Base HEAD at implementation start: `60d8b0ab71ab385651891733cdac1dbcfa4d48bb`
-- Observed remote main: `06dc0c7b05ad70cff829e820bec1502ddd95da43`
+- Validated HEAD before this documentation commit: `c9b55f210c860b53220e6719c6f4ddebe33cf104`
+- Observed remote main at implementation time: `06dc0c7b05ad70cff829e820bec1502ddd95da43`
 - Model: `rsna_subarticular_axial_t2_2p5d`
 - Frozen checkpoint file name: `frozen_subarticular_checkpoint.pt`
 - Required SHA-256: `d41262d57b13c146a48ab15f5e183cc6a55fc92724b7d0c286cea1f2ce26e84a`
@@ -16,19 +19,144 @@
 - API endpoint: `POST /degenerative-findings/subarticular/predict`
 - Input resolution: registered `inputId` only; client filesystem paths are rejected.
 - Runtime loading: lazy cache with reload on checkpoint path, device, mtime or size changes.
-- Health/readiness/models: status block exposed without loading the checkpoint and without paths.
-- Existing segmentation models: unchanged.
-- Synthetic tests: pending final local execution in this working tree.
-- REAL_CHECKPOINT_SMOKE: NOT_RUN unless `PFI_SUBARTICULAR_CHECKPOINT_PATH` is configured locally.
+- Health, readiness and models endpoints expose status without loading the checkpoint and without exposing local paths.
+- Existing segmentation models remain available and are not replaced by the degenerative-finding classifier.
+- The frozen checkpoint is configured through `PFI_SUBARTICULAR_CHECKPOINT_PATH` and is not stored in Git or embedded in the Docker image.
 
-## Limitations
+## Final Technical Validation
 
-The endpoint requires external operator-provided ROI coordinates. It does not
-implement or claim automatic anatomical localization, autonomous diagnosis,
-patient-specific validated pathology detection or treatment recommendation.
+- `REAL_CHECKPOINT_HASH = PASSED`
+- `REAL_CHECKPOINT_LOCAL_SMOKE = PASSED`
+- `REAL_CHECKPOINT_DOCKER_SMOKE = PASSED`
+- `REAL_CHECKPOINT_SMOKE = PASSED`
+- `STRICT_STATE_DICT_LOAD = PASSED`
+- `CONTRACT_VALIDATION = PASSED`
+- `PROBABILITIES_FINITE = PASSED`
+- `PROBABILITIES_NORMALIZED = PASSED`
+- `ARGMAX_MATCHES_LABEL = PASSED`
+- `API_IMPORT = PASSED`
+- `DOCKER_BUILD = PASSED`
+- `DOCKER_SERVICE_HEALTH = PASSED`
+- `FULL_TEST_SUITE = PASSED`
 
-## Merge Readiness
+The real frozen checkpoint was loaded locally and inside the Docker container. Both smoke executions returned:
 
-Status before final validation: READY_FOR_CHECKPOINT_REVIEW, not READY_FOR_MERGE.
-The branch must not be merged until the full requested validation output is
-reviewed and the real checkpoint smoke is run when the artifact is available.
+```json
+{
+  "status": "SUBARTICULAR_REAL_CHECKPOINT_SMOKE_OK",
+  "checkpointHashVerified": true,
+  "modelLoaded": true,
+  "device": "cpu",
+  "probabilitiesFinite": true,
+  "probabilitiesNormalized": true,
+  "argmaxMatchesLabel": true,
+  "contractValidated": true,
+  "humanReviewRequired": true,
+  "notClinicalDiagnosis": true,
+  "autonomousDiagnosis": false
+}
+```
+
+This smoke validation proves technical artifact compatibility with the runtime. It does not constitute clinical validation, a new quality evaluation or authorization for autonomous use.
+
+## Test Suite
+
+Final full AI service suite:
+
+- Passed: `255`
+- Skipped: `6`
+- Warnings: `87`
+- Failed: `0`
+- Duration: `74.09s`
+
+The skipped optional real-checkpoint pytest does not invalidate the evidence because the actual frozen checkpoint was executed directly with `scripts/smoke_test_subarticular_runtime.py` both locally and inside Docker.
+
+Additional checks:
+
+- `python -m compileall ai_service/pfi_ai_service`: passed.
+- FastAPI application import: passed with title `PFI AI Service`.
+- `git diff --check`: passed before the documentation update.
+
+## Docker Validation
+
+- Docker Client: `28.5.1`
+- Docker Engine: `28.5.1`
+- Docker Desktop: `4.49.0`
+- Context: `desktop-linux`
+- Platform: `linux/amd64`
+- Image tag: `pfi-ai-module:p10-6-checkpoint`
+- Image digest: `sha256:40133726ab097311807ee77c67732be7260f0b10f2c75cd90b34d561cb97f780`
+- PyTorch: `2.13.0+cpu`
+- torchvision: `0.28.0+cpu`
+- timm: `1.0.28`
+
+The checkpoint was mounted as a read-only file for the Docker smoke. It was not copied into the repository or image.
+
+## Service Status with Mounted Checkpoint
+
+The container started healthy and returned HTTP `200` for:
+
+- `GET /health`
+- `GET /readiness`
+- `GET /models`
+- `GET /models/runtime`
+
+Reported subarticular runtime status before inference:
+
+- `configured=true`
+- `artifactPresent=true`
+- `loaded=false`
+- `status=available`
+- `checkpointHashStatus=not_checked`
+- `humanReviewRequired=true`
+- `notClinicalDiagnosis=true`
+- `autonomousDiagnosis=false`
+
+Health and readiness checks did not load the checkpoint. No local checkpoint path or mounted container path was exposed in public responses.
+
+Existing segmentation models remained available:
+
+- `sagittal_spider`
+- `axial_t2_alkafri`
+
+## Governance
+
+The integration preserves the following non-negotiable controls:
+
+- `humanReviewRequired=true`
+- `notClinicalDiagnosis=true`
+- `autonomousDiagnosis=false`
+- `officialTestAccessed=false`
+- no clinical diagnosis claim
+- no treatment recommendation
+- no automatic anatomical ROI localization claim
+- no threshold, hyperparameter or checkpoint reselection based on the internal test
+
+The model produces research-only candidate findings that require professional review.
+
+## Pending Separate E2E Evidence
+
+- `ENDPOINT_REAL_ROI_SMOKE = NOT_RUN_NO_REGISTERED_INPUT`
+
+A real HTTP `POST /degenerative-findings/subarticular/predict` was not executed with a registered axial series because no valid axial `inputId` was prepared inside that container session.
+
+This does not invalidate technical compatibility of the frozen checkpoint, strict model loading or contract generation. It remains a separate product-level end-to-end validation step and must not be replaced by fabricating an `inputId` or accepting arbitrary filesystem paths.
+
+## Limitations and Risks
+
+1. The classifier requires external operator-provided anatomical ROI coordinates.
+2. No validated automatic ROI localizer or segmentation-to-coordinate bridge is implemented.
+3. The repository virtual environment under OneDrive encountered `WinError 206` while installing the validated PyTorch stack; final validation used a clean temporary environment under `C:\tmp`.
+4. The Dockerfile currently installs `torch`, `torchvision` and `timm` without exact version pins.
+5. Before integration into main, the validated dependency versions should be pinned and the image rebuilt and retested.
+6. The source branch is historically diverged from main and must not be merged directly without a clean integration strategy and full regression validation.
+7. Product-level E2E HTTP validation with a real registered axial series remains pending.
+
+## Checkpoint State
+
+- `READY_FOR_CHECKPOINT_COMMIT`
+- `READY_FOR_MERGE = false`
+- `E2E_VALIDATED = false`
+- `CLOSED = false`
+
+The frozen checkpoint integration is technically validated and ready for this documentation checkpoint commit. The real HTTP E2E test with a registered axial series remains pending and should be performed after the reviewed integration is ported to a clean branch based on the current main branch.
