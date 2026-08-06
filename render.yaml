@@ -22,5 +22,11 @@ services:
         value: config/data_freeze_config.json
       - key: PFI_OUTPUT_DIR
         value: /app/outputs
+      # Clasificador subarticular (P10.6). Se deja declarada y vacia a proposito: el .pt no
+      # esta en la imagen, asi que en Render ese endpoint responde 503 hasta que haya una
+      # forma de publicar el artefacto. Declararla evita que "no configurado" pase por
+      # olvido; el resto del servicio no depende de ella.
+      - key: PFI_SUBARTICULAR_CHECKPOINT_PATH
+        value: ""
       - key: PFI_ROOT
         value: /app

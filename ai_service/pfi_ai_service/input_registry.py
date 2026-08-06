@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import BinaryIO, Literal
 from uuid import uuid4
 
@@ -65,10 +67,99 @@ SERVER_SIDE_SOURCES = {
 }
 
 _INPUT_REGISTRY: dict[str, InputRecord] = {}
+_REGISTRY_LOCK = Lock()
+_REGISTRY_LOADED = False
 
 
 def upload_root() -> Path:
     return Path(os.getenv("PFI_UPLOAD_DIR", "uploads/inputs"))
+
+
+def _registry_file() -> Path:
+    return upload_root() / "registry.json"
+
+
+def _persist_registry() -> None:
+    """Vuelca el registro al lado de los archivos que describe.
+
+    El registro vivia solo en memoria del proceso, y eso alcanzaba mientras el servicio
+    no se reiniciara nunca. En cuanto se reinicia -o corre con mas de un worker- todo
+    inputId que ya se le entrego al cliente empieza a devolver 404 aunque el archivo
+    siga en disco. Se verifico el 2026-08-06 sobre una corrida real: minutos despues de
+    completarse, sus dos series axiales ya no resolvian.
+
+    Se guarda al lado de los uploads a proposito: si alguien borra ese directorio, se
+    van los archivos y el indice juntos, en vez de quedar un indice que apunta a nada.
+    """
+    path = _registry_file()
+    payload = [
+        {
+            "inputId": record.input_id,
+            "caseId": record.case_id,
+            "plane": record.plane,
+            "path": str(record.path),
+            "format": record.format,
+            "size": record.size,
+            "sourceKey": record.source_key,
+            "analyzable": record.analyzable,
+        }
+        for record in _INPUT_REGISTRY.values()
+    ]
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Escritura atomica: un corte a mitad de camino dejaria un indice truncado, que
+        # es peor que uno viejo porque se lee como valido.
+        temporary = path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(payload), encoding="utf-8")
+        temporary.replace(path)
+    except OSError:
+        # Que no se pueda persistir no invalida la operacion en curso: el registro en
+        # memoria sigue sirviendo mientras el proceso viva.
+        pass
+
+
+def _load_registry() -> None:
+    """Rehidrata el registro desde disco, una sola vez por proceso."""
+    global _REGISTRY_LOADED
+    if _REGISTRY_LOADED:
+        return
+    _REGISTRY_LOADED = True
+    path = _registry_file()
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if not isinstance(raw, list):
+        return
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        input_id = item.get("inputId")
+        stored = item.get("path")
+        if not isinstance(input_id, str) or not isinstance(stored, str):
+            continue
+        # Un registro que apunta a un archivo que ya no esta no se rehidrata: seria
+        # prometer una serie que no se puede abrir.
+        if not Path(stored).exists():
+            continue
+        _INPUT_REGISTRY.setdefault(input_id, InputRecord(
+            input_id=input_id,
+            case_id=str(item.get("caseId", "")),
+            plane=str(item.get("plane", "unknown")),
+            path=Path(stored),
+            format=str(item.get("format", "")),
+            size=int(item.get("size", 0) or 0),
+            source_key=str(item.get("sourceKey", "")),
+            analyzable=bool(item.get("analyzable", True)),
+        ))
+
+
+def remember_input(record: InputRecord) -> None:
+    """Unico punto de escritura del registro: memoria y disco no se separan."""
+    with _REGISTRY_LOCK:
+        _load_registry()
+        _INPUT_REGISTRY[record.input_id] = record
+        _persist_registry()
 
 
 def max_upload_bytes() -> int:
@@ -131,7 +222,7 @@ def register_uploaded_input(
         size=size,
         source_key="upload",
     )
-    _INPUT_REGISTRY[input_id] = record
+    remember_input(record)
     return public_input_metadata(record)
 
 
@@ -155,7 +246,7 @@ def register_existing_path(
         size=path.stat().st_size,
         source_key=source_key,
     )
-    _INPUT_REGISTRY[input_id] = record
+    remember_input(record)
     return public_input_metadata(record)
 
 
@@ -194,7 +285,7 @@ def register_series_files(*, case_id: str, plane: str, file_paths: list, analyza
         source_key="study-upload",
         analyzable=analyzable,
     )
-    _INPUT_REGISTRY[input_id] = record
+    remember_input(record)
     return public_input_metadata(record)
 
 
@@ -360,6 +451,12 @@ def public_input_metadata(record: InputRecord) -> dict[str, object]:
 
 def resolve_registered_input(input_id: str) -> InputRecord:
     record = _INPUT_REGISTRY.get(input_id)
+    if record is None:
+        # Primer acceso tras un reinicio: el registro se rehidrata desde disco antes de
+        # dar por perdido un inputId que el cliente ya tiene en la mano.
+        with _REGISTRY_LOCK:
+            _load_registry()
+        record = _INPUT_REGISTRY.get(input_id)
     if record is None:
         raise InputRegistryError("inputId no registrado", status_code=404)
     # A record path is a file for single uploads, or a directory for an extracted
