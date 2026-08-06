@@ -46,6 +46,11 @@ class InputRecord:
     format: str
     size: int
     source_key: str
+    # Si la serie puede ser la entrada de una corrida, o quedo registrada solo para
+    # poder mostrarla. Un estudio real trae coronales, localizers, capturas de consola
+    # y un axial T1 sin modelo: se guardan para que el medico los vea, y esta marca es
+    # lo que impide que entren a inferencia por traer un plano que el registro acepta.
+    analyzable: bool = True
 
 
 SERVER_SIDE_SOURCES = {
@@ -154,14 +159,19 @@ def register_existing_path(
     return public_input_metadata(record)
 
 
-def register_series_files(*, case_id: str, plane: str, file_paths: list) -> dict[str, object]:
+def register_series_files(*, case_id: str, plane: str, file_paths: list, analyzable: bool = True) -> dict[str, object]:
     """Copy a classified series' files into a fresh per-plane input directory and register it.
 
     Used by study ingestion: the caller has already selected which series belongs to
     this plane; here we materialize it as an ordinary directory-backed input so the
     existing pipeline (read_dicom_series) can stack it into a 3D volume.
+
+    ``analyzable=False`` registra una serie que solo se va a mostrar. Un estudio real
+    trae coronales, localizers y capturas de consola, y un axial T1 para el que no hay
+    modelo: sin esto se descartaban al ingerir y el medico veia dos series de siete.
+    Se guardan igual, marcadas, y ``resolve_input_id`` las rechaza como entrada.
     """
-    normalized_plane = validate_plane(plane)
+    normalized_plane = validate_plane(plane) if analyzable else validate_viewable_plane(plane)
     if not file_paths:
         raise InputRegistryError("serie sin archivos", status_code=400)
     input_id = f"inp_{uuid4().hex}"
@@ -182,6 +192,7 @@ def register_series_files(*, case_id: str, plane: str, file_paths: list) -> dict
         format="dicom_series",
         size=total,
         source_key="study-upload",
+        analyzable=analyzable,
     )
     _INPUT_REGISTRY[input_id] = record
     return public_input_metadata(record)
@@ -190,6 +201,18 @@ def register_series_files(*, case_id: str, plane: str, file_paths: list) -> dict
 def validate_plane(plane: str) -> str:
     normalized = str(plane).strip().lower()
     if normalized not in {"sagittal", "axial"}:
+        raise InputRegistryError("plane invalido", status_code=400)
+    return normalized
+
+
+# Planos que se pueden guardar para mirar. `unknown` cubre la serie cuyo encabezado no
+# trae orientacion: se muestra igual, porque el medico decide con la imagen.
+_VIEWABLE_PLANES = {"sagittal", "axial", "coronal", "unknown"}
+
+
+def validate_viewable_plane(plane: str) -> str:
+    normalized = str(plane or "unknown").strip().lower()
+    if normalized not in _VIEWABLE_PLANES:
         raise InputRegistryError("plane invalido", status_code=400)
     return normalized
 
@@ -318,6 +341,21 @@ def public_input_metadata(record: InputRecord) -> dict[str, object]:
     }
 
 
+def resolve_viewable_input(input_id: str) -> InputRecord:
+    """El registro de una serie para mostrarla, analizable o no.
+
+    Es deliberadamente la contraparte de `resolve_input_id`, que exige plano y caso
+    porque decide sobre que corre un modelo. Mirar una serie no elige nada: la unica
+    condicion es que el identificador exista y el archivo siga estando.
+    """
+    record = _INPUT_REGISTRY.get(input_id)
+    if record is None:
+        raise InputRegistryError("inputId no registrado", status_code=404)
+    if not record.path.exists():
+        raise InputRegistryError("archivo asociado al inputId no disponible", status_code=404)
+    return record
+
+
 def resolve_input_id(input_id: str, *, case_id: str, plane: str) -> InputRecord:
     record = _INPUT_REGISTRY.get(input_id)
     if record is None:
@@ -326,6 +364,10 @@ def resolve_input_id(input_id: str, *, case_id: str, plane: str) -> InputRecord:
         raise InputRegistryError("inputId no pertenece al caseId solicitado", status_code=409)
     if record.plane != plane:
         raise InputRegistryError("inputId no pertenece al plano solicitado", status_code=409)
+    # Una serie guardada solo para mostrar puede tener un plano que el registro acepta
+    # -una T1 sagital lo tiene-, asi que el chequeo de plano no alcanza para frenarla.
+    if not record.analyzable:
+        raise InputRegistryError("la serie esta registrada solo para visualizacion, no como entrada de inferencia", status_code=409)
     # A record path is a file for single uploads, or a directory for an extracted
     # DICOM series (store_zip_series) — accept either as long as it still exists.
     if not record.path.exists() or not (record.path.is_file() or record.path.is_dir()):

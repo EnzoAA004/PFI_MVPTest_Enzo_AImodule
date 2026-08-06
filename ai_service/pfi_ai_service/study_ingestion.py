@@ -48,6 +48,53 @@ def _plane_from_orientation(iop: Any) -> str | None:
     return {0: "sagittal", 1: "coronal", 2: "axial"}[axis]
 
 
+def _series_plane(orientations: list[Any]) -> tuple[str | None, bool]:
+    """Plane of a whole series, and whether its slices disagree on it.
+
+    The plane has to be decided over every slice, not over the first one. A localizer
+    is multi-plane *by definition* — it carries sagittal, coronal and axial slices in
+    one series — so reading a single file gives it whichever plane happened to be
+    sorted first, and it gets listed as a normal series of that plane. The same
+    misread turns the secondary-capture screenshots into whatever they were captured
+    from.
+
+    A series where the slices disagree is reported as such rather than being forced
+    into one plane: it can be shown as images, but it is not a volume any plane slot
+    can take.
+    """
+    planes = [plane for plane in (_plane_from_orientation(iop) for iop in orientations) if plane]
+    if not planes:
+        return None, False
+    # Una serie de un solo plano tiene acuerdo total: el plano sale del eje dominante
+    # de la normal, y el redondeo del coseno no alcanza para cambiarlo salvo en un
+    # oblicuo a 45 grados, que no es ninguna de estas series. Asi que cualquier
+    # desacuerdo real ya es multiplano, sin umbral de mayoria que ajustar.
+    #
+    # El empate se rompe por nombre y no por el orden del `set`, que varia entre
+    # corridas: en un localizer con la misma cantidad de cortes por plano el plano
+    # informado es de todos modos secundario -queda marcado multiplano-, pero que
+    # cambie solo entre dos ingestas del mismo estudio se lee como un error.
+    dominant = min(sorted(set(planes)), key=lambda item: (-planes.count(item), item))
+    return dominant, len(set(planes)) > 1
+
+
+def _is_derived(ds: Any) -> bool:
+    """Whether the series is a screenshot/reformat rather than acquired image data.
+
+    The ``PosDisp:`` two-slice series a Siemens console exports are captures of what
+    was on screen, with the geometry of whatever they were captured from. They are
+    legitimate to list -the doctor may want to see what the technician marked- but
+    they are not a series to segment, and picking one as a plane's input would run the
+    model over a screenshot.
+    """
+    image_type = getattr(ds, "ImageType", None) or []
+    try:
+        tokens = {str(value).strip().upper() for value in image_type}
+    except TypeError:
+        return False
+    return "DERIVED" in tokens or "SECONDARY" in tokens
+
+
 def _weighting(description: str, echo_time: float | None) -> str:
     text = f" {description.lower()} "
     if any(token in text for token in _T2_TOKENS):
@@ -85,17 +132,27 @@ def classify_study_series(root: Path) -> list[dict[str, Any]]:
             if len(file_names) < 1:
                 continue
             seen.add(series_id)
-            try:
-                ds = pydicom.dcmread(file_names[0], stop_before_pixels=True, force=True)
-            except Exception:
+            # El encabezado de cada corte, no solo el del primero: el plano de la serie
+            # es una propiedad del conjunto y un localizer no la cumple.
+            headers = []
+            for name in file_names:
+                try:
+                    headers.append(pydicom.dcmread(name, stop_before_pixels=True, force=True))
+                except Exception:
+                    continue
+            if not headers:
                 continue
+            ds = headers[0]
             description = str(getattr(ds, "SeriesDescription", "") or "")
             echo_time = getattr(ds, "EchoTime", None)
             echo_time = float(echo_time) if echo_time is not None else None
+            plane, multiplanar = _series_plane([getattr(h, "ImageOrientationPatient", None) for h in headers])
             series.append({
                 "seriesInstanceUid": series_id,
                 "description": description,
-                "plane": _plane_from_orientation(getattr(ds, "ImageOrientationPatient", None)),
+                "plane": plane,
+                "multiplanar": multiplanar,
+                "derived": _is_derived(ds),
                 "weighting": _weighting(description, echo_time),
                 "sliceCount": len(file_names),
                 "files": file_names,
@@ -103,8 +160,18 @@ def classify_study_series(root: Path) -> list[dict[str, Any]]:
     return series
 
 
+def _is_analyzable(item: dict[str, Any]) -> bool:
+    """Whether a series can be the input of an inference run.
+
+    Un localizer y una captura de consola tienen plano y ponderacion, asi que entran
+    en el ranking como cualquier otra y pueden ganarlo por tener mas cortes. Correr el
+    modelo sobre eso devuelve una segmentacion con la misma pinta que una buena.
+    """
+    return not item.get("multiplanar") and not item.get("derived") and item["sliceCount"] >= 2
+
+
 def _select_series(series: list[dict[str, Any]], plane: str, prefer: str) -> dict[str, Any] | None:
-    candidates = [s for s in series if s["plane"] == plane]
+    candidates = [s for s in series if s["plane"] == plane and _is_analyzable(s)]
     if not candidates:
         return None
     order = [prefer, "t1" if prefer == "t2" else "t2", "unknown"]
@@ -121,6 +188,9 @@ def _summarize(item: dict[str, Any]) -> dict[str, Any]:
         "seriesInstanceUid": item["seriesInstanceUid"],
         "description": item["description"],
         "plane": item["plane"],
+        "multiplanar": bool(item.get("multiplanar")),
+        "derived": bool(item.get("derived")),
+        "analyzable": _is_analyzable(item),
         "weighting": item["weighting"],
         "sliceCount": item["sliceCount"],
     }
@@ -151,10 +221,40 @@ def register_study_zip(*, case_id: str, stream: Any) -> dict[str, Any]:
         sagittal = _select_series(series, "sagittal", prefer="t2")
         axial = _select_series(series, "axial", prefer="t2")
 
+        # Se registran las siete series, no las dos que analiza la IA.
+        #
+        # Un estudio de RM lumbar trae sagital T1 y T2, axial T1 y T2, a veces
+        # coronales, el localizer y las capturas de la consola. La IA corre sobre dos,
+        # pero el medico lee el estudio entero: la T1 es la que muestra la grasa y la
+        # medula osea, y sin ella no se distingue un hemangioma de una metastasis.
+        # Antes las otras cinco se borraban junto con el directorio del zip a los
+        # segundos de subirlas, asi que ni siquiera se podian pedir despues.
+        #
+        # Las no elegidas quedan marcadas como no analizables: se muestran, y el
+        # registro las rechaza si alguien las manda como entrada de una corrida.
+        registered: dict[str, dict[str, Any]] = {}
+        summaries: list[dict[str, Any]] = []
+        for item in series:
+            # Identidad, no igualdad: dos series distintas pueden tener el mismo
+            # resumen -misma descripcion, mismo plano, misma cantidad de cortes- y con
+            # `==` la segunda se llevaria la ranura de la primera.
+            plane_slot = next((name for name, chosen in (("sagittal", sagittal), ("axial", axial))
+                               if chosen is not None and chosen is item), None)
+            meta = register_series_files(
+                case_id=case_id,
+                plane=plane_slot or ("unknown" if item["multiplanar"] else item["plane"]),
+                file_paths=item["files"],
+                analyzable=plane_slot is not None,
+            )
+            summary = {**_summarize(item), "inputId": meta["inputId"]}
+            summaries.append(summary)
+            if plane_slot:
+                registered[plane_slot] = {**meta, **summary}
+
         result: dict[str, Any] = {
             "caseId": case_id,
             "studyId": study_id,
-            "seriesFound": [_summarize(s) for s in series],
+            "seriesFound": summaries,
             "warnings": warnings,
         }
         if sagittal is None:
@@ -162,15 +262,13 @@ def register_study_zip(*, case_id: str, stream: Any) -> dict[str, Any]:
         else:
             if sagittal["weighting"] != "t2":
                 warnings.append(f"sagital sin T2 disponible; se usa {sagittal['weighting']}")
-            meta = register_series_files(case_id=case_id, plane="sagittal", file_paths=sagittal["files"])
-            result["sagittal"] = {**meta, **_summarize(sagittal)}
+            result["sagittal"] = registered["sagittal"]
         if axial is None:
             warnings.append("no se encontro serie axial en el estudio")
         else:
             if axial["weighting"] != "t2":
                 warnings.append(f"axial sin T2 real; el modelo axial espera T2 (encontrado {axial['weighting']})")
-            meta = register_series_files(case_id=case_id, plane="axial", file_paths=axial["files"])
-            result["axial"] = {**meta, **_summarize(axial)}
+            result["axial"] = registered["axial"]
 
         if "sagittal" not in result and "axial" not in result:
             raise InputRegistryError("no se pudo identificar serie sagital ni axial en el estudio", status_code=422)

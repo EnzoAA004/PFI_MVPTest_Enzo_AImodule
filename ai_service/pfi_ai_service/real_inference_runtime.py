@@ -1675,6 +1675,46 @@ def save_slice_previews(run_id: str, plane: str, loaded: LoadedInput, axis: int)
     return outputs
 
 
+def series_preview_dir(input_id: str) -> Path:
+    return get_settings().output_dir / "series_preview" / input_id
+
+
+def render_series_previews(input_id: str, input_path: str) -> int:
+    """Escribe un PNG por corte de una serie registrada y devuelve cuantos hay.
+
+    Es lo que permite mostrar una serie sobre la que no corrio la IA -la T1, el axial
+    T1 que no tiene modelo, el localizer-. No hay inferencia: se apila el volumen, se
+    normaliza cada corte igual que en `save_slice_previews` y se guarda la imagen sola,
+    sin superposicion, porque no hay mascara que le corresponda.
+
+    Se rinde una vez por serie y queda en disco. Armar el volumen desde los DICOM es lo
+    caro, y hacerlo en cada pedido de corte significaria apilar la serie entera quince
+    veces para recorrerla una.
+    """
+    output_dir = series_preview_dir(input_id)
+    # El contador se escribe al final: si el render se corta a la mitad, el marcador no
+    # esta y el proximo pedido rehace la serie en vez de servir un tramo incompleto.
+    marker = output_dir / "count"
+    if marker.exists():
+        return int(marker.read_text().strip() or 0)
+
+    # El plano no incide: `resolve_input_path` no lo usa, y aca no hay canonicalizacion
+    # por plano porque no se va a inferir sobre esto, solo mostrarlo.
+    loaded = load_input(input_path, "sagittal")
+    array = loaded.array
+    if array.ndim == 2:
+        array = array[None]
+    if array.ndim != 3:
+        return 0
+    count = min(int(array.shape[0]), MAX_SLICE_PREVIEWS)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for index in range(count):
+        frame = robust_percentile_normalize(array[index])
+        Image.fromarray(np.clip(frame * 255.0, 0, 255).astype(np.uint8)).save(output_dir / slice_asset_name(index))
+    marker.write_text(str(count))
+    return count
+
+
 def class_mask_asset_name(class_name_value: str) -> str:
     return f"mask-{class_name_value}.png"
 

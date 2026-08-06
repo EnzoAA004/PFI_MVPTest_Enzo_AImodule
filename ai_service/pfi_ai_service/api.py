@@ -20,7 +20,15 @@ from .error_handlers import register_error_handlers
 from .evaluation_summary import evaluation_summary as build_evaluation_summary
 from .evidence_summary import evidence_summary as build_evidence_summary
 from .inference import run_axial_inference, run_sagittal_inference
-from .input_registry import InputRegistrationRequest, register_server_side_input, register_uploaded_input
+from .asset_registry import slice_asset_name
+from .input_registry import (
+    InputRegistrationRequest,
+    InputRegistryError,
+    register_server_side_input,
+    register_uploaded_input,
+    resolve_viewable_input,
+)
+from .real_inference_runtime import render_series_previews, series_preview_dir
 from .study_ingestion import register_study_zip
 from .model_artifacts import artifact_summary, registry_with_artifact_status, verify_model_artifacts
 from .model_materializer import sync_model_artifacts
@@ -318,6 +326,42 @@ def get_run_asset(run_id: str, plane: str, asset_name: str):
     else:
         media_type = "image/png"
     return FileResponse(record.path, media_type=media_type, filename=record.asset_name)
+
+@app.get("/inputs/{input_id}/slices")
+def get_series_slice_count(input_id: str):
+    """Cuantos cortes tiene una serie registrada, rindiendo sus PNG si hace falta."""
+    try:
+        record = resolve_viewable_input(input_id)
+    except InputRegistryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    return clean_for_json({
+        "inputId": record.input_id,
+        "plane": record.plane,
+        "analyzable": record.analyzable,
+        "sliceCount": render_series_previews(record.input_id, str(record.path)),
+    })
+
+
+@app.get("/inputs/{input_id}/slices/{index}")
+def get_series_slice(input_id: str, index: int):
+    """Un corte de cualquier serie del estudio, haya corrido la IA sobre ella o no.
+
+    Se sirve por `inputId` y no por corrida a proposito: estas series no tienen
+    corrida. Son las que el estudio traia y la IA no analiza -la T1, el axial T1 sin
+    modelo, el localizer-, y el medico las necesita igual para leer.
+    """
+    try:
+        record = resolve_viewable_input(input_id)
+    except InputRegistryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    count = render_series_previews(record.input_id, str(record.path))
+    if index < 0 or index >= count:
+        raise HTTPException(status_code=404, detail="corte fuera de la serie")
+    path = series_preview_dir(record.input_id) / slice_asset_name(index)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="corte no disponible")
+    return FileResponse(path, media_type="image/png", filename=path.name)
+
 
 @app.get("/study/demo-review")
 def study_demo_review():
