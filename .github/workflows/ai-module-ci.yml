@@ -15,13 +15,26 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          # Misma version que los dos Dockerfiles. Compilar en 3.11 y desplegar en
+          # 3.12 deja fuera del CI cualquier incompatibilidad entre las dos.
+          python-version: "3.12"
 
       - name: Install AI service dependencies
         run: pip install -r ai_service/requirements-ai-service.txt
 
+      # pytest no va en requirements-ai-service.txt: ese archivo define la imagen de
+      # produccion y no tiene por que cargar dependencias de test.
+      - name: Install test dependencies
+        run: pip install pytest
+
       - name: Compile AI service
         run: python -m compileall ai_service/pfi_ai_service
+
+      # testpaths cubre tests/ y ai_service/tests/ (ver pyproject.toml). Los tests que
+      # dependen de artefactos fuera de Git (marker real_checkpoint) o de dependencias
+      # opcionales se saltean solos.
+      - name: Run tests
+        run: python -m pytest -q
 
       - name: Smoke API contract
         run: python scripts/smoke_api_contract.py

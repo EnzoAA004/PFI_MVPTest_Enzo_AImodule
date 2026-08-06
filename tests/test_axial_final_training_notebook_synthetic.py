@@ -7,11 +7,15 @@ import types
 import warnings
 from pathlib import Path
 
-import nbformat
 import numpy as np
 import pandas as pd
 import pytest
 import torch
+
+# nbformat no esta en las dependencias del servicio: solo hace falta para leer el
+# notebook de entrenamiento. Sin el, el modulo entero se saltea en vez de romper la
+# coleccion de toda la suite. Mismo criterio que ai_service/tests/test_notebook_executor.py.
+nbformat = pytest.importorskip("nbformat", reason="nbformat no instalado en este entorno")
 
 
 ROOT = Path(__file__).resolve().parents[1]

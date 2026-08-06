@@ -36,8 +36,8 @@ app = [
 where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
+testpaths = ["tests", "ai_service/tests"]
+pythonpath = ["src", "ai_service"]
 markers = [
   "real_checkpoint: requires PFI_SUBARTICULAR_CHECKPOINT_PATH and the frozen .pt outside Git",
 ]
