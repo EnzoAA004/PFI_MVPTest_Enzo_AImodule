@@ -42,6 +42,14 @@ def _is_point(value: Any) -> bool:
     )
 
 
+def _cross(a, b):
+    return (
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    )
+
+
 def axial_slice_level(sagittal_quality: Dict[str, Any] | None, axial_quality: Dict[str, Any] | None) -> str | None:
     """Nivel del corte axial que se infirio, o None si no cae en un espacio discal."""
     if not isinstance(sagittal_quality, dict) or not isinstance(axial_quality, dict):
@@ -57,7 +65,68 @@ def axial_slice_level(sagittal_quality: Dict[str, Any] | None, axial_quality: Di
     position = plane.get("position")
     if not _is_point(normal) or not _is_point(position):
         return None
+    return _level_at(levels, normal, position)
 
+
+def axial_slice_levels(
+    sagittal_quality: Dict[str, Any] | None,
+    axial_quality: Dict[str, Any] | None,
+) -> Dict[int, str]:
+    """Nivel de **cada** corte axial, por indice.
+
+    `axial_slice_level` responde por un corte: el que eligio el modelo. Eso alcanza para
+    ponerle nivel a las mediciones de esa corrida, pero no para el visor, donde el medico
+    recorre la serie entera y marca sobre el corte que quiere.
+
+    Y no se puede propagar el nivel de un corte a los demas. Una serie axial lumbar se
+    adquiere en bloques angulados, uno por disco -en el estudio de referencia, cortes 1-5
+    a 3,5 grados, 6-10 a 5,9 y 11-15 a 23-, asi que cada bloque mira un disco distinto.
+    Darle a los quince cortes el nivel del que analizo el modelo pondria dos tercios de
+    las marcas bajo un nivel que no es. Es el mismo error que la linea de referencia ya
+    corrigio del lado del visor cuando dejo de usar la direccion global del volumen.
+
+    Por eso se resuelve corte por corte, con la posicion y la orientacion propias de cada
+    uno, que la corrida ya publica en `volumeGeometry`. Los cortes que no caen en ningun
+    espacio discal simplemente no aparecen en el resultado.
+    """
+    if not isinstance(sagittal_quality, dict) or not isinstance(axial_quality, dict):
+        return {}
+    levels = sagittal_quality.get("discLevels")
+    geometry = axial_quality.get("volumeGeometry")
+    if not isinstance(levels, list) or not levels or not isinstance(geometry, dict):
+        return {}
+    positions = geometry.get("slicePositions")
+    orientations = geometry.get("sliceOrientations")
+    if not isinstance(positions, list) or not positions:
+        return {}
+
+    # Sin orientacion por corte se usa la normal del plano analizado: es menos exacto,
+    # pero la posicion propia de cada corte ya corrige la mayor parte del error.
+    fallback_normal = None
+    plane = geometry.get("slicePlane")
+    if isinstance(plane, dict) and _is_point(plane.get("normal")):
+        fallback_normal = plane["normal"]
+
+    result: Dict[int, str] = {}
+    for index, position in enumerate(positions):
+        if not _is_point(position):
+            continue
+        normal = fallback_normal
+        if isinstance(orientations, list) and index < len(orientations):
+            item = orientations[index]
+            # DICOM 0020|0037 son seis numeros: el vector de la fila y el de la columna.
+            # La normal del corte es su producto vectorial.
+            if isinstance(item, (list, tuple)) and len(item) == 6 and all(isinstance(v, (int, float)) for v in item):
+                normal = _cross(item[0:3], item[3:6])
+        if not _is_point(normal):
+            continue
+        level = _level_at(levels, normal, position)
+        if level:
+            result[index] = level
+    return result
+
+
+def _level_at(levels, normal, position) -> str | None:
     # El plano del corte axial es {p : normal·p = offset}. Un disco lo cruza cuando sus
     # dos extremos caen de lados distintos, que es exactamente que `offset` este entre
     # las proyecciones de esos extremos.

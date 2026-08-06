@@ -255,6 +255,15 @@ class PlaneQualityV2(PublicResponseModel):
     #: y se pueden contar desde la union lumbosacra. Es lo que le permite al axial
     #: saber que nivel esta mirando: sin esto sus mediciones salian todas sin nivel.
     discLevels: list[dict[str, Any]] | None = None
+    #: Nivel discal de cada corte axial que cae en un espacio discal: [{index, level}].
+    #:
+    #: Solo el axial la publica, y solo cuando la corrida tuvo tambien sagital. Los cortes
+    #: que no atraviesan ningun disco no aparecen: un axial puede estar tomado a la altura
+    #: de un cuerpo vertebral, y ahi la respuesta correcta es que no hay nivel.
+    #:
+    #: Es por corte y no uno solo para la serie porque una serie axial lumbar son bloques
+    #: angulados, uno por disco. Ver axial_level.axial_slice_levels.
+    sliceLevels: list[dict[str, Any]] | None = None
     warnings: list[str] = Field(default_factory=list)
 
 

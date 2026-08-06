@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS
-from .axial_level import axial_slice_level
+from .axial_level import axial_slice_level, axial_slice_levels
 from .input_registry import InputRegistryError, register_existing_path, resolve_input_id
 from .model_artifacts import model_status
 from .multiplanar_3d_reconstruction import build_lumbar_3d_status
@@ -687,10 +687,19 @@ def assign_axial_levels(plane_results: dict[PlaneNameV2, PlaneRunV2Result | None
     sagittal, axial = plane_results.get("sagittal"), plane_results.get("axial")
     if sagittal is None or axial is None or axial.synthetic or sagittal.synthetic:
         return
-    level = axial_slice_level(
-        sagittal.quality.model_dump() if sagittal.quality else None,
-        axial.quality.model_dump() if axial.quality else None,
-    )
+    sagittal_quality = sagittal.quality.model_dump() if sagittal.quality else None
+    axial_quality = axial.quality.model_dump() if axial.quality else None
+
+    # El nivel de cada corte, no solo el del que analizo el modelo. El visor lo necesita
+    # para nombrar el corte que el medico esta mirando y para no mandar una clasificacion
+    # subarticular bajo un nivel que no es. Ver axial_slice_levels.
+    per_slice = axial_slice_levels(sagittal_quality, axial_quality)
+    if per_slice and axial.quality is not None:
+        axial.quality.sliceLevels = [
+            {"index": index, "level": level} for index, level in sorted(per_slice.items())
+        ]
+
+    level = axial_slice_level(sagittal_quality, axial_quality)
     if not level:
         return
     for measurement in axial.measurements:
