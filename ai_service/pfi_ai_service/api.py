@@ -9,7 +9,8 @@ from typing import Any
 
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from .settings import get_settings, MODEL_REGISTRY
 from .agent import build_agent_decisions, summarize_agent_decisions
@@ -31,6 +32,13 @@ from .report_summary import recent_agent_report_summaries, summarize_agent_repor
 from .reporting import build_markdown_summary
 from .security import sanitize_public_payload
 from .study_contract import demo_study_review_contract
+from .subarticular_frozen_classifier import SubarticularClassifierError
+from .subarticular_runtime_service import (
+    get_subarticular_runtime_status,
+    predict_subarticular_from_registered_roi,
+    public_error_message,
+    public_error_status,
+)
 
 TRACE_ID_HEADER = "X-Trace-Id"
 MAX_TRACE_ID_LENGTH = 96
@@ -127,6 +135,17 @@ def with_trace_metadata(request: PipelineRunRequest, trace_id: str) -> PipelineR
     return request.model_copy(update={"metadata": metadata})
 
 
+class SubarticularPredictRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    input_id: str = Field(..., alias="inputId", min_length=1)
+    instance_number: int = Field(..., alias="instanceNumber", ge=0)
+    x: float
+    y: float
+    side: str
+    level: str
+
+
 def read_agent_report(run_id: str) -> dict[str, Any]:
     settings = get_settings()
     report_path = settings.output_dir / "agent_reports" / f"{run_id}.json"
@@ -151,6 +170,9 @@ def health():
         "human_review_required": True,
         "humanReviewRequired": True,
         "notClinicalDiagnosis": True,
+        "degenerativeFindingModels": {
+            "subarticular": get_subarticular_runtime_status(),
+        },
     })
 
 
@@ -182,6 +204,9 @@ def warmup():
         "defaultInferenceMode": summary["defaultInferenceMode"],
         "humanReviewRequired": True,
         "notClinicalDiagnosis": True,
+        "degenerativeFindingModels": {
+            "subarticular": get_subarticular_runtime_status(),
+        },
     })
 
 
@@ -197,6 +222,10 @@ def models():
             "artifactCheckOnly": True,
             "humanReviewRequired": True,
             "notClinicalDiagnosis": True,
+        },
+        "segmentationModels": models_with_status,
+        "degenerativeFindingModels": {
+            "subarticular": get_subarticular_runtime_status(),
         },
     })
 
@@ -245,6 +274,49 @@ async def inputs_register_study(
 @app.post("/models/sync")
 def models_sync(force: bool = False):
     return clean_for_json(sync_model_artifacts(force=force))
+
+
+@app.post("/degenerative-findings/subarticular/predict")
+def subarticular_predict(request: SubarticularPredictRequest, http_request: Request):
+    try:
+        prediction = predict_subarticular_from_registered_roi(
+            input_id=request.input_id,
+            instance_number=request.instance_number,
+            x=request.x,
+            y=request.y,
+            side=request.side,
+            level=request.level,
+        )
+    except SubarticularClassifierError as exc:
+        status_code, code = public_error_status(exc)
+        trace_id = request_trace_id(http_request)
+        return JSONResponse(
+            status_code=status_code,
+            headers={TRACE_ID_HEADER: trace_id},
+            content=clean_for_json({
+                "status": "error",
+                "code": code,
+                "message": public_error_message(code),
+                "traceId": trace_id,
+                "path": http_request.url.path,
+                "method": http_request.method,
+                "humanReviewRequired": True,
+                "notClinicalDiagnosis": True,
+            }),
+        )
+    metadata = prediction.degenerativeFindings["findings"][0]["model"]
+    return clean_for_json({
+        "degenerativeFindings": prediction.degenerativeFindings,
+        "model": {
+            "modelId": metadata["modelId"],
+            "checkpointSha256": prediction.checkpointSha256,
+            "device": get_subarticular_runtime_status()["device"],
+        },
+        "humanReviewRequired": prediction.humanReviewRequired,
+        "notClinicalDiagnosis": prediction.notClinicalDiagnosis,
+        "autonomousDiagnosis": prediction.autonomousDiagnosis,
+        "warnings": list(prediction.warnings),
+    })
 
 
 @app.get("/evaluation/summary")

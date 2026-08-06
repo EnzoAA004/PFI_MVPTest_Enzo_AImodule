@@ -34,6 +34,9 @@ class ServiceSettings:
     sagittal_release_manifest_sha256: str | None
     sagittal_model_sha256: str | None
 
+    subarticular_checkpoint_path: Path | None
+    subarticular_device: str | None
+
     e13_results_root: Path
     e14_results_root: Path
 
@@ -82,6 +85,10 @@ def get_settings() -> ServiceSettings:
         sagittal_release_content_sha256=optional_env("PFI_SAGITTAL_RELEASE_CONTENT_SHA256"),
         sagittal_release_manifest_sha256=optional_env("PFI_SAGITTAL_RELEASE_MANIFEST_SHA256"),
         sagittal_model_sha256=optional_env("PFI_SAGITTAL_MODEL_SHA256"),
+        subarticular_checkpoint_path=(
+            Path(value) if (value := optional_env("PFI_SUBARTICULAR_CHECKPOINT_PATH")) else None
+        ),
+        subarticular_device=optional_env("PFI_SUBARTICULAR_DEVICE") or optional_env("PFI_INFERENCE_DEVICE"),
         e13_results_root=results_root / "E13_multiplanar_inference_pipeline",
         e14_results_root=results_root / "E14_ai_agent_orchestrator",
     )
