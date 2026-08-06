@@ -1,0 +1,49 @@
+name: P10.7 slim notebook materializer
+
+on:
+  push:
+    branches:
+      - enzo/p10-7-spider-degenerative-multitask
+    paths:
+      - .p10_7_materialize/SLIM_READY
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - name: Checkout authorized branch
+        uses: actions/checkout@v4
+        with:
+          ref: enzo/p10-7-spider-degenerative-multitask
+          fetch-depth: 0
+
+      - name: Materialize and validate notebooks
+        shell: bash
+        run: |
+          set -euo pipefail
+          NB66="notebooks/p10_7_spider_degenerative/66_P10_7_SPIDER_disc_level_dataset_and_crops.ipynb"
+          NB67="notebooks/p10_7_spider_degenerative/67_P10_7_SPIDER_multitask_degenerative_training.ipynb"
+
+          cat .p10_7_materialize/66.b64.part* | base64 -d > "$NB66"
+          cat .p10_7_materialize/67.b64.part* | base64 -d > "$NB67"
+
+          echo "f10a87a42daeb3d7cbee15193a1edc1d78d2689c624eff56091c9675dd136fc6  $NB66" | sha256sum -c -
+          echo "9af95c55959d49f8c469dabdc9629a1a18116a751652ae1f5255c0223d9c6f94  $NB67" | sha256sum -c -
+
+          node -e 'for (const p of process.argv.slice(1)) { const nb=JSON.parse(require("fs").readFileSync(p,"utf8")); if (nb.nbformat !== 4) throw new Error(`Unexpected nbformat: ${p}`); console.log(`${p}: JSON/nbformat validated`); }' "$NB66" "$NB67"
+
+      - name: Commit notebook patch only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            notebooks/p10_7_spider_degenerative/66_P10_7_SPIDER_disc_level_dataset_and_crops.ipynb \
+            notebooks/p10_7_spider_degenerative/67_P10_7_SPIDER_multitask_degenerative_training.ipynb
+          git commit -m "fix(p10.7): recover partial modalities and stabilize training"
+          git push origin HEAD:enzo/p10-7-spider-degenerative-multitask
