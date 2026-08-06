@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "pfi.degenerative-findings.v1",
+  "findings": [
+    {
+      "findingId": "df-invalid-probability-sum",
+      "findingType": "central_canal_stenosis",
+      "anatomy": { "level": "L4-L5", "side": null },
+      "classification": {
+        "label": "moderate",
+        "probabilities": { "normal_mild": 0.20, "moderate": 0.70, "severe": 0.20 }
+      },
+      "evaluation": { "status": "evaluated" },
+      "sourceSeries": { "role": "sagittal_t2", "position": 2 },
+      "localization": { "source": "slice_index", "researchOnly": true },
+      "model": {
+        "modelId": "rsna-central-canal-research-v1",
+        "modelSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "review": { "required": true, "status": "pending" },
+      "notClinicalDiagnosis": true
+    }
+  ]
+}

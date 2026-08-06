@@ -9,3 +9,4 @@ httpx
 torch>=2.0
 pydicom>=2.4
 SimpleITK>=2.3
+timm>=0.9
