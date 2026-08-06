@@ -13,7 +13,7 @@ from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.uid import ExplicitVRLittleEndian, MRImageStorage, generate_uid
 
 from pfi_ai_service import input_registry
-from pfi_ai_service.input_registry import InputRegistryError, resolve_input_id, resolve_viewable_input
+from pfi_ai_service.input_registry import InputRegistryError, resolve_input_id, resolve_registered_input
 from pfi_ai_service.real_inference_runtime import render_series_previews, series_preview_dir
 from pfi_ai_service.study_ingestion import register_study_zip
 
@@ -144,7 +144,7 @@ def test_la_serie_elegida_si_puede_entrar_a_inferencia(ingested):
 def test_una_serie_sin_corrida_igual_se_puede_mostrar(ingested):
     # El axial T1: no hay modelo que lo segmente, pero sus cortes se rinden igual.
     axial_t1 = _by_description(ingested, "t1_tse_tra")
-    record = resolve_viewable_input(axial_t1["inputId"])
+    record = resolve_registered_input(axial_t1["inputId"])
     count = render_series_previews(record.input_id, str(record.path))
     assert count == axial_t1["sliceCount"]
     rendered = series_preview_dir(record.input_id)
@@ -154,7 +154,7 @@ def test_una_serie_sin_corrida_igual_se_puede_mostrar(ingested):
 
 def test_los_cortes_se_rinden_una_sola_vez(ingested):
     # Apilar el volumen es lo caro; el segundo pedido tiene que salir del disco.
-    record = resolve_viewable_input(_by_description(ingested, "t1_tse_sag_320")["inputId"])
+    record = resolve_registered_input(_by_description(ingested, "t1_tse_sag_320")["inputId"])
     first = render_series_previews(record.input_id, str(record.path))
     marker = series_preview_dir(record.input_id) / "count"
     stamped = marker.stat().st_mtime_ns

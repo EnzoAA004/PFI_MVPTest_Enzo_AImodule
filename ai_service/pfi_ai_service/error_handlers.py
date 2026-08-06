@@ -5,6 +5,7 @@ import logging
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from .input_registry import InputRegistryError
@@ -53,6 +54,22 @@ def register_error_handlers(app: FastAPI) -> None:
             "notClinicalDiagnosis": True,
         }
         return JSONResponse(status_code=exc.status_code, content=body, headers={TRACE_ID_HEADER: trace_id})
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        trace_id = trace_id_from_request(request)
+        body: dict[str, Any] = {
+            "status": "error",
+            "code": "VALIDATION_ERROR",
+            "message": "Solicitud invalida.",
+            "traceId": trace_id,
+            "path": request.url.path,
+            "method": request.method,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "humanReviewRequired": True,
+            "notClinicalDiagnosis": True,
+        }
+        return JSONResponse(status_code=422, content=body, headers={TRACE_ID_HEADER: trace_id})
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:

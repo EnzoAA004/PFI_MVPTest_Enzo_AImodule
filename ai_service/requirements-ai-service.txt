@@ -6,6 +6,9 @@ pillow
 python-multipart
 pandas
 httpx
-torch>=2.0
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.13.0+cpu
+torchvision==0.28.0+cpu
 pydicom>=2.4
 SimpleITK>=2.3
+timm==1.0.28
