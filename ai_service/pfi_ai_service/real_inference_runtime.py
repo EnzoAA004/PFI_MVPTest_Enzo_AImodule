@@ -203,6 +203,7 @@ def read_dicom_series(directory: Path) -> tuple[np.ndarray, tuple[float, ...] | 
         "frameOfReferenceUid": reader.GetMetaData(0, "0020|0052").strip()
         if reader.HasMetaDataKey(0, "0020|0052") else None,
         "slicePositions": slice_positions,
+        "sliceOrientations": dicom_slice_orientations(reader, len(file_names)),
         "sliceSpacingUniform": spacing_is_uniform(slice_positions),
         "sliceCount": int(array.shape[0]),
     }
@@ -235,6 +236,38 @@ def dicom_slice_positions(reader: Any, count: int) -> list[list[float]] | None:
         except ValueError:
             return None
     return positions
+
+
+def dicom_slice_orientations(reader: Any, count: int) -> list[list[float]] | None:
+    """Orientacion declarada de cada corte, como [fila(3), columna(3)].
+
+    Una serie axial lumbar **no es un unico plano repetido**: se adquiere en bloques
+    angulados, uno por disco. En el estudio de referencia los cortes 1-5 estan a 3.5
+    grados, los 6-10 a 5.9 y los 11-15 a 23, con huecos de decenas de milimetros entre
+    bloques. Describir el volumen con una sola direccion -la que devuelve ITK- toma la
+    de uno de los bloques y la aplica a todos: acertaba en 5 cortes de 15 y en los
+    otros 10 dibujaba la linea de referencia a 23 grados donde la real es casi
+    horizontal, y con el signo antero-posterior invertido.
+
+    Se lee de 0020|0037, que son los dos vectores unitarios de fila y columna.
+    Devuelve None si alguno no se puede leer: es preferible caer a la direccion unica
+    del volumen -y que el visor lo sepa- que mezclar orientaciones reales con
+    heredadas.
+    """
+    orientations: list[list[float]] = []
+    for index in range(count):
+        try:
+            raw = reader.GetMetaData(index, "0020|0037")
+        except Exception:
+            return None
+        parts = [value.strip() for value in str(raw).split("\\")]
+        if len(parts) != 6:
+            return None
+        try:
+            orientations.append([float(value) for value in parts])
+        except ValueError:
+            return None
+    return orientations
 
 
 def spacing_is_uniform(positions: list[list[float]] | None, tolerance: float = 0.2) -> bool:
@@ -1085,6 +1118,9 @@ def volume_geometry(loaded: LoadedInput, selected_axis: int, slice_count: int, s
         # tienen huecos: el corte 4 quedaria a 22 mm de donde esta. Son quince ternas
         # de numeros, y evitan que el cliente rehaga -mal- una cuenta que aca es exacta.
         "slicePositions": loaded.metadata.get("slicePositions"),
+        # Por corte, porque una serie axial lumbar son bloques angulados por nivel y no
+        # un plano unico repetido. Ver dicom_slice_orientations.
+        "sliceOrientations": loaded.metadata.get("sliceOrientations"),
         "boundsMm": volume_bounds(loaded, plane_geometry, slice_count),
     }
 
