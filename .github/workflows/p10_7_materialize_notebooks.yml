@@ -20,7 +20,7 @@ jobs:
           fetch-depth: 0
 
       - name: Decode and validate notebooks
-        shell: python
+        shell: python {0}
         run: |
           from __future__ import annotations
 
