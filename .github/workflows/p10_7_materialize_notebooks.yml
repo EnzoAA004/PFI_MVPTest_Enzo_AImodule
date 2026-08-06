@@ -3,9 +3,9 @@ name: Materialize P10.7 notebooks
 on:
   push:
     branches:
-      - enzo/p10-7-spider-degenerative-multitask
+      - 'enzo/p10-7-spider-degenerative-multitask'
     paths:
-      - .github/workflows/p10_7_materialize_notebooks.yml
+      - '.github/workflows/p10_7_materialize_notebooks.yml'
 
 permissions:
   contents: write
@@ -14,69 +14,48 @@ jobs:
   materialize:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout branch
+        uses: actions/checkout@v4
         with:
           ref: enzo/p10-7-spider-degenerative-multitask
           fetch-depth: 0
 
       - name: Decode and validate notebooks
-        shell: python {0}
+        shell: bash
         run: |
+          set -euo pipefail
+          python - <<'PY'
           from __future__ import annotations
-
-          import base64
-          import gzip
-          import hashlib
-          import json
+          import base64, gzip, hashlib, json
           from pathlib import Path
 
-          root = Path("notebooks/p10_7_spider_degenerative")
-          payload = root / ".materialize"
+          root = Path('notebooks/p10_7_spider_degenerative')
+          payload = root / '.materialize'
           specs = {
-              66: (
-                  [payload / "66.ipynb.gz.b64"],
-                  root / "66_P10_7_SPIDER_disc_level_dataset_and_crops.ipynb",
-                  "7f3e97769f19f34bfe523684868a3ffbcb1add9fa1cfba854804dd514fec23fe",
-              ),
-              67: (
-                  [payload / "67.ipynb.gz.b64"],
-                  root / "67_P10_7_SPIDER_multitask_degenerative_training.ipynb",
-                  "1bd74f02aa22f3dc0287943fb9dcda919ddcea04b1010013ede32322f0175f9f",
-              ),
-              68: (
-                  [
-                      payload / "68.ipynb.gz.b64.part1",
-                      payload / "68.ipynb.gz.b64.part2",
-                  ],
-                  root / "68_P10_7_SPIDER_internal_test_and_research_export.ipynb",
-                  "abffb50e0cd0fbcd7a4758e46574f2aaf7dfeab0652506e98c17eedf865b6b4e",
-              ),
+              66: ([payload / '66.ipynb.gz.b64'], root / '66_P10_7_SPIDER_disc_level_dataset_and_crops.ipynb', '7f3e97769f19f34bfe523684868a3ffbcb1add9fa1cfba854804dd514fec23fe'),
+              67: ([payload / '67.ipynb.gz.b64'], root / '67_P10_7_SPIDER_multitask_degenerative_training.ipynb', '1bd74f02aa22f3dc0287943fb9dcda919ddcea04b1010013ede32322f0175f9f'),
+              68: ([payload / '68.ipynb.gz.b64.part1', payload / '68.ipynb.gz.b64.part2'], root / '68_P10_7_SPIDER_internal_test_and_research_export.ipynb', 'abffb50e0cd0fbcd7a4758e46574f2aaf7dfeab0652506e98c17eedf865b6b4e'),
           }
-
           for number, (parts, destination, expected_sha) in specs.items():
-              encoded = "".join(part.read_text(encoding="utf-8").strip() for part in parts)
+              encoded = ''.join(part.read_text(encoding='utf-8').strip() for part in parts)
               raw = gzip.decompress(base64.b64decode(encoded, validate=True))
               actual_sha = hashlib.sha256(raw).hexdigest()
               if actual_sha != expected_sha:
-                  raise RuntimeError(
-                      f"Notebook {number}: SHA-256 inesperado {actual_sha}; esperado {expected_sha}"
-                  )
-              parsed = json.loads(raw.decode("utf-8"))
-              if parsed.get("nbformat") != 4 or not isinstance(parsed.get("cells"), list):
-                  raise RuntimeError(f"Notebook {number}: estructura Jupyter inválida")
+                  raise RuntimeError(f'Notebook {number}: SHA inesperado {actual_sha}')
+              parsed = json.loads(raw.decode('utf-8'))
+              if parsed.get('nbformat') != 4 or not isinstance(parsed.get('cells'), list):
+                  raise RuntimeError(f'Notebook {number}: estructura inválida')
               destination.write_bytes(raw)
               print(number, destination, len(raw), actual_sha)
 
-          notebook_65 = root / "65_P10_7_SPIDER_grading_preflight_and_scope_freeze.ipynb"
-          expected_65 = "0791a5a9ef7de6bd305437b6fce531849b9b5122a9710469c5915a74950470cf"
+          notebook_65 = root / '65_P10_7_SPIDER_grading_preflight_and_scope_freeze.ipynb'
           actual_65 = hashlib.sha256(notebook_65.read_bytes()).hexdigest()
+          expected_65 = '0791a5a9ef7de6bd305437b6fce531849b9b5122a9710469c5915a74950470cf'
           if actual_65 != expected_65:
-              raise RuntimeError(f"Notebook 65: SHA-256 inesperado {actual_65}")
-          json.loads(notebook_65.read_text(encoding="utf-8"))
+              raise RuntimeError(f'Notebook 65: SHA inesperado {actual_65}')
+          json.loads(notebook_65.read_text(encoding='utf-8'))
 
-          readme = root / "README_P10_7.md"
-          readme.write_text(
-              """# P10.7 SPIDER degenerative multitask notebooks
+          (root / 'README_P10_7.md').write_text('''# P10.7 SPIDER degenerative multitask notebooks
 
 Ruta dentro del repositorio:
 
@@ -114,18 +93,17 @@ Salidas:
 ```
 
 No ejecutar Notebook 68 hasta que Notebook 67 haya congelado el candidato y se autorice la apertura única del internal test.
-""",
-              encoding="utf-8",
-          )
+''', encoding='utf-8')
+          PY
 
-      - name: Commit final notebook files only
+      - name: Commit final files
         shell: bash
         run: |
           set -euo pipefail
           rm -rf notebooks/p10_7_spider_degenerative/.materialize
           rm -f .github/workflows/p10_7_materialize_notebooks.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add notebooks/p10_7_spider_degenerative .github/workflows/p10_7_materialize_notebooks.yml
-          git commit -m "feat(p10.7): add SPIDER notebooks 65 to 68"
+          git commit -m 'feat(p10.7): add SPIDER notebooks 65 to 68'
           git push origin HEAD:enzo/p10-7-spider-degenerative-multitask
