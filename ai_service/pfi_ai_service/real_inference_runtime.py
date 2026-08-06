@@ -1559,6 +1559,103 @@ def build_measurements(
     return values
 
 
+def disc_level_extents(
+    model_key: str,
+    prediction: np.ndarray,
+    plane_geometry: Dict[str, Any] | None,
+) -> list[Dict[str, Any]]:
+    """Donde empieza y termina cada espacio discal, en coordenadas del paciente.
+
+    Es lo que le falta al axial para saber que nivel esta mirando. Un corte axial
+    lumbar tiene nivel -se adquiere a la altura de un disco- pero la corrida axial sola
+    no puede nombrarlo: el modelo axial no segmenta discos numerables, y contar desde
+    abajo como hace el sagital necesita ver la serie entera de espacios discales, que
+    en un axial no se ve. El nivel esta en el sagital, y esto lo publica en un sistema
+    de coordenadas donde el axial puede buscarlo.
+
+    Se publican los dos extremos craneocaudales de cada disco como puntos del paciente,
+    y no una altura ni un indice: el axial esta angulado respecto del sagital, asi que
+    la unica forma de preguntar "cual disco corta este plano" es proyectar sobre la
+    normal del propio axial, y para eso hacen falta los puntos.
+
+    El centroide de columna ubica los extremos a media profundidad del disco. La
+    alternativa -el borde- caeria sobre el anillo, que es justo donde una protrusion
+    corre el borde sin mover el nivel.
+    """
+    if plane_geometry is None or prediction.ndim != 2:
+        return []
+    disc_class = next(
+        (class_id for class_id in sorted(int(value) for value in np.unique(prediction) if int(value) != 0)
+         if class_name(model_key, class_id) == "disc_group"),
+        None,
+    )
+    if disc_class is None:
+        return []
+    instances = connected_instances(prediction == disc_class)
+    levels = lumbar_disc_levels(len(instances))
+    row_direction = plane_geometry["rowDirection"]
+    col_direction = plane_geometry["colDirection"]
+    position = plane_geometry["position"]
+    # La prediccion vive en su propia grilla (256x256); las filas y columnas del corte
+    # son las nativas. Sin reescalar, un disco de la mitad inferior de la imagen se
+    # ubicaria a media altura del paciente.
+    row_scale = float(plane_geometry["rowCount"]) / float(prediction.shape[0])
+    col_scale = float(plane_geometry["colCount"]) / float(prediction.shape[1])
+
+    def world(row: float, column: float) -> list[float]:
+        row_mm = row * row_scale * float(plane_geometry["rowSpacing"])
+        col_mm = column * col_scale * float(plane_geometry["colSpacing"])
+        return [float(position[k] + row_direction[k] * row_mm + col_direction[k] * col_mm) for k in range(3)]
+
+    extents: list[Dict[str, Any]] = []
+    for component, level in zip(instances, levels):
+        if level is None:
+            continue
+        rows, columns = np.where(component)
+        if rows.size == 0:
+            continue
+        hull = convex_hull(list(zip(rows.tolist(), columns.tolist())))
+        extents.append({
+            "level": level,
+            "worldHull": [world(float(row), float(column)) for row, column in hull],
+        })
+    return extents
+
+
+def convex_hull(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Casco convexo de una nube de puntos, por cadena monotona.
+
+    Se publica el casco y no la caja ni el centroide porque la pregunta que se le hace
+    despues -entre que dos valores cae el disco al proyectarlo sobre la normal del
+    axial- es una funcion lineal de la fila y la columna, y una lineal sobre un conjunto
+    alcanza su minimo y su maximo en un vertice del casco. Con esto el intervalo es
+    exacto para cualquier angulacion del axial, sin guardar la mascara entera.
+
+    La caja envolvente daria un intervalo de mas y haria que dos discos vecinos
+    reclamaran el mismo corte; el centroide daria uno de menos, que es peor: la altura a
+    la que el axial cruza el sagital cambia con la profundidad cuando esta angulado, y
+    evaluar en una sola columna erra por mas de lo que mide un disco.
+    """
+    unique = sorted(set(points))
+    if len(unique) <= 2:
+        return unique
+
+    def half(ordered: list[tuple[float, float]]) -> list[tuple[float, float]]:
+        chain: list[tuple[float, float]] = []
+        for point in ordered:
+            while len(chain) >= 2 and _cross(chain[-2], chain[-1], point) <= 0:
+                chain.pop()
+            chain.append(point)
+        return chain[:-1]
+
+    return half(unique) + half(list(reversed(unique)))
+
+
+def _cross(origin, first, second) -> float:
+    return ((first[0] - origin[0]) * (second[1] - origin[1])
+            - (first[1] - origin[1]) * (second[0] - origin[0]))
+
+
 def canal_ap_diameter(canal, disc, col_spacing):
     """Diametro anteroposterior del canal a la altura de un disco.
 
@@ -1897,6 +1994,10 @@ def run_real_inference(request: Any, run_id: str) -> Dict[str, Any]:
         "measurementsDerivedFromPredictionMask": True,
         "segmentation": segmentation,
         "volumeGeometry": volume_geometry(loaded, selected_axis, slice_count, selected_slice),
+        # Solo el sagital los tiene: es el plano donde los espacios discales se ven
+        # completos y se pueden contar desde la union lumbosacra.
+        "discLevels": disc_level_extents(request.model_key, prediction, slice_plane_geometry(loaded, selected_axis, selected_slice))
+        if request.plane == "sagittal" else None,
         "slicePreviewCount": len(slice_previews),
         "slicePixels": slice_pixels or None,
     }

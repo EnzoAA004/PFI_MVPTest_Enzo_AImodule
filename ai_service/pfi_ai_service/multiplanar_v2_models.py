@@ -249,6 +249,12 @@ class PlaneQualityV2(PublicResponseModel):
     #: Datos crudos por corte: {count,width,height,dtype,byteOrder,min,max}.
     #: Es lo que permite ventanear de verdad en vez de filtrar brillo sobre 8 bits.
     slicePixels: dict[str, Any] | None = None
+    #: Extension craneocaudal de cada espacio discal: [{level, worldTop, worldBottom}].
+    #:
+    #: Solo el sagital la publica, porque es el plano donde los discos se ven completos
+    #: y se pueden contar desde la union lumbosacra. Es lo que le permite al axial
+    #: saber que nivel esta mirando: sin esto sus mediciones salian todas sin nivel.
+    discLevels: list[dict[str, Any]] | None = None
     warnings: list[str] = Field(default_factory=list)
 
 

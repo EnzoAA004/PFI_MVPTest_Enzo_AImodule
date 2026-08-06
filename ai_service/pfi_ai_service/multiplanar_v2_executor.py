@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS
+from .axial_level import axial_slice_level
 from .input_registry import InputRegistryError, register_existing_path, resolve_input_id
 from .model_artifacts import model_status
 from .multiplanar_3d_reconstruction import build_lumbar_3d_status
@@ -201,6 +202,7 @@ class CanonicalMultiplanarExecutor:
                         reason,
                     )
                 break
+        assign_axial_levels(plane_results)
         return self._persist_response(request, trace_id, run_id, requested_planes, workspace_mode, plane_results, preflight)
 
     def _persist_response(
@@ -666,8 +668,36 @@ def plane_quality_v2(raw: Any) -> PlaneQualityV2:
         slicePreviewCount=int(quality.get("slicePreviewCount", 0) or 0),
         volumeGeometry=quality.get("volumeGeometry") if isinstance(quality.get("volumeGeometry"), dict) else None,
         slicePixels=quality.get("slicePixels") if isinstance(quality.get("slicePixels"), dict) else None,
+        discLevels=quality.get("discLevels") if isinstance(quality.get("discLevels"), list) else None,
         warnings=[],
     )
+
+
+def assign_axial_levels(plane_results: dict[PlaneNameV2, PlaneRunV2Result | None]) -> None:
+    """Le pone nivel a las mediciones axiales, cruzando la geometria con el sagital.
+
+    Va aca y no dentro de la corrida de cada plano porque es lo unico que necesita los
+    dos a la vez: el nivel lo conoce el sagital, que ve la serie completa de espacios
+    discales, y la altura a la que esta el corte la conoce el axial. Cada plano por
+    separado tiene la mitad de la respuesta.
+
+    No hace nada si falta alguno de los dos, o si el corte axial no cae en un espacio
+    discal. Que las mediciones sigan sin nivel es una respuesta, no una falla.
+    """
+    sagittal, axial = plane_results.get("sagittal"), plane_results.get("axial")
+    if sagittal is None or axial is None or axial.synthetic or sagittal.synthetic:
+        return
+    level = axial_slice_level(
+        sagittal.quality.model_dump() if sagittal.quality else None,
+        axial.quality.model_dump() if axial.quality else None,
+    )
+    if not level:
+        return
+    for measurement in axial.measurements:
+        # `levelScope` ya es "level" en estas mediciones: describen una estructura de un
+        # nivel, y lo unico que faltaba era saber cual.
+        if not measurement.level:
+            measurement.level = level
 
 
 def build_workspace_response(
