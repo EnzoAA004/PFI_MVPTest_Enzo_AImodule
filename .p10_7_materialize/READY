@@ -1,2 +1,3 @@
 P10.7 authorized notebook patch: 66 and 67 only
 runner: ubuntu-slim
+trigger: git-data-api
