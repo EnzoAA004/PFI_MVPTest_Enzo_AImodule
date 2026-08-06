@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from .deidentify import UidRemapper
 from .input_registry import (
     InputRegistryError,
     max_upload_bytes,
@@ -234,6 +235,10 @@ def register_study_zip(*, case_id: str, stream: Any) -> dict[str, Any]:
         # registro las rechaza si alguien las manda como entrada de una corrida.
         registered: dict[str, dict[str, Any]] = {}
         summaries: list[dict[str, Any]] = []
+        # Un solo remapeador para todo el estudio: es lo que hace que, despues de
+        # reasignar los UIDs, las series sigan siendo series y los planos sigan
+        # compartiendo marco de referencia. Ver deidentify.UidRemapper.
+        remap = UidRemapper()
         for item in series:
             # Identidad, no igualdad: dos series distintas pueden tener el mismo
             # resumen -misma descripcion, mismo plano, misma cantidad de cortes- y con
@@ -245,6 +250,7 @@ def register_study_zip(*, case_id: str, stream: Any) -> dict[str, Any]:
                 plane=plane_slot or ("unknown" if item["multiplanar"] else item["plane"]),
                 file_paths=item["files"],
                 analyzable=plane_slot is not None,
+                remap=remap,
             )
             summary = {**_summarize(item), "inputId": meta["inputId"]}
             summaries.append(summary)

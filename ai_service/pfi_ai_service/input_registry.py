@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .deidentify import DeidentificationError, UidRemapper, copy_deidentified
 from .real_inference_runtime import SUPPORTED_EXTENSIONS
 
 # A .zip is accepted only at upload time as a container for a DICOM series; it is
@@ -56,6 +57,10 @@ class InputRecord:
     # y un axial T1 sin modelo: se guardan para que el medico los vea, y esta marca es
     # lo que impide que entren a inferencia por traer un plano que el registro acepta.
     analyzable: bool = True
+    # Si los archivos en disco pasaron por deidentify.py. Es `False` por defecto porque
+    # las series registradas antes de que existiera la de-identificacion conservan los
+    # datos del paciente, y eso hay que poder distinguirlo, no asumirlo resuelto.
+    deidentified: bool = False
 
 
 SERVER_SIDE_SOURCES = {
@@ -105,6 +110,7 @@ def _persist_registry() -> None:
             "size": record.size,
             "sourceKey": record.source_key,
             "analyzable": record.analyzable,
+            "deidentified": record.deidentified,
         }
         for record in _INPUT_REGISTRY.values()
     ]
@@ -156,6 +162,7 @@ def _load_registry() -> None:
             size=int(item.get("size", 0) or 0),
             source_key=str(item.get("sourceKey", "")),
             analyzable=bool(item.get("analyzable", True)),
+            deidentified=bool(item.get("deidentified", False)),
         ))
 
 
@@ -255,7 +262,14 @@ def register_existing_path(
     return public_input_metadata(record)
 
 
-def register_series_files(*, case_id: str, plane: str, file_paths: list, analyzable: bool = True) -> dict[str, object]:
+def register_series_files(
+    *,
+    case_id: str,
+    plane: str,
+    file_paths: list,
+    analyzable: bool = True,
+    remap: UidRemapper | None = None,
+) -> dict[str, object]:
     """Copy a classified series' files into a fresh per-plane input directory and register it.
 
     Used by study ingestion: the caller has already selected which series belongs to
@@ -266,20 +280,42 @@ def register_series_files(*, case_id: str, plane: str, file_paths: list, analyza
     trae coronales, localizers y capturas de consola, y un axial T1 para el que no hay
     modelo: sin esto se descartaban al ingerir y el medico veia dos series de siete.
     Se guardan igual, marcadas, y ``resolve_input_id`` las rechaza como entrada.
+
+    ``remap`` tiene que ser **el mismo para todas las series de un estudio**: es lo que
+    hace que los UIDs reasignados sigan describiendo la misma estructura -las series
+    siguen siendo series y los dos planos siguen compartiendo marco de referencia-. Si no
+    se pasa, cada serie queda aislada de las demas, que solo es correcto cuando se
+    registra una sola.
     """
     normalized_plane = validate_plane(plane) if analyzable else validate_viewable_plane(plane)
     if not file_paths:
         raise InputRegistryError("serie sin archivos", status_code=400)
+    # `is None` y no `or`: un remapeador recien creado esta vacio, y `UidRemapper` define
+    # __len__, asi que `remap or UidRemapper()` lo descartaba por falsy y le daba a cada
+    # serie uno propio. El sintoma era que los dos planos dejaban de compartir marco de
+    # referencia -y con eso se caian la linea de referencia y el nivel del corte axial-.
+    if remap is None:
+        remap = UidRemapper()
     input_id = f"inp_{uuid4().hex}"
     series_dir = upload_root() / normalized_plane / input_id
     series_dir.mkdir(parents=True, exist_ok=True)
     total = 0
-    for index, source in enumerate(file_paths):
-        # These are DICOM files (GDCM-classified); normalize to .dcm so downstream
-        # extension-based checks work even when the source was .ima or extension-less.
-        destination = series_dir / f"{index:05d}.dcm"
-        shutil.copyfile(Path(source), destination)
-        total += destination.stat().st_size
+    try:
+        for index, source in enumerate(file_paths):
+            # These are DICOM files (GDCM-classified); normalize to .dcm so downstream
+            # extension-based checks work even when the source was .ima or extension-less.
+            destination = series_dir / f"{index:05d}.dcm"
+            # No es una copia byte a byte: el archivo se reescribe sin los datos del
+            # paciente. Ver deidentify.py.
+            copy_deidentified(Path(source), destination, remap)
+            total += destination.stat().st_size
+    except DeidentificationError as exc:
+        # No queda media serie en disco: lo que no se pudo limpiar no se guarda.
+        shutil.rmtree(series_dir, ignore_errors=True)
+        raise InputRegistryError(
+            "no se pudo de-identificar la serie, no se registro",
+            status_code=422,
+        ) from exc
     record = InputRecord(
         input_id=input_id,
         case_id=case_id,
@@ -289,6 +325,7 @@ def register_series_files(*, case_id: str, plane: str, file_paths: list, analyza
         size=total,
         source_key="study-upload",
         analyzable=analyzable,
+        deidentified=True,
     )
     remember_input(record)
     return public_input_metadata(record)

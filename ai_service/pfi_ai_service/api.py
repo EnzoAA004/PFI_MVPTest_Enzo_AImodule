@@ -410,6 +410,9 @@ def get_series_slice_count(input_id: str):
         "inputId": record.input_id,
         "plane": record.plane,
         "analyzable": record.analyzable,
+        # Si los archivos en disco pasaron por la de-identificacion. Las series
+        # registradas antes de que existiera dicen `false`, y eso hay que poder verlo.
+        "deidentified": record.deidentified,
         "sliceCount": render_series_previews(record.input_id, str(record.path)),
     })
 

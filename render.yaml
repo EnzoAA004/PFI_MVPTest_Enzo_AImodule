@@ -22,6 +22,21 @@ services:
         value: config/data_freeze_config.json
       - key: PFI_OUTPUT_DIR
         value: /app/outputs
+      # Donde quedan las series subidas, ya de-identificadas (ver deidentify.py).
+      #
+      # **En Render esto NO persiste.** El plan free no admite disco, asi que el
+      # directorio vive en la capa efimera del contenedor: cada deploy —y cada despertar
+      # tras dormirse— se lleva los estudios subidos y sus inputIds dejan de resolver.
+      # El registro se rehidrata desde uploads/inputs/registry.json, que se va con ellos.
+      #
+      # Se declara igual, y no se omite, porque el default relativo (`uploads/inputs`)
+      # depende del working directory y hace que el problema aparezca como una ruta rara
+      # en un log en vez de como una limitacion conocida del entorno.
+      #
+      # Para que persista hacen falta un plan con disco y un bloque `disk:` montado aca.
+      # En local, docker-compose ya lo resuelve con el volumen `ai-uploads`.
+      - key: PFI_UPLOAD_DIR
+        value: /app/uploads/inputs
       # Clasificador subarticular (P10.6). Se deja declarada y vacia a proposito: el .pt no
       # esta en la imagen, asi que en Render ese endpoint responde 503 hasta que haya una
       # forma de publicar el artefacto. Declararla evita que "no configurado" pase por
