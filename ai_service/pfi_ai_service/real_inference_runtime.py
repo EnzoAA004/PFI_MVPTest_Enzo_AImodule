@@ -59,6 +59,8 @@ def runtime_device() -> torch.device:
 
 
 def runtime_status() -> Dict[str, Any]:
+    from .subarticular_runtime_service import get_subarticular_runtime_status
+
     device = runtime_device()
     return {
         "status": "pytorch_runtime_ready",
@@ -67,6 +69,10 @@ def runtime_status() -> Dict[str, Any]:
         "device": str(device),
         "loadedModels": sorted(_MODEL_CACHE.keys()),
         "supportedExtensions": sorted(SUPPORTED_EXTENSIONS),
+        "segmentationModels": sorted(MODEL_REGISTRY.keys()),
+        "degenerativeFindingModels": {
+            "subarticular": get_subarticular_runtime_status(),
+        },
         "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
         "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,
     }

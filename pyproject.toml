@@ -38,3 +38,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+  "real_checkpoint: requires PFI_SUBARTICULAR_CHECKPOINT_PATH and the frozen .pt outside Git",
+]

@@ -335,16 +335,21 @@ def public_input_metadata(record: InputRecord) -> dict[str, object]:
     }
 
 
-def resolve_input_id(input_id: str, *, case_id: str, plane: str) -> InputRecord:
+def resolve_registered_input(input_id: str) -> InputRecord:
     record = _INPUT_REGISTRY.get(input_id)
     if record is None:
         raise InputRegistryError("inputId no registrado", status_code=404)
+    # A record path is a file for single uploads, or a directory for an extracted
+    # DICOM series (store_zip_series) - accept either as long as it still exists.
+    if not record.path.exists() or not (record.path.is_file() or record.path.is_dir()):
+        raise InputRegistryError("archivo asociado al inputId no disponible", status_code=404)
+    return record
+
+
+def resolve_input_id(input_id: str, *, case_id: str, plane: str) -> InputRecord:
+    record = resolve_registered_input(input_id)
     if record.case_id != case_id:
         raise InputRegistryError("inputId no pertenece al caseId solicitado", status_code=409)
     if record.plane != plane:
         raise InputRegistryError("inputId no pertenece al plano solicitado", status_code=409)
-    # A record path is a file for single uploads, or a directory for an extracted
-    # DICOM series (store_zip_series) — accept either as long as it still exists.
-    if not record.path.exists() or not (record.path.is_file() or record.path.is_dir()):
-        raise InputRegistryError("archivo asociado al inputId no disponible", status_code=404)
     return record

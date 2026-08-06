@@ -13,5 +13,8 @@ def register_real_inference_routes(app: FastAPI) -> None:
 
     @app.post("/models/cache/clear")
     def clear_runtime_model_cache():
+        from .subarticular_runtime_service import clear_subarticular_classifier_cache
+
         clear_model_cache()
+        clear_subarticular_classifier_cache()
         return sanitize_public_payload(runtime_status())

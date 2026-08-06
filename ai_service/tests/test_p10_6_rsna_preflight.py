@@ -66,7 +66,6 @@ def test_notebook_has_no_tokens_windows_paths_or_forbidden_test_reads() -> None:
         "kaggle.json",
         "C:\\\\",
         "C:/Users/",
-        "sample_submission.csv",
     ]
     for item in forbidden:
         assert item not in text

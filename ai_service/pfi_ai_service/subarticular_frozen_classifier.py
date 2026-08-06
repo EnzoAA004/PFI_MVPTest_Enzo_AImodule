@@ -222,6 +222,14 @@ def _validate_checkpoint_payload(
     missing = sorted(required - set(checkpoint.keys()))
     if missing:
         raise CheckpointIncompatibleError("checkpoint_missing_required_fields")
+    schema_version = checkpoint.get("schemaVersion")
+    if schema_version is not None and schema_version != "pfi.rsna-subarticular-training-checkpoint.v1":
+        raise CheckpointIncompatibleError("checkpoint_schema_version_mismatch")
+    epoch = checkpoint.get("epoch")
+    if epoch is not None and int(epoch) != 6:
+        raise CheckpointIncompatibleError("checkpoint_epoch_mismatch")
+    if checkpoint.get("officialTestAccessed") is not False:
+        raise CheckpointIncompatibleError("checkpoint_official_test_access_mismatch")
     if checkpoint.get("task") != config.task:
         raise CheckpointIncompatibleError("checkpoint_task_mismatch")
     if checkpoint.get("sequence") != config.sequence:
@@ -428,6 +436,9 @@ class SubarticularFrozenClassifier:
             raise CheckpointHashMismatchError("subarticular_checkpoint_sha256_mismatch")
         device = _resolve_device(self.config.map_location)
         try:
+            # The frozen artifact is SHA-256 verified before deserialization; this
+            # checkpoint contains metadata in addition to tensors, so the legacy
+            # pickle path is intentionally limited to this trusted file.
             checkpoint = torch.load(path, map_location=device, weights_only=False)
         except TypeError:
             checkpoint = torch.load(path, map_location=device)

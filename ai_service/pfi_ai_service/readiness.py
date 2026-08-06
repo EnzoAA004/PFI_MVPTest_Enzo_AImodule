@@ -7,6 +7,7 @@ from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS
 from .contract_schema import contract_verification
 from .model_artifacts import verify_model_artifacts
 from .report_summary import recent_agent_report_summaries
+from .subarticular_runtime_service import get_subarticular_runtime_status
 
 
 def build_readiness(output_dir: Path) -> Dict[str, Any]:
@@ -47,6 +48,9 @@ def build_readiness(output_dir: Path) -> Dict[str, Any]:
             "artifactsHashed": artifacts.get("artifactsHashed"),
             "missingArtifacts": artifacts.get("missingArtifacts", []),
             "unverifiedArtifacts": artifacts.get("unverifiedArtifacts", []),
+        },
+        "degenerativeFindingModels": {
+            "subarticular": get_subarticular_runtime_status(),
         },
         "reports": {
             "count": reports.get("count", 0),

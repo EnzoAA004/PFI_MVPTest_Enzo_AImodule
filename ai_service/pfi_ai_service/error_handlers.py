@@ -100,6 +100,10 @@ def code_for_status(status_code: int) -> str:
         return "NOT_FOUND"
     if status_code == 409:
         return "CONFLICT"
+    if status_code == 422:
+        return "UNPROCESSABLE_ENTITY"
+    if status_code == 503:
+        return "SERVICE_UNAVAILABLE"
     if 400 <= status_code < 500:
         return "CLIENT_ERROR"
     return "AI_MODULE_ERROR"

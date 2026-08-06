@@ -242,3 +242,23 @@ def test_cuda_request_fails_closed_when_unavailable(monkeypatch: pytest.MonkeyPa
 
     with pytest.raises(runtime.SubarticularClassifierError, match="cuda_requested_but_not_available"):
         SubarticularFrozenClassifier(config).load()
+
+
+def test_loader_rejects_unexpected_checkpoint_schema_epoch_or_governance(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_fake_timm(monkeypatch)
+    mutations = {
+        "schemaVersion": "pfi.other.v1",
+        "epoch": 7,
+        "officialTestAccessed": True,
+    }
+    for key, value in mutations.items():
+        payload = _checkpoint_payload()
+        payload[key] = value
+        case_dir = tmp_path / key
+        case_dir.mkdir()
+        path, sha = _write_checkpoint(case_dir, payload)
+        with pytest.raises(CheckpointIncompatibleError):
+            _classifier(path, sha).load()

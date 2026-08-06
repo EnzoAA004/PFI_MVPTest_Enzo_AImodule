@@ -92,3 +92,96 @@ finding payload.
 - Inference runs inside `torch.inference_mode()`.
 - No clinical threshold, calibration override or treatment recommendation is added.
 - The official RSNA test set is not accessed.
+
+
+## AI service API
+
+The classifier is exposed through a dedicated research-only endpoint and is not
+registered as a segmentation model:
+
+```http
+POST /degenerative-findings/subarticular/predict
+```
+
+Request:
+
+```json
+{
+  "inputId": "inp_internal_registered_id",
+  "instanceNumber": 9,
+  "x": 192.5,
+  "y": 210.0,
+  "side": "left",
+  "level": "L4-L5"
+}
+```
+
+Response root:
+
+```json
+{
+  "degenerativeFindings": {
+    "schemaVersion": "pfi.degenerative-findings.v1",
+    "findings": []
+  },
+  "model": {
+    "modelId": "rsna_subarticular_axial_t2_2p5d",
+    "checkpointSha256": "d41262d57b13c146a48ab15f5e183cc6a55fc92724b7d0c286cea1f2ce26e84a",
+    "device": "cpu"
+  },
+  "humanReviewRequired": true,
+  "notClinicalDiagnosis": true,
+  "autonomousDiagnosis": false,
+  "warnings": ["roi_requires_external_anatomical_coordinate"]
+}
+```
+
+The request intentionally does not accept filesystem paths, DICOM UIDs, patient
+identifiers, checkpoint overrides or localization claims. `side`, `level`, `x`,
+`y` and `instanceNumber` are operator-provided research coordinates until a
+validated localizer exists.
+
+Expected public errors:
+
+- `400`: invalid ROI, side, level or coordinates.
+- `404`: registered input not found.
+- `409`: registered input exists but is not axial.
+- `422`: registered input is axial but not a compatible DICOM series.
+- `503`: checkpoint not configured or not installed.
+- `500`: checkpoint hash mismatch or incompatible frozen checkpoint.
+
+The error payload is sanitized and must not contain local paths, stack traces,
+internal hosts, tokens or original DICOM identifiers.
+
+## Runtime status
+
+`/health`, `/warmup`, `/readiness`, `/models` and `/models/runtime` publish a
+`degenerativeFindingModels.subarticular` block with status only. These endpoints
+do not load the checkpoint and do not expose `PFI_SUBARTICULAR_CHECKPOINT_PATH`.
+The segmentation models remain reported separately as segmentation models.
+
+## Smoke test
+
+PowerShell:
+
+```powershell
+$env:PFI_SUBARTICULAR_CHECKPOINT_PATH="C:\ruta\frozen_subarticular_checkpoint.pt"
+$env:PYTHONPATH="ai_service"
+python scripts/smoke_test_subarticular_runtime.py
+```
+
+Bash:
+
+```bash
+export PFI_SUBARTICULAR_CHECKPOINT_PATH="/ruta/frozen_subarticular_checkpoint.pt"
+export PYTHONPATH="ai_service"
+python scripts/smoke_test_subarticular_runtime.py
+```
+
+The smoke test uses a deterministic synthetic 3x224x224 tensor. It verifies
+artifact compatibility, SHA validation, probability normalization and contract
+shape only. It does not validate clinical quality and does not access internal or
+official RSNA test cases.
+
+Do not commit the `.pt`, DICOM files, cache directories or generated clinical
+outputs to Git.
