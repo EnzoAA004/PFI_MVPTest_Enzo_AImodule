@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pfi.uade.edu.ar/contracts/pfi.disc-degenerative-findings.v1.schema.json",
+  "title": "PFI Disc Degenerative Findings v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "discDegenerativeFindings",
+    "humanReviewRequired",
+    "notClinicalDiagnosis",
+    "autonomousDiagnosis"
+  ],
+  "properties": {
+    "discDegenerativeFindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "findings"],
+      "properties": {
+        "schemaVersion": {
+          "const": "pfi.disc-degenerative-findings.v1"
+        },
+        "findings": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/finding"}
+        }
+      }
+    },
+    "humanReviewRequired": {"const": true},
+    "notClinicalDiagnosis": {"const": true},
+    "autonomousDiagnosis": {"const": false}
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "findingId",
+        "findingType",
+        "anatomy",
+        "classification",
+        "evidence",
+        "evaluation",
+        "sourceSeries",
+        "localization",
+        "model",
+        "review",
+        "notClinicalDiagnosis"
+      ],
+      "properties": {
+        "findingId": {"type": "string", "minLength": 1},
+        "findingType": {
+          "enum": [
+            "pfirrmann_grade",
+            "modic_change",
+            "upper_endplate_change",
+            "lower_endplate_change",
+            "spondylolisthesis",
+            "disc_herniation",
+            "disc_narrowing",
+            "disc_bulging"
+          ]
+        },
+        "anatomy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["level", "side"],
+          "properties": {
+            "level": {"enum": ["L1-L2", "L2-L3", "L3-L4", "L4-L5", "L5-S1"]},
+            "side": {"type": "null"}
+          }
+        },
+        "classification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "label", "probabilities"],
+          "properties": {
+            "kind": {"enum": ["categorical", "binary"]},
+            "label": {"type": "string"},
+            "probabilities": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          }
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["deploymentStatus", "evaluationDataset", "externalValidationAvailable"],
+          "properties": {
+            "deploymentStatus": {
+              "enum": ["supported_internal", "experimental", "not_product_supported"]
+            },
+            "evaluationDataset": {"const": "SPIDER_internal_test"},
+            "externalValidationAvailable": {"const": false}
+          }
+        },
+        "evaluation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": {"enum": ["evaluated", "not_evaluated", "unsupported", "failed"]},
+            "reasonCode": {"type": "string", "minLength": 1}
+          }
+        },
+        "sourceSeries": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role", "available", "positions"],
+            "properties": {
+              "role": {"enum": ["sagittal_t1", "sagittal_t2"]},
+              "available": {"type": "boolean"},
+              "positions": {
+                "type": "array",
+                "items": {"type": "integer", "minimum": 0}
+              }
+            }
+          }
+        },
+        "localization": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "researchOnly",
+            "automaticAnatomicalLocalizationValidated"
+          ],
+          "properties": {
+            "source": {"enum": ["segmentation_derived_disc_level", "external_disc_roi"]},
+            "researchOnly": {"const": true},
+            "automaticAnatomicalLocalizationValidated": {"const": false}
+          }
+        },
+        "model": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["modelId", "modelSha256"],
+          "properties": {
+            "modelId": {"const": "spider_degenerative_multitask_sagittal_t1_t2_2p5d"},
+            "modelSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          }
+        },
+        "review": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required", "status"],
+          "properties": {
+            "required": {"const": true},
+            "status": {"enum": ["pending", "accepted", "observed", "rejected", "edited"]}
+          }
+        },
+        "notClinicalDiagnosis": {"const": true}
+      }
+    }
+  }
+}

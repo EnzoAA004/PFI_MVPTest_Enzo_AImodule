@@ -43,5 +43,12 @@ services:
       # olvido; el resto del servicio no depende de ella.
       - key: PFI_SUBARTICULAR_CHECKPOINT_PATH
         value: ""
+      # P10.7 SPIDER multitarea: se declara pero queda vacio en Render hasta que exista
+      # una estrategia de distribucion del checkpoint. El servicio arranca y reporta
+      # not_configured; no usa pesos aleatorios ni degrada silenciosamente.
+      - key: PFI_P10_7_CHECKPOINT_PATH
+        value: ""
+      - key: PFI_P10_7_DEVICE
+        value: cpu
       - key: PFI_ROOT
         value: /app

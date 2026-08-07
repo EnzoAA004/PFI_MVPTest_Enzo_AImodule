@@ -36,6 +36,8 @@ class ServiceSettings:
 
     subarticular_checkpoint_path: Path | None
     subarticular_device: str | None
+    p10_7_checkpoint_path: Path | None
+    p10_7_device: str | None
 
     e13_results_root: Path
     e14_results_root: Path
@@ -89,6 +91,10 @@ def get_settings() -> ServiceSettings:
             Path(value) if (value := optional_env("PFI_SUBARTICULAR_CHECKPOINT_PATH")) else None
         ),
         subarticular_device=optional_env("PFI_SUBARTICULAR_DEVICE") or optional_env("PFI_INFERENCE_DEVICE"),
+        p10_7_checkpoint_path=(
+            Path(value) if (value := optional_env("PFI_P10_7_CHECKPOINT_PATH")) else None
+        ),
+        p10_7_device=optional_env("PFI_P10_7_DEVICE") or optional_env("PFI_INFERENCE_DEVICE"),
         e13_results_root=results_root / "E13_multiplanar_inference_pipeline",
         e14_results_root=results_root / "E14_ai_agent_orchestrator",
     )

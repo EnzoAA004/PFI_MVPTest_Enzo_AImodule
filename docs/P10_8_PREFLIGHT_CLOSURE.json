@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "pfi.p10-8.preflight-closure.v1",
+  "status": "P10_8_PREFLIGHT_CLOSED_NO_TRAINING",
+  "sourceBranch": "enzo/p10-8-clinical-expansion-preflight",
+  "sourceCommit": "0cd72d1fda51fcb755f4cf555791f0534a90404d",
+  "trainingAuthorized": false,
+  "trainingPrerequisitesMet": false,
+  "newP10_8CheckpointCreated": false,
+  "notebook77TrainingRequired": false,
+  "automaticSagittalAxialAlignmentValidated": false,
+  "fullProductMultiplanarValidation": false,
+  "crossCohortPairingAllowed": false,
+  "productizableProtocolOnly": [
+    "disc_height",
+    "ap_diameter",
+    "disc_herniation_multiframe_review"
+  ],
+  "blockedNewFindings": [
+    "facet_hypertrophy",
+    "ligamentum_flavum_hypertrophy",
+    "annular_tear",
+    "nerve_root_compression",
+    "epidural_fat"
+  ],
+  "spiderAvailability": {
+    "rows": 1518,
+    "t1": 1370,
+    "t2": 1467,
+    "bothT1T2": 1319,
+    "t1Only": 51,
+    "t2Only": 148,
+    "neither": 0
+  },
+  "nextStage": "PRODUCT_CONSOLIDATION_AND_E2E",
+  "notClinicalDiagnosis": true
+}
