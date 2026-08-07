@@ -7,6 +7,7 @@ from .agent_policy import HUMAN_REVIEW_REQUIRED, NOT_CLINICAL_DIAGNOSIS
 from .contract_schema import contract_verification
 from .model_artifacts import verify_model_artifacts
 from .report_summary import recent_agent_report_summaries
+from .disc_degenerative_runtime import get_disc_degenerative_runtime_status
 from .subarticular_runtime_service import get_subarticular_runtime_status
 
 
@@ -55,6 +56,7 @@ def build_readiness(output_dir: Path) -> Dict[str, Any]:
         },
         "degenerativeFindingModels": {
             "subarticular": get_subarticular_runtime_status(),
+            "discMultitask": get_disc_degenerative_runtime_status(),
         },
         "humanReviewRequired": HUMAN_REVIEW_REQUIRED,
         "notClinicalDiagnosis": NOT_CLINICAL_DIAGNOSIS,

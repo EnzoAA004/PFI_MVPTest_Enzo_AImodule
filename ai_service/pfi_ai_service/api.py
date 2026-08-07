@@ -40,6 +40,14 @@ from .report_summary import recent_agent_report_summaries, summarize_agent_repor
 from .reporting import build_markdown_summary
 from .security import sanitize_public_payload
 from .study_contract import demo_study_review_contract
+from .disc_degenerative_runtime import (
+    DiscDegenerativeRuntimeError,
+    DiscMultitaskPredictRequest,
+    get_disc_degenerative_runtime_status,
+    predict_disc_degenerative_from_registered_request,
+    public_error_message as disc_public_error_message,
+    public_error_status as disc_public_error_status,
+)
 from .subarticular_frozen_classifier import SubarticularClassifierError
 from .subarticular_runtime_service import (
     get_subarticular_runtime_status,
@@ -180,6 +188,7 @@ def health():
         "notClinicalDiagnosis": True,
         "degenerativeFindingModels": {
             "subarticular": get_subarticular_runtime_status(),
+            "discMultitask": get_disc_degenerative_runtime_status(),
         },
     })
 
@@ -214,6 +223,7 @@ def warmup():
         "notClinicalDiagnosis": True,
         "degenerativeFindingModels": {
             "subarticular": get_subarticular_runtime_status(),
+            "discMultitask": get_disc_degenerative_runtime_status(),
         },
     })
 
@@ -234,6 +244,7 @@ def models():
         "segmentationModels": models_with_status,
         "degenerativeFindingModels": {
             "subarticular": get_subarticular_runtime_status(),
+            "discMultitask": get_disc_degenerative_runtime_status(),
         },
     })
 
@@ -325,6 +336,30 @@ def subarticular_predict(request: SubarticularPredictRequest, http_request: Requ
         "autonomousDiagnosis": prediction.autonomousDiagnosis,
         "warnings": list(prediction.warnings),
     })
+
+
+@app.post("/degenerative-findings/disc-multitask/predict")
+def disc_multitask_predict(request: DiscMultitaskPredictRequest, http_request: Request):
+    try:
+        return clean_for_json(predict_disc_degenerative_from_registered_request(request))
+    except DiscDegenerativeRuntimeError as exc:
+        status_code, code = disc_public_error_status(exc)
+        trace_id = request_trace_id(http_request)
+        return JSONResponse(
+            status_code=status_code,
+            headers={TRACE_ID_HEADER: trace_id},
+            content=clean_for_json({
+                "status": "error",
+                "code": code,
+                "message": disc_public_error_message(code),
+                "traceId": trace_id,
+                "path": http_request.url.path,
+                "method": http_request.method,
+                "humanReviewRequired": True,
+                "notClinicalDiagnosis": True,
+                "autonomousDiagnosis": False,
+            }),
+        )
 
 
 @app.get("/evaluation/summary")
