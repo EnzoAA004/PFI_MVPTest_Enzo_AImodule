@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from .disc_degenerative_product_routes import register_disc_degenerative_product_routes
 from .input_registry import InputRegistryError
 from .multiplanar_routes import register_multiplanar_routes
 from .real_inference_routes import register_real_inference_routes
@@ -20,6 +21,7 @@ LOGGER = logging.getLogger(__name__)
 def register_error_handlers(app: FastAPI) -> None:
     register_multiplanar_routes(app)
     register_real_inference_routes(app)
+    register_disc_degenerative_product_routes(app)
 
     @app.exception_handler(InputRegistryError)
     async def input_registry_exception_handler(request: Request, exc: InputRegistryError) -> JSONResponse:
@@ -36,7 +38,6 @@ def register_error_handlers(app: FastAPI) -> None:
             "notClinicalDiagnosis": True,
         }
         return JSONResponse(status_code=exc.status_code, content=body, headers={TRACE_ID_HEADER: trace_id})
-
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
