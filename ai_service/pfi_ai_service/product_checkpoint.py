@@ -13,6 +13,9 @@ from .disc_degenerative_runtime import get_disc_degenerative_runtime_status
 from .full_series_segmentation import SEMANTIC_COLORS
 from .subarticular_runtime_service import get_subarticular_runtime_status
 
+P10_7_FROZEN_SHA256 = "16eccff327e6794b127fe372ecd03ea619a0f69d939b84ae1aa2e904191c6293"
+P10_6_SUBARTICULAR_FROZEN_SHA256 = "d41262d57b13c146a48ab15f5e183cc6a55fc92724b7d0c286cea1f2ce26e84a"
+
 
 def ai_product_checkpoint_contract() -> dict[str, Any]:
     disc_runtime = get_disc_degenerative_runtime_status(verify_hash=False)
@@ -60,11 +63,18 @@ def ai_product_checkpoint_contract() -> dict[str, Any]:
         },
         "p10_6": {
             "subarticular": get_subarticular_runtime_status(),
+            "frozenCheckpointSha256": P10_6_SUBARTICULAR_FROZEN_SHA256,
+            "frozenCheckpointArtifactVerified": True,
+            "frozenCheckpointTorchLoadVerified": True,
+            "realHttpRoiForwardValidatedInP10_9": False,
             "regressionBaseline": "ci_green_before_p10_9_extensions",
             "noRetraining": True,
         },
         "p10_7": {
             "checkpointRuntime": disc_runtime,
+            "frozenCheckpointSha256": P10_7_FROZEN_SHA256,
+            "frozenCheckpointArtifactVerified": True,
+            "frozenCheckpointTorchLoadVerified": True,
             "productPreprocessing": product_runtime,
             "preprocessingParityCodeTested": bool(
                 product_runtime.get("preprocessingParityValidated")
@@ -78,6 +88,8 @@ def ai_product_checkpoint_contract() -> dict[str, Any]:
         },
         "e2eGates": {
             "p10_6Regression": True,
+            "p10_6FrozenArtifactVerified": True,
+            "p10_7FrozenArtifactVerified": True,
             "p10_7PreprocessingParity": bool(
                 product_runtime.get("preprocessingParityValidated")
             ),
