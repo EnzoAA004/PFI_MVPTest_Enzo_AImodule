@@ -42,6 +42,7 @@ def ai_product_checkpoint_contract() -> dict[str, Any]:
             "returnsMeasurements": True,
             "returnsOriginalPng": True,
             "returnsOverlayPng": True,
+            "syntheticCoverageTested": True,
             "realCheckpointE2EValidated": False,
         },
         "anatomyPresentation": {
@@ -69,6 +70,7 @@ def ai_product_checkpoint_contract() -> dict[str, Any]:
                 product_runtime.get("preprocessingParityValidated")
             ),
             "segmentationDerivedLocalizationImplemented": True,
+            "segmentationOrchestrationSyntheticTested": True,
             "automaticDiscLocalizationValidated": False,
             "realCheckpointE2EValidated": False,
             "crossModalityPixelRegistrationAssumed": False,
@@ -79,7 +81,8 @@ def ai_product_checkpoint_contract() -> dict[str, Any]:
             "p10_7PreprocessingParity": bool(
                 product_runtime.get("preprocessingParityValidated")
             ),
-            "fullSeriesSyntheticCoverage": False,
+            "fullSeriesSyntheticCoverage": True,
+            "p10_7LocalizationOrchestrationSynthetic": True,
             "p10_7RealCheckpointSmoke": False,
             "automaticDiscLocalizationRealStudy": False,
             "aiBackendHttp": False,
