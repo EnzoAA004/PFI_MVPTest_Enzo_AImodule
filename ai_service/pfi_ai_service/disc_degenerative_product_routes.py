@@ -3,6 +3,11 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 
+from .disc_degenerative_orchestration import (
+    DiscFindingsFromSegmentationRequest,
+    SegmentationReportError,
+    predict_from_segmentation_reports,
+)
 from .disc_degenerative_product_runtime import (
     ProductDiscMultitaskPredictRequest,
     predict_product_disc_degenerative,
@@ -52,6 +57,28 @@ def _series_error(exc: FullSeriesSegmentationError, request: Request) -> JSONRes
     )
 
 
+def _disc_runtime_error(exc: DiscDegenerativeRuntimeError, request: Request) -> JSONResponse:
+    status_code, code = public_error_status(exc)
+    trace_id = _trace_id(request)
+    return JSONResponse(
+        status_code=status_code,
+        headers={TRACE_ID_HEADER: trace_id},
+        content=sanitize_public_payload(
+            {
+                "status": "error",
+                "code": code,
+                "message": public_error_message(code),
+                "traceId": trace_id,
+                "path": request.url.path,
+                "method": request.method,
+                "humanReviewRequired": True,
+                "notClinicalDiagnosis": True,
+                "autonomousDiagnosis": False,
+            }
+        ),
+    )
+
+
 def register_disc_degenerative_product_routes(app: FastAPI) -> None:
     @app.get("/v2/degenerative-findings/disc-multitask/runtime")
     def disc_multitask_product_runtime():
@@ -65,16 +92,25 @@ def register_disc_degenerative_product_routes(app: FastAPI) -> None:
         try:
             return sanitize_public_payload(predict_product_disc_degenerative(payload))
         except DiscDegenerativeRuntimeError as exc:
-            status_code, code = public_error_status(exc)
+            return _disc_runtime_error(exc, request)
+
+    @app.post("/v2/degenerative-findings/disc-multitask/from-series-segmentation")
+    def disc_multitask_from_series_segmentation(
+        payload: DiscFindingsFromSegmentationRequest,
+        request: Request,
+    ):
+        try:
+            return sanitize_public_payload(predict_from_segmentation_reports(payload))
+        except SegmentationReportError as exc:
             trace_id = _trace_id(request)
             return JSONResponse(
-                status_code=status_code,
+                status_code=422,
                 headers={TRACE_ID_HEADER: trace_id},
                 content=sanitize_public_payload(
                     {
                         "status": "error",
-                        "code": code,
-                        "message": public_error_message(code),
+                        "code": "DISC_LOCALIZATION_REPORT_INVALID",
+                        "message": str(exc),
                         "traceId": trace_id,
                         "path": request.url.path,
                         "method": request.method,
@@ -84,6 +120,8 @@ def register_disc_degenerative_product_routes(app: FastAPI) -> None:
                     }
                 ),
             )
+        except DiscDegenerativeRuntimeError as exc:
+            return _disc_runtime_error(exc, request)
 
     @app.post("/v2/series-segmentation/run")
     def full_series_segmentation_run(
