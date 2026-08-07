@@ -436,6 +436,37 @@ def get_run_segmentation(plane_run_id: str, plane: str):
     )
 
 
+@app.get("/runs/{plane_run_id}/{plane}/measurements.sr.dcm")
+def get_run_measurement_report(plane_run_id: str, plane: str):
+    """Las mediciones de una corrida como DICOM SR.
+
+    Contraparte del SEG: ese exporta donde esta cada estructura, este cuanto mide. Mismo
+    criterio de construccion en el momento y mismo 409 cuando la corrida no reune las
+    condiciones para exportar.
+    """
+    import tempfile
+
+    from .dicom_sr import ReportExportError, report_for_plane_run, write_report
+
+    normalized_plane = plane.strip().lower()
+    if normalized_plane not in {"sagittal", "axial"}:
+        raise HTTPException(status_code=400, detail="plane invalido")
+    try:
+        report = report_for_plane_run(plane_run_id, normalized_plane)
+    except InputRegistryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    except ReportExportError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    destination = Path(tempfile.gettempdir()) / f"{plane_run_id}-{normalized_plane}-sr.dcm"
+    write_report(report, destination)
+    return FileResponse(
+        destination,
+        media_type="application/dicom",
+        filename=f"{plane_run_id}-{normalized_plane}-measurements.dcm",
+    )
+
+
 @app.get("/inputs/{input_id}/slices")
 def get_series_slice_count(input_id: str):
     """Cuantos cortes tiene una serie registrada, rindiendo sus PNG si hace falta."""
