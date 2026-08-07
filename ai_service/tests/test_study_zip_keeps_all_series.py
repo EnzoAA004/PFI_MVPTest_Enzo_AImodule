@@ -108,6 +108,29 @@ def test_la_ia_sigue_eligiendo_los_t2(ingested):
     assert ingested["axial"]["description"] == "t2_tse_tra_384"
 
 
+def test_p10_9_ambas_ponderaciones_sagitales_son_analizables(ingested):
+    # P10.7 exige T1 y T2 sagital como fuentes independientes (nunca registradas entre
+    # si): register_study_zip debe exponer ambas como inputs analizables, no solo la que
+    # gana el slot unico de /multiplanar/run.
+    assert "sagittalT1" in ingested, "sagittalT1 ausente del resultado de ingesta"
+    assert ingested["sagittalT1"]["description"] == "t1_tse_sag_320"
+    assert "sagittalT2" in ingested, "sagittalT2 ausente del resultado de ingesta"
+    assert ingested["sagittalT2"]["description"] == "t2_tse_sag_384"
+
+    sagittal_t1_id = ingested["sagittalT1"]["inputId"]
+    sagittal_t2_id = ingested["sagittalT2"]["inputId"]
+    assert sagittal_t1_id != sagittal_t2_id
+
+    t1_record = resolve_input_id(sagittal_t1_id, case_id="CASE-TEST", plane="sagittal")
+    t2_record = resolve_input_id(sagittal_t2_id, case_id="CASE-TEST", plane="sagittal")
+    assert t1_record.analyzable is True
+    assert t2_record.analyzable is True
+
+    # El T2 ya ganaba el slot legacy `sagittal`; sagittalT2 tiene que reutilizar esa
+    # misma registracion (mismo inputId), no crear una segunda copia de la misma serie.
+    assert ingested["sagittalT2"]["inputId"] == ingested["sagittal"]["inputId"]
+
+
 def test_el_localizer_queda_marcado_multiplano_y_no_analizable(ingested):
     localizer = _by_description(ingested, "localizer")
     assert localizer["multiplanar"] is True
@@ -128,11 +151,14 @@ def test_el_axial_t1_se_conserva_aunque_no_haya_modelo(ingested):
 
 
 def test_una_serie_de_solo_vista_no_puede_entrar_a_inferencia(ingested):
-    # La T1 sagital tiene plano `sagittal`, asi que el chequeo de plano la dejaria
-    # pasar: lo que la frena es la marca de no analizable.
-    sagital_t1 = _by_description(ingested, "t1_tse_sag_320")
+    # P10.9 registra sagital T1 y T2 como dos inputs analizables independientes para
+    # P10.7 (ver test_p10_9_ambas_ponderaciones_sagitales_son_analizables), asi que
+    # t1_tse_sag_320 ya no sirve para probar "visible pero no analizable". La serie que
+    # sigue demostrando eso es el axial T1: no hay modelo (Al-Kafri es T2 puro), asi que
+    # se conserva para mostrarla pero el registro la rechaza como entrada de una corrida.
+    axial_t1 = _by_description(ingested, "t1_tse_tra")
     with pytest.raises(InputRegistryError) as error:
-        resolve_input_id(sagital_t1["inputId"], case_id="CASE-TEST", plane="sagittal")
+        resolve_input_id(axial_t1["inputId"], case_id="CASE-TEST", plane="axial")
     assert error.value.status_code == 409
 
 
