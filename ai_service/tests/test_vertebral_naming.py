@@ -13,6 +13,7 @@ que la imagen no muestra.
 import numpy as np
 
 from pfi_ai_service.real_inference_runtime import (
+    build_masks,
     build_segmentation,
     lumbar_disc_levels,
     name_posterior_elements,
@@ -121,3 +122,15 @@ def test_con_los_cinco_discos_lumbares_los_cuerpos_reciben_su_nivel():
     discs = [block(bottom, rows[index + 1][0], 40, 80) for index, (_, bottom) in enumerate(rows[:-1])]
     names = name_vertebral_bodies(bodies, discs, lumbar_disc_levels(len(discs)))
     assert names == ["L1", "L2", "L3", "L4", "L5", "S1"]
+
+
+def test_build_masks_no_compara_arrays_para_nombrar_cuerpos_sin_nivel():
+    prediction = np.zeros((80, 80), dtype=np.uint8)
+    prediction[10:25, 20:35] = 1
+    prediction[40:55, 20:35] = 1
+    confidence = np.ones_like(prediction, dtype=np.float32)
+
+    masks = build_masks("sagittal_spider", "sagittal", prediction, confidence, "series-sagittal", 0)
+
+    vertebra_ids = [item["id"] for item in masks if item["label"] == "vertebra"]
+    assert vertebra_ids == ["mask-sagittal-vertebra-b1", "mask-sagittal-vertebra-b2"]

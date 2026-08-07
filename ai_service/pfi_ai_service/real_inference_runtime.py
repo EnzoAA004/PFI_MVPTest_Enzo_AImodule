@@ -851,8 +851,8 @@ def build_masks(
         class_id = class_ids["vertebra_group"]
         discs = connected_instances(prediction == class_ids["disc_group"]) if "disc_group" in class_ids else []
         bodies, posterior = split_vertebral_bodies(connected_instances(prediction == class_id), discs)
-        for component, name in zip(bodies, name_vertebral_bodies(bodies, discs, lumbar_disc_levels(len(discs)))):
-            slug = name.lower() if name else f"b{bodies.index(component) + 1}"
+        for position, (component, name) in enumerate(zip(bodies, name_vertebral_bodies(bodies, discs, lumbar_disc_levels(len(discs)))), start=1):
+            slug = name.lower() if name else f"b{position}"
             add(f"mask-{plane}-vertebra-{slug}", "vertebra", class_id, component, name)
         for position, component in enumerate(posterior, start=1):
             add(f"mask-{plane}-posterior-p{position}", "posterior_element", class_id, component, None)
