@@ -11,4 +11,9 @@ torch==2.13.0+cpu
 torchvision==0.28.0+cpu
 pydicom>=2.4
 SimpleITK>=2.3
+# Construye los objetos DICOM SEG conformes al estandar. Escribir el contrato de
+# Segmentation a mano sobre pydicom -frames por segmento, PerFrameFunctionalGroups,
+# referencias a la serie de origen- es mucho estandar y se puede hacer mal en formas que
+# solo aparecen cuando un visor externo lo rechaza. Ver dicom_seg.py.
+highdicom>=0.22
 timm==1.0.28
