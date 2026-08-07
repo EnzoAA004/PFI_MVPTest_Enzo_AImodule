@@ -7,6 +7,12 @@ on:
 jobs:
   ai-module:
     runs-on: ubuntu-latest
+    env:
+      # El paquete vive bajo ai_service/. Los tests invocan tambien
+      # `python -m pfi_ai_service...` en subprocesos, por lo que no alcanza con
+      # que pytest agregue el directorio durante la coleccion: el PYTHONPATH debe
+      # heredarse en todo el job.
+      PYTHONPATH: ai_service
 
     steps:
       - name: Checkout
