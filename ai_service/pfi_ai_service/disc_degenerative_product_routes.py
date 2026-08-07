@@ -24,6 +24,7 @@ from .full_series_segmentation import (
     resolve_full_series_asset,
     run_full_series_segmentation,
 )
+from .product_checkpoint import ai_product_checkpoint_contract
 from .security import sanitize_public_payload
 
 TRACE_ID_HEADER = "X-Trace-Id"
@@ -80,6 +81,10 @@ def _disc_runtime_error(exc: DiscDegenerativeRuntimeError, request: Request) -> 
 
 
 def register_disc_degenerative_product_routes(app: FastAPI) -> None:
+    @app.get("/v2/product-checkpoint/contract")
+    def product_checkpoint_contract():
+        return sanitize_public_payload(ai_product_checkpoint_contract())
+
     @app.get("/v2/degenerative-findings/disc-multitask/runtime")
     def disc_multitask_product_runtime():
         return sanitize_public_payload(product_runtime_status())
