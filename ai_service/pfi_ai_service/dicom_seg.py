@@ -142,6 +142,23 @@ def build_segmentation(
 
     source_images = _source_instances(series_dir, slice_index)
 
+    # La mascara viene en la grilla de la red -256x256- y el DICOM esta en la suya -384x384
+    # en estas series-. Un SEG tiene que estar en la grilla de la imagen que referencia, o
+    # el visor no lo puede alinear: highdicom directamente lo rechaza.
+    #
+    # Se reusa el mismo upsampler que el runtime usa para el overlay, que interpola por
+    # vecino mas cercano y no inventa clases intermedias. Interpolar linealmente entre la
+    # clase 2 y la 4 produciria pixeles de clase 3, o sea una estructura que el modelo
+    # nunca predijo.
+    from .real_inference_runtime import upsample_labels
+
+    target = (int(source_images[0].Rows), int(source_images[0].Columns))
+    labels = upsample_labels(labels.astype(np.uint8), target)
+
+    present = sorted(int(value) for value in np.unique(labels) if int(value) != 0)
+    if not present:
+        raise SegmentationExportError("la mascara no tiene ninguna estructura segmentada")
+
     # Un plano binario por segmento, en el orden en que se declaran los descriptores.
     # highdicom espera (frames, filas, columnas, segmentos) para multiples segmentos.
     planes = np.stack([(labels == label).astype(np.uint8) for label in present], axis=-1)
@@ -193,3 +210,71 @@ def segmentation_summary(segmentation) -> dict[str, Any]:
         "humanReviewRequired": True,
         "notClinicalDiagnosis": True,
     }
+
+
+def segmentation_for_plane_run(plane_run_id: str, plane: str):
+    """Arma el SEG de una corrida ya ejecutada, buscando sus piezas en disco.
+
+    Junta lo que quedó repartido: la máscara está entre los assets de la corrida, y qué
+    serie y qué corte se analizaron están en el reporte multiplanar. Se recorre el reporte
+    y no se confía en el nombre del directorio porque el ``planeRunId`` es lo único que el
+    cliente tiene en la mano, y lo demás hay que deducirlo de ahí.
+    """
+    import json
+
+    import numpy as np
+
+    from .input_registry import resolve_registered_input
+    from .settings import MODEL_REGISTRY, get_settings
+
+    settings = get_settings()
+    mask_path = settings.output_dir / "real_inference" / plane_run_id / plane / "mask.npy"
+    if not mask_path.exists():
+        raise SegmentationExportError(f"la corrida no tiene mascara para el plano {plane}")
+
+    plane_result = _plane_result_for(plane_run_id, plane, settings.output_dir)
+    if plane_result is None:
+        raise SegmentationExportError("no se encontro el reporte de la corrida")
+
+    source = plane_result.get("input") or {}
+    input_id = str(source.get("inputId") or "")
+    slice_index = source.get("selectedSliceIndex")
+    if not input_id or not isinstance(slice_index, int):
+        raise SegmentationExportError("la corrida no declara input o corte analizado")
+
+    record = resolve_registered_input(input_id)
+    if not record.path.is_dir():
+        # Un .mha o un .npy no tienen instancias DICOM a las que referenciar, y un SEG sin
+        # imagen de origen no se puede alinear sobre nada.
+        raise SegmentationExportError("la serie de origen no es DICOM: no se puede exportar SEG")
+
+    model = plane_result.get("model") or {}
+    model_key = str(model.get("key") or "")
+    class_names = (MODEL_REGISTRY.get(model_key) or {}).get("class_names") or {}
+
+    return build_segmentation(
+        series_dir=record.path,
+        slice_index=int(slice_index),
+        mask=np.load(mask_path),
+        class_names={int(k): str(v) for k, v in class_names.items()},
+        model_version=str(model.get("version") or model_key or "unknown"),
+    )
+
+
+def _plane_result_for(plane_run_id: str, plane: str, output_dir) -> dict | None:
+    """El bloque del reporte que corresponde a esta corrida de plano."""
+    import json
+
+    reports = output_dir / "multiplanar_reports_v2"
+    if not reports.is_dir():
+        return None
+    # Del mas reciente al mas viejo: una corrida recien hecha se encuentra enseguida.
+    for path in sorted(reports.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
+        try:
+            report = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        result = ((report.get("planes") or {}).get(plane)) or {}
+        if str(result.get("runId") or "") == plane_run_id:
+            return result
+    return None

@@ -399,6 +399,43 @@ def get_run_asset(run_id: str, plane: str, asset_name: str):
         media_type = "image/png"
     return FileResponse(record.path, media_type=media_type, filename=record.asset_name)
 
+@app.get("/runs/{plane_run_id}/{plane}/segmentation.dcm")
+def get_run_segmentation(plane_run_id: str, plane: str):
+    """La segmentacion de una corrida como objeto DICOM SEG.
+
+    Va aparte de `/assets` y no como un asset mas porque no esta escrito en disco: se
+    construye en el momento a partir de la mascara, la serie de origen y el reporte de la
+    corrida. Generarlo en cada corrida le agregaria tiempo y peso a todas, y solo hace
+    falta cuando alguien lo va a abrir en otro visor.
+
+    Se sirve como `application/dicom`, que es lo que hace que un navegador lo baje en vez
+    de intentar dibujarlo.
+    """
+    import tempfile
+
+    from .dicom_seg import SegmentationExportError, segmentation_for_plane_run, write_segmentation
+
+    normalized_plane = plane.strip().lower()
+    if normalized_plane not in {"sagittal", "axial"}:
+        raise HTTPException(status_code=400, detail="plane invalido")
+    try:
+        segmentation = segmentation_for_plane_run(plane_run_id, normalized_plane)
+    except InputRegistryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    except SegmentationExportError as exc:
+        # 409 y no 500: la corrida existe, pero no reune las condiciones para exportar
+        # -entrada que no es DICOM, mascara vacia, reporte ausente-. No es una falla.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    destination = Path(tempfile.gettempdir()) / f"{plane_run_id}-{normalized_plane}-seg.dcm"
+    write_segmentation(segmentation, destination)
+    return FileResponse(
+        destination,
+        media_type="application/dicom",
+        filename=f"{plane_run_id}-{normalized_plane}-segmentation.dcm",
+    )
+
+
 @app.get("/inputs/{input_id}/slices")
 def get_series_slice_count(input_id: str):
     """Cuantos cortes tiene una serie registrada, rindiendo sus PNG si hace falta."""

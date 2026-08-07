@@ -292,3 +292,40 @@ def test_se_puede_exportar_un_seg_de_una_serie_ya_de_identificada(tmp_path, mask
     fuente = dcmread(str(sorted(limpia.glob("*.dcm"))[1]))
     assert seg.ReferencedSeriesSequence[0].SeriesInstanceUID == fuente.SeriesInstanceUID
     assert fuente.SeriesInstanceUID != series_uid
+
+
+def test_una_mascara_en_la_grilla_de_la_red_se_lleva_a_la_del_dicom(series):
+    """El caso real, y el que fallaba: la máscara no tiene el tamaño de la imagen.
+
+    El modelo predice sobre 256x256 y estas series son 384x384, así que `mask.npy` queda
+    en la grilla de la red. Un SEG tiene que estar en la grilla de la imagen que
+    referencia o el visor no lo puede alinear —highdicom directamente lo rechaza—.
+    """
+    pequena = np.zeros((8, 8), dtype=np.uint8)
+    pequena[1:4, 1:5] = 1
+    pequena[5:7, 2:6] = 2
+
+    seg = build_segmentation(
+        series_dir=series, slice_index=2, mask=pequena,
+        class_names=CLASS_NAMES, model_version="v1",
+    )
+
+    # Queda en la grilla del DICOM, no en la de la máscara.
+    assert seg.Rows == ROWS
+    assert seg.Columns == COLS
+    assert [item.SegmentLabel for item in seg.SegmentSequence] == ["vertebra_group", "canal"]
+
+
+def test_el_reescalado_no_inventa_clases_intermedias(series):
+    """Interpolar linealmente entre la clase 1 y la 3 produciría píxeles de clase 2."""
+    pequena = np.zeros((8, 8), dtype=np.uint8)
+    pequena[0:4, :] = 1
+    pequena[4:8, :] = 3
+
+    seg = build_segmentation(
+        series_dir=series, slice_index=2, mask=pequena,
+        class_names=CLASS_NAMES, model_version="v1",
+    )
+
+    # Si hubiera interpolación lineal aparecería "canal" (clase 2), que nunca se predijo.
+    assert [item.SegmentLabel for item in seg.SegmentSequence] == ["vertebra_group", "disc_group"]
