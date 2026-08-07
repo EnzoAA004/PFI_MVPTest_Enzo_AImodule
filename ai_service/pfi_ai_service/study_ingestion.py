@@ -184,6 +184,21 @@ def _select_series(series: list[dict[str, Any]], plane: str, prefer: str) -> dic
     return sorted(candidates, key=rank)[0]
 
 
+def _select_series_by_weighting(series: list[dict[str, Any]], plane: str, weighting: str) -> dict[str, Any] | None:
+    """Best analyzable series of an exact plane+weighting, independent of what the
+    single-plane ``sagittal``/``axial`` slot prefers.
+
+    P10.7 needs T1 and T2 sagittal as two independent registered inputs (Notebook 66
+    treats them as separate modalities, never registered pixel-to-pixel). ``_select_series``
+    only ever returns one winner per plane, so without this the losing weighting is
+    registered ``analyzable=False`` and every P10.7 call on it is rejected.
+    """
+    candidates = [s for s in series if s["plane"] == plane and s["weighting"] == weighting and _is_analyzable(s)]
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda item: -item["sliceCount"])[0]
+
+
 def _summarize(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "seriesInstanceUid": item["seriesInstanceUid"],
@@ -221,6 +236,11 @@ def register_study_zip(*, case_id: str, stream: Any) -> dict[str, Any]:
         warnings: list[str] = []
         sagittal = _select_series(series, "sagittal", prefer="t2")
         axial = _select_series(series, "axial", prefer="t2")
+        # P10.7 needs T1 and T2 sagittal as two independent product inputs. Reuse the
+        # single-plane winner where its weighting matches so the same series is not
+        # registered twice under two different inputIds.
+        sagittal_t2 = sagittal if (sagittal is not None and sagittal["weighting"] == "t2") else _select_series_by_weighting(series, "sagittal", "t2")
+        sagittal_t1 = sagittal if (sagittal is not None and sagittal["weighting"] == "t1") else _select_series_by_weighting(series, "sagittal", "t1")
 
         # Se registran las siete series, no las dos que analiza la IA.
         #
@@ -243,19 +263,35 @@ def register_study_zip(*, case_id: str, stream: Any) -> dict[str, Any]:
             # Identidad, no igualdad: dos series distintas pueden tener el mismo
             # resumen -misma descripcion, mismo plano, misma cantidad de cortes- y con
             # `==` la segunda se llevaria la ranura de la primera.
-            plane_slot = next((name for name, chosen in (("sagittal", sagittal), ("axial", axial))
-                               if chosen is not None and chosen is item), None)
+            #
+            # Una misma serie puede ocupar mas de una ranura a la vez: la ganadora del
+            # plano sagital (`sagittal`, para /multiplanar/run) es tambien, si su
+            # ponderacion coincide, la fuente T1 o T2 para P10.7 (`sagittal_t1`/
+            # `sagittal_t2`). Se registra una sola vez y las ranuras coincidentes
+            # comparten el mismo inputId.
+            matched_slots = [
+                name for name, chosen in (
+                    ("sagittal", sagittal),
+                    ("axial", axial),
+                    ("sagittal_t1", sagittal_t1),
+                    ("sagittal_t2", sagittal_t2),
+                )
+                if chosen is not None and chosen is item
+            ]
+            primary_plane = "sagittal" if any(slot.startswith("sagittal") for slot in matched_slots) else (
+                "axial" if "axial" in matched_slots else None
+            )
             meta = register_series_files(
                 case_id=case_id,
-                plane=plane_slot or ("unknown" if item["multiplanar"] else item["plane"]),
+                plane=primary_plane or ("unknown" if item["multiplanar"] else item["plane"]),
                 file_paths=item["files"],
-                analyzable=plane_slot is not None,
+                analyzable=bool(matched_slots),
                 remap=remap,
             )
             summary = {**_summarize(item), "inputId": meta["inputId"]}
             summaries.append(summary)
-            if plane_slot:
-                registered[plane_slot] = {**meta, **summary}
+            for slot in matched_slots:
+                registered[slot] = {**meta, **summary}
 
         result: dict[str, Any] = {
             "caseId": case_id,
@@ -269,6 +305,14 @@ def register_study_zip(*, case_id: str, stream: Any) -> dict[str, Any]:
             if sagittal["weighting"] != "t2":
                 warnings.append(f"sagital sin T2 disponible; se usa {sagittal['weighting']}")
             result["sagittal"] = registered["sagittal"]
+        if sagittal_t1 is not None:
+            result["sagittalT1"] = registered["sagittal_t1"]
+        if sagittal_t2 is not None:
+            result["sagittalT2"] = registered["sagittal_t2"]
+        if sagittal_t1 is None and sagittal_t2 is None:
+            warnings.append("no se encontro serie sagital T1 ni T2 utilizable para P10.7")
+        elif sagittal_t1 is None or sagittal_t2 is None:
+            warnings.append("solo una ponderacion sagital (T1 o T2) esta disponible para P10.7; el hallazgo se generara con una sola modalidad")
         if axial is None:
             warnings.append("no se encontro serie axial en el estudio")
         else:
