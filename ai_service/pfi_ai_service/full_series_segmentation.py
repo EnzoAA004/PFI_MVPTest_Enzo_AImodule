@@ -17,13 +17,12 @@ from typing import Any, Literal
 
 import numpy as np
 from PIL import Image
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from .input_registry import InputRegistryError, resolve_registered_input
 from .model_artifacts import model_status
 from .real_inference_runtime import (
     MODEL_REGISTRY,
-    PALETTE,
     build_masks,
     build_measurements,
     build_segmentation,
@@ -31,6 +30,7 @@ from .real_inference_runtime import (
     class_name,
     connected_instances,
     in_plane_spacing,
+    is_background_class,
     load_input,
     load_model,
     lumbar_disc_levels,
@@ -99,6 +99,20 @@ def _semantic_color(mask: dict[str, Any]) -> str:
     return SEMANTIC_COLORS.get(label) or SEMANTIC_COLORS.get(class_name_value) or "#64748b"
 
 
+def _rgb_from_hex(value: str) -> np.ndarray:
+    text = value.lstrip("#")
+    if len(text) != 6:
+        text = "64748b"
+    return np.asarray(
+        [int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16)],
+        dtype=np.float32,
+    ) / 255.0
+
+
+def _class_semantic_color(model_key: str, class_id: int) -> str:
+    return SEMANTIC_COLORS.get(class_name(model_key, class_id), "#64748b")
+
+
 def _anatomy_key(mask: dict[str, Any]) -> str:
     label = str(mask.get("label") or mask.get("className") or "structure")
     level = str(mask.get("level") or "").strip()
@@ -121,6 +135,7 @@ def _enrich_masks(masks: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _save_slice_assets(
     run_id: str,
     plane: str,
+    model_key: str,
     index: int,
     render: np.ndarray,
     prediction: np.ndarray,
@@ -137,7 +152,10 @@ def _save_slice_assets(
     overlay = np.stack([render, render, render], axis=-1)
     alpha = 0.42
     for class_id in sorted(int(v) for v in np.unique(prediction) if int(v) != 0):
-        color = np.asarray(PALETTE.get(class_id, (255, 255, 0)), dtype=np.float32) / 255.0
+        name = class_name(model_key, class_id)
+        if is_background_class(name):
+            continue
+        color = _rgb_from_hex(_class_semantic_color(model_key, class_id))
         selected = render_mask == class_id
         overlay[selected] = (1.0 - alpha) * overlay[selected] + alpha * color
     Image.fromarray(np.clip(overlay * 255.0, 0, 255).astype(np.uint8)).save(overlay_path)
@@ -294,6 +312,7 @@ def run_full_series_segmentation(request: FullSeriesSegmentationRequest) -> dict
             assets = _save_slice_assets(
                 run_id,
                 request.plane,
+                request.modelKey,
                 index,
                 native_slice(loaded, axis, index),
                 prediction,
