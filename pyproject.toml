@@ -27,6 +27,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0",
+  "pytest-cov>=5.0",
 ]
 app = [
   "streamlit>=1.35",
@@ -40,4 +41,29 @@ testpaths = ["tests", "ai_service/tests"]
 pythonpath = ["src", "ai_service"]
 markers = [
   "real_checkpoint: requires PFI_SUBARTICULAR_CHECKPOINT_PATH and the frozen .pt outside Git",
+]
+
+# Cobertura. Se declara aca y no en el comando del CI para que medir en local y medir en
+# CI den lo mismo: `python -m pytest --cov` alcanza.
+[tool.coverage.run]
+branch = true
+source = ["ai_service/pfi_ai_service", "src/lumbar_mri"]
+omit = [
+  # Codigo de entrenamiento, no de servicio. Corre en Colab sobre datasets que no estan
+  # en el repo, asi que la suite no puede ejercitarlo y contarlo solo diluye el numero
+  # del modulo que si se despliega. Su calidad se evalua por los notebooks y por los
+  # manifests de los artefactos que produce, no por cobertura.
+  "src/lumbar_mri/axial_v3/*",
+  "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+show_missing = false
+skip_empty = true
+# Sin `fail_under`: primero medir.
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
 ]

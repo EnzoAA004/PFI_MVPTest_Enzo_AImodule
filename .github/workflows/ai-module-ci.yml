@@ -31,7 +31,7 @@ jobs:
       # pytest no va en requirements-ai-service.txt: ese archivo define la imagen de
       # produccion y no tiene por que cargar dependencias de test.
       - name: Install test dependencies
-        run: pip install pytest ruff
+        run: pip install pytest pytest-cov ruff
 
       - name: Compile AI service
         run: python -m compileall ai_service/pfi_ai_service
@@ -46,8 +46,85 @@ jobs:
       # testpaths cubre tests/ y ai_service/tests/ (ver pyproject.toml). Los tests que
       # dependen de artefactos fuera de Git (marker real_checkpoint) o de dependencias
       # opcionales se saltean solos.
-      - name: Run tests
-        run: python -m pytest -q
+      # La configuracion de cobertura vive en pyproject.toml, asi que medir en local y medir
+      # aca dan lo mismo. XML para herramientas, HTML para leerlo.
+      - name: Run tests with coverage
+        run: python -m pytest -q --cov --cov-report=xml --cov-report=html --cov-report=term
+
+      # El porcentaje tiene que verse sin descargar nada. Se agrupa por area en vez de
+      # listar 40 modulos: lo que importa es si el preprocesamiento y las mediciones estan
+      # cubiertos, no el numero global.
+      - name: Coverage summary
+        if: always()
+        run: |
+          test -f coverage.xml || { echo "No se genero coverage.xml" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          python3 - >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import xml.etree.ElementTree as ET
+          from collections import defaultdict
+
+          AREAS = [
+              ("preprocesamiento / IO", ("real_inference_runtime", "study_ingestion", "input_registry",
+                                          "deidentify", "dicom_seg", "dicom_sr")),
+              ("mediciones y geometria", ("contract_geometry", "multiplanar_3d_reconstruction",
+                                           "axial_level", "measurements", "geometry")),
+              ("orquestacion de inferencia", ("pipeline", "multiplanar_v2_executor", "multiplanar_run",
+                                               "multiplanar_routes", "subarticular_runtime_service",
+                                               "disc_degenerative")),
+              ("contratos y validacion", ("contract", "schemas", "model_manifest", "model_artifacts",
+                                           "readiness", "quality", "evaluation")),
+              ("clasificadores congelados", ("subarticular_frozen_classifier", "product_checkpoint",
+                                              "model_architectures", "full_series_segmentation")),
+          ]
+
+          root = ET.parse("coverage.xml").getroot()
+          lr = float(root.get("line-rate", 0)) * 100
+          br = float(root.get("branch-rate", 0)) * 100
+          print("## Cobertura del modulo de IA\n")
+          print(f"**Lineas: {lr:.1f}%** &nbsp;&nbsp; **Ramas: {br:.1f}%**\n")
+
+          areas = defaultdict(lambda: [0, 0, 0, 0])   # lines_cov, lines_tot, br_cov, br_tot
+          otros = [0, 0, 0, 0]
+          for cls in root.iter("class"):
+              fn = cls.get("filename", "")
+              bucket = None
+              for name, keys in AREAS:
+                  if any(k in fn for k in keys):
+                      bucket = areas[name]
+                      break
+              bucket = otros if bucket is None else bucket
+              for line in cls.iter("line"):
+                  bucket[1] += 1
+                  if int(line.get("hits", 0)) > 0:
+                      bucket[0] += 1
+                  cond = line.get("condition-coverage")
+                  if cond and "(" in cond:
+                      c, t = cond.split("(")[1].rstrip(")").split("/")
+                      bucket[2] += int(c); bucket[3] += int(t)
+
+          print("| Area | Lineas | Ramas |")
+          print("|---|---:|---:|")
+          for name, _ in AREAS:
+              c, t, bc, bt = areas[name]
+              if not t:
+                  continue
+              b = f"{100.0*bc/bt:.1f}%" if bt else "n/a"
+              print(f"| {name} | {100.0*c/t:.1f}% ({c}/{t}) | {b} |")
+          c, t, bc, bt = otros
+          if t:
+              b = f"{100.0*bc/bt:.1f}%" if bt else "n/a"
+              print(f"| otros | {100.0*c/t:.1f}% ({c}/{t}) | {b} |")
+          print("\nReporte HTML completo: artifact `pytest-cov-report`.")
+          PY
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-cov-report
+          path: |
+            htmlcov
+            coverage.xml
+          retention-days: 14
 
       - name: Smoke API contract
         run: python scripts/smoke_api_contract.py

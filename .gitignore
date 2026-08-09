@@ -53,3 +53,4 @@ infra/gcp/*service-account*.json
 # Runtime model artifacts allowed for provisional deployment
 !models/final/sagittal_spider_multiclass_final_best.pt
 !models/final/axial_t2_alkafri_final_v2_candidate.pt
+coverage.xml
