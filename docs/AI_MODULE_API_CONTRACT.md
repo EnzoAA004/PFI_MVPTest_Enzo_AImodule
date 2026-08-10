@@ -1,5 +1,10 @@
 # Contrato API del AI Module
 
+> **Documento histórico.** Este archivo conserva el snapshot contractual de una etapa
+> anterior y algunos ejemplos ya no describen el runtime actual. Para operación usar el
+> [README](../README.md), `/docs` y `/openapi.json` del FastAPI en ejecución. Los
+> consumidores del producto deben usar el OpenAPI del backend Spring Boot.
+
 Base local sugerida:
 
 ```text

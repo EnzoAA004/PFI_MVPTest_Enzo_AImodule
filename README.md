@@ -1,148 +1,148 @@
-# PFI AI Module
+# PFI RM Lumbar — AI Module
 
-Modulo de IA independiente para el Proyecto Final de Ingenieria sobre analisis asistido de resonancias magneticas lumbares.
-
-Este repositorio contiene el servicio Python/FastAPI, el agente IA, componentes reutilizables de inferencia, preprocesamiento, mediciones geometricas, overlays, configuracion tecnica de modelos y evidencia experimental/notebooks cuando corresponda. No corresponde a este repositorio implementar el frontend React ni el backend Java final.
-
-## Arquitectura general
+Servicio Python/FastAPI del prototipo académico de análisis asistido de resonancias magnéticas lumbares. Registra inputs de-identificados, ejecuta preprocessing e inferencia, genera mediciones y assets técnicos, y devuelve resultados estructurados al backend Spring Boot.
 
 ```text
-Frontend React -> Spring Boot Backend -> Python FastAPI AI Module
+Frontend React → Backend Spring Boot → AI Module FastAPI → Model artifacts
 ```
 
-El frontend consume el backend del producto. El backend Spring Boot orquesta usuarios, archivos, permisos, persistencia y flujos de negocio. Este modulo IA recibe solicitudes tecnicas desde el backend, ejecuta procesamiento/inferencia o consulta resultados existentes, y devuelve respuestas estructuradas para revision profesional.
+El frontend nunca consume este servicio directamente. El backend aplica autenticación, permisos, persistencia y el contrato público del producto. El sistema no emite diagnósticos ni reemplaza la revisión profesional.
 
-## Responsabilidad de este repo
+La arquitectura completa está documentada en el [repositorio backend](https://github.com/EnzoAA004/PFI_MVPTest_Enzo_Backend/blob/main/docs/architecture.md).
 
-- Exponer una API FastAPI para el modulo de IA.
-- Mantener configuracion de modelos y rutas tecnicas.
-- Ejecutar o preparar inferencia sagital y axial cuando este implementada.
-- Calcular mediciones geometricas derivadas de mascaras.
-- Generar overlays, reportes tecnicos y trazabilidad.
-- Mantener notebooks/evidencia tecnica sin incluir datasets completos ni archivos privados.
+## Requisitos
 
-El sistema es asistivo. No emite diagnostico clinico, no recomienda tratamientos y no reemplaza el criterio profesional. Las salidas deben considerarse resultados tecnicos derivados de procesamiento de imagenes y requieren revision profesional. Cuando aplique, las respuestas deben mantener `human_review_required=true`.
+- Python 3.12 recomendado y usado por CI/Docker (`pyproject.toml` admite Python 3.10 o superior);
+- entorno virtual;
+- Docker, opcional pero recomendado para reproducir el runtime publicado.
 
-## Estructura principal
-
-```text
-ai_service/              Servicio FastAPI del modulo IA
-ai_service/pfi_ai_service/api.py
-src/lumbar_mri/          Codigo reutilizable de procesamiento, metricas, mediciones y overlays
-notebooks/               Evidencia tecnica y experimentacion
-docs/                    Documentacion tecnica
-tests/                   Tests con datos sinteticos
-scripts/                 Scripts de ejecucion local
-```
-
-## Contrato multiplanar v2
-
-P9-A agrega el contrato canonico `POST /v2/multiplanar/run` y el descriptor `GET /v2/multiplanar/contract`, manteniendo temporalmente `POST /multiplanar/run` para compatibilidad P8. Ver [docs/P9_A_MULTIPLANAR_V2_CONTRACT.md](docs/P9_A_MULTIPLANAR_V2_CONTRACT.md).
-
-## Ejecucion local
-
-Crear un entorno virtual e instalar dependencias del servicio:
+## Ejecución local
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r ai_service/requirements-ai-service.txt
+python -m pip install -r ai_service/requirements-ai-service.txt
+PYTHONPATH=ai_service uvicorn pfi_ai_service.api:app --host 0.0.0.0 --port 8000
 ```
 
-En Windows PowerShell:
+En PowerShell:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r ai_service\requirements-ai-service.txt
+python -m pip install -r ai_service\requirements-ai-service.txt
+$env:PYTHONPATH = "ai_service"
+python -m uvicorn pfi_ai_service.api:app --host 0.0.0.0 --port 8000
 ```
 
-Levantar FastAPI:
+Comprobar el servicio:
 
 ```bash
-PORT=8000 scripts/run_local.sh
+curl http://localhost:8000/health
 ```
 
-O manualmente:
+FastAPI publica su documentación técnica interna en <http://localhost:8000/docs>. Los consumidores del producto deben usar el OpenAPI del backend, no esta API interna.
+
+## Docker
+
+Construcción y ejecución aislada:
 
 ```bash
-cd ai_service
-uvicorn pfi_ai_service.api:app --host 0.0.0.0 --port ${PORT:-8000}
+docker build -t pfi-ai-module .
+docker run --rm -p 8000:8000 \
+  -v pfi-ai-outputs:/app/outputs \
+  -v pfi-ai-uploads:/app/uploads \
+  pfi-ai-module
 ```
 
-La documentacion interactiva queda disponible en:
+Para levantar el producto completo, usar `compose.yml` (registry) o `compose.local.yml` (source) del [backend](https://github.com/EnzoAA004/PFI_MVPTest_Enzo_Backend).
 
-```text
-http://localhost:8000/docs
-```
+La imagen publicada es `ghcr.io/enzoaa004/pfi-ai-module`, con tags `latest` y `sha-<commit>`.
 
-## Variables de entorno
-
-Ver `.env.example`.
-
-```text
-PFI_ROOT=/content/drive/MyDrive/PFI_MVP
-PFI_MODEL_DIR=/app/models/final
-PFI_SAGITTAL_MODEL_PATH=/app/models/final/sagittal_spider_multiclass_final_best.pt
-PFI_AXIAL_MODEL_PATH=/app/models/final/axial_t2_alkafri_final_v2_candidate.pt
-PFI_MODEL_REGISTRY=config/model_registry_final.json
-PFI_DATA_FREEZE_CONFIG=config/data_freeze_config.json
-PFI_OUTPUT_DIR=/app/outputs
-PORT=8000
-```
-
-En cloud, `PFI_MODEL_DIR` debe apuntar a `/app/models/final`, la misma carpeta donde el Dockerfile copia los artifacts finales. El sagital autorizado es `sagittal_spider_multiclass_final_best.pt`; el axial autorizado para deploy es `axial_t2_alkafri_final_v2_candidate.pt` y no debe renombrarse como `best`. Cada artifact debe tener al lado su manifest con sufijo `.manifest.json`, por ejemplo `axial_t2_alkafri_final_v2_candidate.pt.manifest.json`. `PFI_ROOT` queda como raiz externa/fallback de Colab para resultados, figuras y reportes. Los datasets completos, imagenes medicas pesadas, checkpoints no autorizados y resultados grandes no deben subirse a este repositorio.
-
-## Endpoints FastAPI actuales
-
-Implementados actualmente en `ai_service/pfi_ai_service/api.py`:
-
-- `GET /health`: estado del servicio y bandera `human_review_required`.
-- `GET /models`: registro tecnico de modelos configurado en codigo y rutas esperadas.
-- `POST /inference/sagittal`: contrato tecnico para pipeline sagital.
-- `POST /inference/axial`: contrato tecnico para pipeline axial complementario.
-- `POST /pipeline/run`: contrato principal consumible por backend.
-- `GET /agent/worklist`: lee la worklist tecnica del agente IA desde `PFI_ROOT/results/E14_ai_agent_orchestrator`.
-- `GET /agent/report`: genera resumen tecnico del agente IA a partir de la worklist y metricas disponibles.
-- `GET /agent/report/{run_id}`: recupera reporte tecnico materializado por corrida.
-- `GET /agent/regression-test`: smoke tecnico de politica asistiva.
-
-Ver `docs/AI_MODULE_API_CONTRACT.md` para el contrato detallado.
-
-## Comunicacion con el backend
-
-El backend Spring Boot debe llamar a este modulo mediante HTTP interno o privado. La integracion recomendada es:
-
-1. El backend recibe/sube archivos y gestiona permisos.
-2. El backend deja datos de trabajo en almacenamiento controlado o envia referencias tecnicas al AI Module.
-3. El AI Module procesa la solicitud y devuelve JSON con resultados, rutas de artefactos, metricas tecnicas y `human_review_required=true`.
-4. El backend persiste el resultado editable y lo presenta al frontend para revision profesional.
-
-Este modulo no debe gestionar usuarios finales, autorizacion de producto, historia clinica ni decisiones medicas.
-
-## Validacion
-
-Cuando se modifique codigo funcional:
+## Tests
 
 ```bash
-pytest
 python -m compileall ai_service/pfi_ai_service
+python -m pytest -q
 ```
 
-Para validar import del API:
+Para reproducir la medición de cobertura de CI:
 
 ```bash
-cd ai_service
-python -c "from pfi_ai_service.api import app; print(app.title)"
+python -m pytest -q --cov --cov-report=xml --cov-report=html --cov-report=term
 ```
 
-## Limitaciones metodologicas
+`AI Module CI` también ejecuta Ruff sobre errores, un smoke del contrato FastAPI y el build Docker. El reporte HTML se publica como artifact `pytest-cov-report`.
 
-- Prototipo academico reproducible, no dispositivo medico.
-- No emitir diagnostico clinico.
-- No recomendar tratamientos.
-- No presentar resultados como decision medica.
-- Toda medicion debe describirse como valor geometrico derivado de mascara.
-- Toda salida debe ser revisable y editable por profesionales.
-- No usar datos sensibles ni identificables de pacientes.
-- Mantener datasets, checkpoints grandes y outputs pesados fuera del repositorio.
+## Configuración
+
+El listado operativo está en [.env.example](.env.example). Las variables principales son:
+
+| Variable | Uso |
+|---|---|
+| `PFI_MODEL_DIR` | Directorio de modelos finales y manifests. |
+| `PFI_OUTPUT_DIR` | Assets y reportes generados. |
+| `PFI_UPLOAD_DIR` | Inputs registrados; debe persistirse para conservar los `inputId`. |
+| `PFI_INFERENCE_DEVICE` | `auto`, `cpu` o `cuda`. |
+| `PFI_SUBARTICULAR_CHECKPOINT_PATH` | Checkpoint externo del clasificador subarticular. |
+| `PFI_P10_7_CHECKPOINT_PATH` | Checkpoint externo del clasificador degenerativo multitarea. |
+| `PORT` | Puerto HTTP, `8000` por defecto. |
+
+No versionar secretos, datasets, imágenes médicas ni outputs pesados.
+
+## Modelos y artifacts
+
+La imagen incluye los artifacts de segmentación disponibles en `models/final/`:
+
+- `sagittal_spider_multiclass_final_best.pt`;
+- `axial_t2_alkafri_final_v2_candidate.pt`.
+
+Cada artifact se acompaña de manifest y model card. El axial conserva explícitamente el estado `candidate`; no debe presentarse como un modelo que superó un quality gate no demostrado.
+
+No se redistribuyen:
+
+- `frozen_subarticular_checkpoint.pt`;
+- `frozen_p10_7_spider_degenerative_multitask.pt`.
+
+Sin esos archivos el servicio arranca normalmente, `/health` informa `not_configured` y sólo los endpoints dependientes responden 503. La procedencia autorizada y los términos/licencia de redistribución de esos checkpoints externos siguen pendientes de verificación documental.
+
+## Flujo de inferencia
+
+```text
+Input → validación → preprocessing → modelo → postprocessing
+      → mediciones geométricas → assets/resultado estructurado
+```
+
+Las respuestas conservan `humanReviewRequired`/`human_review_required` y `notClinicalDiagnosis` cuando corresponde. La disponibilidad de un endpoint o un HTTP 200 no debe confundirse con inferencia real: el backend expone los campos canónicos `degradedMode`, `aiModuleAvailable` y `effectiveInferenceMode` al consumidor final.
+
+## Health y disponibilidad
+
+`GET /health` informa:
+
+- estado del servicio;
+- resumen y verificación de artifacts;
+- contrato de inferencia por defecto;
+- disponibilidad de clasificadores degenerativos;
+- obligatoriedad de revisión humana.
+
+`GET /readiness` distingue disponibilidad general de preparación para inferencia real. No carga checkpoints externos ausentes de manera implícita.
+
+## Estructura
+
+```text
+ai_service/pfi_ai_service/  API y runtime desplegable
+src/lumbar_mri/             procesamiento, mediciones y utilidades reutilizables
+tests/                      tests de componentes con datos sintéticos
+ai_service/tests/           tests del servicio y contratos
+models/final/               artifacts de segmentación distribuidos
+notebooks/ y docs/          experimentación y evidencia histórica
+```
+
+Los documentos `P9_*`, `P10_*`, `*_EVIDENCE.md`, notebooks y notas de entrenamiento describen iteraciones históricas o evidencia experimental. Para operación actual usar este README, `.env.example`, `/health`, `/readiness` y el OpenAPI del servicio en ejecución.
+
+## Limitaciones
+
+- Prototipo académico, no dispositivo médico.
+- Los resultados son técnicos y requieren revisión profesional.
+- Los dos clasificadores externos indicados arriba no funcionan sin sus checkpoints autorizados.
+- No se distribuyen datasets ni datos identificables.
