@@ -1057,7 +1057,8 @@ def slice_plane_geometry(
     plane_axes = [axis for axis in range(3) if axis != selected_axis]
     row_axis, col_axis = mapping[plane_axes[0]], mapping[plane_axes[1]]
     step = float(spacing[native_slice_axis])
-    normal = directions[native_slice_axis]
+    stack_normal = directions[native_slice_axis]
+    normal = stack_normal
     # La posicion declarada por el propio corte, cuando la serie la trae. Solo si no
     # esta se cae al modelo del espaciado unico, que supone la serie sin huecos.
     declared = loaded.metadata.get("slicePositions")
@@ -1066,10 +1067,48 @@ def slice_plane_geometry(
         if isinstance(declared, list) and 0 <= slice_index < len(declared)
         else None
     )
+    # La orientacion declarada por el propio corte, por la misma razon que la posicion
+    # y con mas consecuencias. `directions` sale de la matriz de direccion del volumen,
+    # que es una sola para toda la serie: la del primer corte. Una serie axial lumbar no
+    # es un plano unico repetido sino bloques angulados, uno por disco, asi que esa
+    # normal describe al corte 0 y a ningun otro.
+    #
+    # En el estudio de referencia el corte analizado esta a 26 grados de esa normal y el
+    # ultimo a 30,6. Proyectar la posicion correcta del corte sobre la normal equivocada
+    # corre el resultado 42 mm -tres espacios discales-, y es lo que hacia que las
+    # mediciones axiales de un corte L4-L5 se informaran bajo L2-L3.
+    #
+    # Se corrige solo la normal y no `rowDirection`/`colDirection`: el error probado es
+    # el de la normal, y esos dos los usan el visor y los landmarks para pasar de pixel
+    # a paciente, donde hoy funcionan.
+    declared_orientations = loaded.metadata.get("sliceOrientations")
+    orientation = (
+        declared_orientations[slice_index]
+        if isinstance(declared_orientations, list)
+        and 0 <= slice_index < len(declared_orientations)
+        and isinstance(declared_orientations[slice_index], (list, tuple))
+        and len(declared_orientations[slice_index]) == 6
+        else None
+    )
+    if orientation is not None:
+        # DICOM 0020|0037: el vector de la fila y el de la columna. La normal del corte
+        # es su producto vectorial, el mismo criterio que usa `axial_slice_levels`.
+        row_vector = [float(value) for value in orientation[0:3]]
+        col_vector = [float(value) for value in orientation[3:6]]
+        normal = [
+            row_vector[1] * col_vector[2] - row_vector[2] * col_vector[1],
+            row_vector[2] * col_vector[0] - row_vector[0] * col_vector[2],
+            row_vector[0] * col_vector[1] - row_vector[1] * col_vector[0],
+        ]
+
     return {
         # Origen del pixel (0,0) del corte que se esta mostrando.
-        "position": exact or [float(origin[k]) + slice_index * step * normal[k] for k in range(3)],
+        # El modelo de reserva apila sobre la direccion del volumen y no sobre la del
+        # corte: es el eje sobre el que avanzan los indices, que es lo que esa cuenta
+        # supone. La normal corregida describe la inclinacion del corte, no el apilado.
+        "position": exact or [float(origin[k]) + slice_index * step * stack_normal[k] for k in range(3)],
         "positionSource": "declared" if exact else "uniform_spacing",
+        "normalSource": "declared" if orientation is not None else "volume_direction",
         "rowDirection": directions[row_axis],
         "colDirection": directions[col_axis],
         "normal": normal,
