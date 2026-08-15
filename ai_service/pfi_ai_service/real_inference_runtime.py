@@ -666,7 +666,10 @@ def build_segmentation(
 
     if "vertebra_group" in class_ids:
         discs = connected_instances(prediction == class_ids["disc_group"]) if "disc_group" in class_ids else []
-        bodies, posterior = split_vertebral_bodies(connected_instances(prediction == class_ids["vertebra_group"]), discs)
+        bodies, posterior = split_vertebral_anatomical_instances(
+            connected_instances(prediction == class_ids["vertebra_group"]),
+            discs,
+        )
         body_names = name_vertebral_bodies(bodies, discs, lumbar_disc_levels(len(discs)))
         # El id es posicional y el nivel viaja aparte. Derivarlo del nivel producia
         # ids repetidos: cuando la segmentacion parte el arco de una vertebra en dos
@@ -721,21 +724,67 @@ def split_vertebral_bodies(
     return bodies, posterior
 
 
+def split_vertebral_anatomical_instances(
+    vertebrae: list[np.ndarray],
+    discs: list[np.ndarray],
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Separa la identidad visual de cuerpos y posteriores siguiendo la curva discal.
+
+    El limite global usado por las mediciones es estable para la region lumbar, pero
+    en un encuadre toracolumbar la columna anterior se desplaza horizontalmente. Para
+    la metadata de instancias se calcula un limite local con el borde posterior de
+    los discos que rodean la altura del componente. Esto recupera cuerpos toracicos
+    visibles sin cambiar mascaras, classId ni el pipeline de mediciones existente.
+
+    Sin discos no hay ancla anatomica y se conserva el comportamiento fail-closed.
+    """
+    if not vertebrae:
+        return [], []
+    if not discs:
+        return list(vertebrae), []
+
+    anchors = [
+        (
+            float(np.where(mask)[0].mean()),
+            float(np.where(mask.any(axis=0))[0].max()),
+        )
+        for mask in discs
+    ]
+    bodies: list[np.ndarray] = []
+    posterior: list[np.ndarray] = []
+    for mask in vertebrae:
+        rows, columns = np.where(mask)
+        center_y = float(rows.mean())
+        if center_y <= anchors[0][0]:
+            local_boundary = anchors[0][1]
+        elif center_y >= anchors[-1][0]:
+            local_boundary = anchors[-1][1]
+        else:
+            upper, lower = next(
+                (anchors[index], anchors[index + 1])
+                for index in range(len(anchors) - 1)
+                if anchors[index][0] <= center_y <= anchors[index + 1][0]
+            )
+            local_boundary = (upper[1] + lower[1]) / 2.0
+        (bodies if float(columns.mean()) <= local_boundary else posterior).append(mask)
+    return bodies, posterior
+
+
 def name_posterior_elements(
     posterior: list[np.ndarray],
     bodies: list[np.ndarray],
     body_names: list[str | None],
 ) -> list[str | None]:
-    """Nombra cada arco posterior por el cuerpo que tiene enfrente.
+    """Nombra cada elemento posterior por su origen craneal en un cuerpo vertebral.
 
-    El arco posterior de L4 esta a la misma altura que el cuerpo de L4: comparten el
-    rango de filas porque son la misma vertebra vista de perfil. Asi que se empareja
-    por solapamiento vertical en vez de contar de nuevo desde abajo, que volveria a
-    introducir el supuesto de donde empieza la lumbar.
+    En sagital un elemento posterior puede prolongarse caudalmente y solapar mas al
+    cuerpo inferior que al cuerpo del que nace. Por eso el solapamiento total no es
+    una fuente anatomica segura. El extremo craneal del componente debe caer dentro
+    de un unico cuerpo nombrado; si no hay una asociacion inequivoca, queda sin nivel.
 
-    Un arco que no solapa con ningun cuerpo nombrado queda sin nivel. Se sigue viendo
-    como elemento posterior -eso lo dice la estructura, no el nombre- pero no se le
-    inventa una vertebra que el encuadre no muestra.
+    Dos fragmentos del mismo elemento pueden compartir nivel si ambos nacen dentro
+    del mismo cuerpo. No se usa ningun disco ni se inventa una vertebra fuera del
+    encuadre.
     """
     names: list[str | None] = [None] * len(posterior)
     if not posterior or not bodies:
@@ -743,14 +792,14 @@ def name_posterior_elements(
     spans = [(float(np.where(mask.any(axis=1))[0].min()), float(np.where(mask.any(axis=1))[0].max())) for mask in bodies]
     for index, mask in enumerate(posterior):
         rows = np.where(mask.any(axis=1))[0]
-        top, bottom = float(rows.min()), float(rows.max())
-        overlaps = [
-            (min(bottom, span_bottom) - max(top, span_top), position)
+        top = float(rows.min())
+        candidates = [
+            position
             for position, (span_top, span_bottom) in enumerate(spans)
+            if span_top <= top <= span_bottom and body_names[position]
         ]
-        overlap, position = max(overlaps)
-        if overlap > 0 and body_names[position]:
-            names[index] = body_names[position]
+        if len(candidates) == 1:
+            names[index] = body_names[candidates[0]]
     return names
 
 
@@ -850,12 +899,17 @@ def build_masks(
     if "vertebra_group" in class_ids:
         class_id = class_ids["vertebra_group"]
         discs = connected_instances(prediction == class_ids["disc_group"]) if "disc_group" in class_ids else []
-        bodies, posterior = split_vertebral_bodies(connected_instances(prediction == class_id), discs)
-        for position, (component, name) in enumerate(zip(bodies, name_vertebral_bodies(bodies, discs, lumbar_disc_levels(len(discs)))), start=1):
+        bodies, posterior = split_vertebral_anatomical_instances(
+            connected_instances(prediction == class_id),
+            discs,
+        )
+        body_names = name_vertebral_bodies(bodies, discs, lumbar_disc_levels(len(discs)))
+        for position, (component, name) in enumerate(zip(bodies, body_names), start=1):
             slug = name.lower() if name else f"b{position}"
             add(f"mask-{plane}-vertebra-{slug}", "vertebra", class_id, component, name)
-        for position, component in enumerate(posterior, start=1):
-            add(f"mask-{plane}-posterior-p{position}", "posterior_element", class_id, component, None)
+        posterior_names = name_posterior_elements(posterior, bodies, body_names)
+        for position, (component, name) in enumerate(zip(posterior, posterior_names), start=1):
+            add(f"mask-{plane}-posterior-p{position}", "posterior_element", class_id, component, name)
 
     for label, class_id in class_ids.items():
         if label in {"disc_group", "vertebra_group"}:
@@ -1003,7 +1057,8 @@ def slice_plane_geometry(
     plane_axes = [axis for axis in range(3) if axis != selected_axis]
     row_axis, col_axis = mapping[plane_axes[0]], mapping[plane_axes[1]]
     step = float(spacing[native_slice_axis])
-    normal = directions[native_slice_axis]
+    stack_normal = directions[native_slice_axis]
+    normal = stack_normal
     # La posicion declarada por el propio corte, cuando la serie la trae. Solo si no
     # esta se cae al modelo del espaciado unico, que supone la serie sin huecos.
     declared = loaded.metadata.get("slicePositions")
@@ -1012,10 +1067,48 @@ def slice_plane_geometry(
         if isinstance(declared, list) and 0 <= slice_index < len(declared)
         else None
     )
+    # La orientacion declarada por el propio corte, por la misma razon que la posicion
+    # y con mas consecuencias. `directions` sale de la matriz de direccion del volumen,
+    # que es una sola para toda la serie: la del primer corte. Una serie axial lumbar no
+    # es un plano unico repetido sino bloques angulados, uno por disco, asi que esa
+    # normal describe al corte 0 y a ningun otro.
+    #
+    # En el estudio de referencia el corte analizado esta a 26 grados de esa normal y el
+    # ultimo a 30,6. Proyectar la posicion correcta del corte sobre la normal equivocada
+    # corre el resultado 42 mm -tres espacios discales-, y es lo que hacia que las
+    # mediciones axiales de un corte L4-L5 se informaran bajo L2-L3.
+    #
+    # Se corrige solo la normal y no `rowDirection`/`colDirection`: el error probado es
+    # el de la normal, y esos dos los usan el visor y los landmarks para pasar de pixel
+    # a paciente, donde hoy funcionan.
+    declared_orientations = loaded.metadata.get("sliceOrientations")
+    orientation = (
+        declared_orientations[slice_index]
+        if isinstance(declared_orientations, list)
+        and 0 <= slice_index < len(declared_orientations)
+        and isinstance(declared_orientations[slice_index], (list, tuple))
+        and len(declared_orientations[slice_index]) == 6
+        else None
+    )
+    if orientation is not None:
+        # DICOM 0020|0037: el vector de la fila y el de la columna. La normal del corte
+        # es su producto vectorial, el mismo criterio que usa `axial_slice_levels`.
+        row_vector = [float(value) for value in orientation[0:3]]
+        col_vector = [float(value) for value in orientation[3:6]]
+        normal = [
+            row_vector[1] * col_vector[2] - row_vector[2] * col_vector[1],
+            row_vector[2] * col_vector[0] - row_vector[0] * col_vector[2],
+            row_vector[0] * col_vector[1] - row_vector[1] * col_vector[0],
+        ]
+
     return {
         # Origen del pixel (0,0) del corte que se esta mostrando.
-        "position": exact or [float(origin[k]) + slice_index * step * normal[k] for k in range(3)],
+        # El modelo de reserva apila sobre la direccion del volumen y no sobre la del
+        # corte: es el eje sobre el que avanzan los indices, que es lo que esa cuenta
+        # supone. La normal corregida describe la inclinacion del corte, no el apilado.
+        "position": exact or [float(origin[k]) + slice_index * step * stack_normal[k] for k in range(3)],
         "positionSource": "declared" if exact else "uniform_spacing",
+        "normalSource": "declared" if orientation is not None else "volume_direction",
         "rowDirection": directions[row_axis],
         "colDirection": directions[col_axis],
         "normal": normal,

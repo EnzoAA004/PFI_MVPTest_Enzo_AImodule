@@ -171,3 +171,34 @@ def test_una_lista_de_posiciones_incompleta_no_se_usa_a_medias():
     loaded.metadata["slicePositions"] = [[0.0, 0.0, 0.0]]
     plane = slice_plane_geometry(loaded, selected_axis=0, slice_index=5)
     assert plane["positionSource"] == "uniform_spacing"
+
+
+def test_normal_sale_de_la_orientacion_del_propio_corte():
+    """La normal describe al corte analizado, no al primero de la serie.
+
+    Una serie axial lumbar no es un plano unico repetido: se adquiere en bloques
+    angulados, uno por disco. La matriz de direccion del volumen es una sola y
+    corresponde al primer corte, asi que usarla para el corte 6 lo proyecta sobre un
+    plano que esta a 26 grados del suyo. Sobre el estudio de referencia eso corria la
+    proyeccion 42 mm -tres espacios discales- y las mediciones axiales de un corte
+    L4-L5 se informaban bajo L2-L3.
+    """
+    loaded = volume((12, 8, 8))
+    # El corte 6 mira casi de frente en z; la direccion del volumen sigue siendo la
+    # identidad, que es la del corte 0.
+    loaded.metadata["sliceOrientations"] = [[1.0, 0.0, 0.0, 0.0, 1.0, 0.0]] * 12
+    loaded.metadata["sliceOrientations"][6] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+
+    geometry = slice_plane_geometry(loaded, 0, 6)
+
+    assert geometry["normalSource"] == "declared"
+    # Producto vectorial de fila y columna del corte 6: (1,0,0) x (0,0,1) = (0,-1,0).
+    assert [round(value, 6) for value in geometry["normal"]] == [0.0, -1.0, 0.0]
+
+
+def test_sin_orientaciones_declaradas_cae_a_la_direccion_del_volumen():
+    """Sin el dato por corte se usa lo unico que hay, y se deja dicho cual se uso."""
+    geometry = slice_plane_geometry(volume((12, 8, 8)), 0, 6)
+
+    assert geometry["normalSource"] == "volume_direction"
+    assert [round(value, 6) for value in geometry["normal"]] == [0.0, 0.0, 1.0]
