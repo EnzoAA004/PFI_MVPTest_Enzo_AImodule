@@ -666,7 +666,10 @@ def build_segmentation(
 
     if "vertebra_group" in class_ids:
         discs = connected_instances(prediction == class_ids["disc_group"]) if "disc_group" in class_ids else []
-        bodies, posterior = split_vertebral_bodies(connected_instances(prediction == class_ids["vertebra_group"]), discs)
+        bodies, posterior = split_vertebral_anatomical_instances(
+            connected_instances(prediction == class_ids["vertebra_group"]),
+            discs,
+        )
         body_names = name_vertebral_bodies(bodies, discs, lumbar_disc_levels(len(discs)))
         # El id es posicional y el nivel viaja aparte. Derivarlo del nivel producia
         # ids repetidos: cuando la segmentacion parte el arco de una vertebra en dos
@@ -721,21 +724,67 @@ def split_vertebral_bodies(
     return bodies, posterior
 
 
+def split_vertebral_anatomical_instances(
+    vertebrae: list[np.ndarray],
+    discs: list[np.ndarray],
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Separa la identidad visual de cuerpos y posteriores siguiendo la curva discal.
+
+    El limite global usado por las mediciones es estable para la region lumbar, pero
+    en un encuadre toracolumbar la columna anterior se desplaza horizontalmente. Para
+    la metadata de instancias se calcula un limite local con el borde posterior de
+    los discos que rodean la altura del componente. Esto recupera cuerpos toracicos
+    visibles sin cambiar mascaras, classId ni el pipeline de mediciones existente.
+
+    Sin discos no hay ancla anatomica y se conserva el comportamiento fail-closed.
+    """
+    if not vertebrae:
+        return [], []
+    if not discs:
+        return list(vertebrae), []
+
+    anchors = [
+        (
+            float(np.where(mask)[0].mean()),
+            float(np.where(mask.any(axis=0))[0].max()),
+        )
+        for mask in discs
+    ]
+    bodies: list[np.ndarray] = []
+    posterior: list[np.ndarray] = []
+    for mask in vertebrae:
+        rows, columns = np.where(mask)
+        center_y = float(rows.mean())
+        if center_y <= anchors[0][0]:
+            local_boundary = anchors[0][1]
+        elif center_y >= anchors[-1][0]:
+            local_boundary = anchors[-1][1]
+        else:
+            upper, lower = next(
+                (anchors[index], anchors[index + 1])
+                for index in range(len(anchors) - 1)
+                if anchors[index][0] <= center_y <= anchors[index + 1][0]
+            )
+            local_boundary = (upper[1] + lower[1]) / 2.0
+        (bodies if float(columns.mean()) <= local_boundary else posterior).append(mask)
+    return bodies, posterior
+
+
 def name_posterior_elements(
     posterior: list[np.ndarray],
     bodies: list[np.ndarray],
     body_names: list[str | None],
 ) -> list[str | None]:
-    """Nombra cada arco posterior por el cuerpo que tiene enfrente.
+    """Nombra cada elemento posterior por su origen craneal en un cuerpo vertebral.
 
-    El arco posterior de L4 esta a la misma altura que el cuerpo de L4: comparten el
-    rango de filas porque son la misma vertebra vista de perfil. Asi que se empareja
-    por solapamiento vertical en vez de contar de nuevo desde abajo, que volveria a
-    introducir el supuesto de donde empieza la lumbar.
+    En sagital un elemento posterior puede prolongarse caudalmente y solapar mas al
+    cuerpo inferior que al cuerpo del que nace. Por eso el solapamiento total no es
+    una fuente anatomica segura. El extremo craneal del componente debe caer dentro
+    de un unico cuerpo nombrado; si no hay una asociacion inequivoca, queda sin nivel.
 
-    Un arco que no solapa con ningun cuerpo nombrado queda sin nivel. Se sigue viendo
-    como elemento posterior -eso lo dice la estructura, no el nombre- pero no se le
-    inventa una vertebra que el encuadre no muestra.
+    Dos fragmentos del mismo elemento pueden compartir nivel si ambos nacen dentro
+    del mismo cuerpo. No se usa ningun disco ni se inventa una vertebra fuera del
+    encuadre.
     """
     names: list[str | None] = [None] * len(posterior)
     if not posterior or not bodies:
@@ -743,14 +792,14 @@ def name_posterior_elements(
     spans = [(float(np.where(mask.any(axis=1))[0].min()), float(np.where(mask.any(axis=1))[0].max())) for mask in bodies]
     for index, mask in enumerate(posterior):
         rows = np.where(mask.any(axis=1))[0]
-        top, bottom = float(rows.min()), float(rows.max())
-        overlaps = [
-            (min(bottom, span_bottom) - max(top, span_top), position)
+        top = float(rows.min())
+        candidates = [
+            position
             for position, (span_top, span_bottom) in enumerate(spans)
+            if span_top <= top <= span_bottom and body_names[position]
         ]
-        overlap, position = max(overlaps)
-        if overlap > 0 and body_names[position]:
-            names[index] = body_names[position]
+        if len(candidates) == 1:
+            names[index] = body_names[candidates[0]]
     return names
 
 
@@ -850,12 +899,17 @@ def build_masks(
     if "vertebra_group" in class_ids:
         class_id = class_ids["vertebra_group"]
         discs = connected_instances(prediction == class_ids["disc_group"]) if "disc_group" in class_ids else []
-        bodies, posterior = split_vertebral_bodies(connected_instances(prediction == class_id), discs)
-        for position, (component, name) in enumerate(zip(bodies, name_vertebral_bodies(bodies, discs, lumbar_disc_levels(len(discs)))), start=1):
+        bodies, posterior = split_vertebral_anatomical_instances(
+            connected_instances(prediction == class_id),
+            discs,
+        )
+        body_names = name_vertebral_bodies(bodies, discs, lumbar_disc_levels(len(discs)))
+        for position, (component, name) in enumerate(zip(bodies, body_names), start=1):
             slug = name.lower() if name else f"b{position}"
             add(f"mask-{plane}-vertebra-{slug}", "vertebra", class_id, component, name)
-        for position, component in enumerate(posterior, start=1):
-            add(f"mask-{plane}-posterior-p{position}", "posterior_element", class_id, component, None)
+        posterior_names = name_posterior_elements(posterior, bodies, body_names)
+        for position, (component, name) in enumerate(zip(posterior, posterior_names), start=1):
+            add(f"mask-{plane}-posterior-p{position}", "posterior_element", class_id, component, name)
 
     for label, class_id in class_ids.items():
         if label in {"disc_group", "vertebra_group"}:
