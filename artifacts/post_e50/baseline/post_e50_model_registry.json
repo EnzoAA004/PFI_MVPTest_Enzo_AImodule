@@ -1,0 +1,44 @@
+{
+  "generated_at": "2026-08-17T22:33:56.278490+00:00",
+  "source_config": "config/model_registry_final.json",
+  "config_snapshot": {
+    "sagittal_spider": {
+      "plane": "sagittal",
+      "num_classes": 4,
+      "class_names": {
+        "0": "background",
+        "1": "vertebra_group",
+        "2": "canal",
+        "3": "disc_group"
+      },
+      "human_review_required": true,
+      "not_clinical_diagnosis": true
+    },
+    "axial_t2_alkafri": {
+      "plane": "axial",
+      "num_classes": 6,
+      "class_names": {
+        "0": "background_250",
+        "1": "raw_0",
+        "2": "raw_50",
+        "3": "raw_100",
+        "4": "raw_150",
+        "5": "raw_200"
+      },
+      "human_review_required": true,
+      "not_clinical_diagnosis": true
+    }
+  },
+  "discovered_checkpoints": {
+    "axial_t2_alkafri_final_v2_candidate.pt": {
+      "path": "models\\final\\axial_t2_alkafri_final_v2_candidate.pt",
+      "size_bytes": 1980811,
+      "sha256": "a48cbddd858b5615010fd809412f3d17dae6871fbe12a38f4720e6f6bc70f739"
+    },
+    "sagittal_spider_multiclass_final_best.pt": {
+      "path": "models\\final\\sagittal_spider_multiclass_final_best.pt",
+      "size_bytes": 1980459,
+      "sha256": "cf11dcc0ad77a7c787e64a796a2fd7398ef906add461cef4b3d61f1a5238e944"
+    }
+  }
+}
