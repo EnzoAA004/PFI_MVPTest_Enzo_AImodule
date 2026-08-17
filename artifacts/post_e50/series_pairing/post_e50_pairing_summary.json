@@ -1,0 +1,52 @@
+{
+  "generated_at": "2026-08-17T23:23:00.196908+00:00",
+  "git_branch": "research/post-e50-series-pairing",
+  "git_commit": "835373adf763e02be144e7086653a0a173f71879",
+  "real_dicom_used": true,
+  "study_opaque_id": "206aa67ee4e6",
+  "series_discovered": 3,
+  "sagittal_t1_found": true,
+  "sagittal_t2_found": true,
+  "axial_t2_found": true,
+  "axial_orientation_cluster_count": 5,
+  "pairing_metrics": [
+    {
+      "study_opaque_id": "206aa67ee4e6",
+      "reference_id": "manual_ref_sagittal_center_mid_slice",
+      "level_if_known": null,
+      "reference_source": "manual_reference",
+      "sagittal_source_role": "sagittal_t2",
+      "axial_series_opaque_id": "b65eca7cfbbc",
+      "best_axial_slice_physical_index": 12,
+      "raw_coordinate_distance_mm": 0.6466633304,
+      "best_distance_mm": 0.6466633304,
+      "distance_validated": false,
+      "distance_interpretation": "UNREGISTERED_CROSS_FRAME_EXPLORATORY",
+      "second_best_distance_mm": 4.8533116303,
+      "candidate_count_under_2mm": 1,
+      "candidate_count_under_5mm": 2,
+      "inside_fov": true,
+      "same_frame_of_reference": false,
+      "frame_relationship_status": "DIRECT_CROSS_SERIES_MAPPING_NOT_VALIDATED",
+      "orientation_valid": true,
+      "spacing_regular": false,
+      "geometry_confidence": 0.5,
+      "status": "matched_unregistered_cross_frame",
+      "warnings": "different_frame_of_reference; distance_not_dicom_validated_exploratory_only"
+    }
+  ],
+  "gates": {
+    "GATE_A_dicom_metadata": "PASS",
+    "GATE_B_orientation": "PASS",
+    "GATE_C_transform_roundtrip": "PASS",
+    "GATE_D_slice_ordering": "PASS",
+    "GATE_E_cross_series_spatial_relationship": "PARTIAL",
+    "GATE_F_privacy": "PASS"
+  },
+  "quality_gate_overall": "PARTIAL",
+  "warnings": [],
+  "limitations": [
+    "Axial T2 series is NOT a single physically-parallel stack: 5 distinct orientation clusters were found (per-slice ImageOrientationPatient varies), each ordered independently. This explains the irregular_spacing flag from Section 6, which was computed treating the whole series as one stack. No cluster is claimed to correspond to any specific lumbar level -- that is out of scope for Notebook 66.",
+    "No LevelSeriesBundle was emitted with a known lumbar level: the only reference used (manual_reference) intentionally has level_if_known=null. Automatic level naming is explicitly out of scope for Notebook 66 (deferred to Notebook 67)."
+  ]
+}

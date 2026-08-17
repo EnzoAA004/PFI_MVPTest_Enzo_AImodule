@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "pfi.post-e50.level-series-bundle.v0",
+  "studyOpaqueId": "synthetic_test_study",
+  "level": "L4-L5",
+  "reference": {
+    "source": "geometric_test_reference",
+    "patientXYZ": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "series": {
+    "sagittalT1": {
+      "available": true,
+      "seriesOpaqueId": "synthetic_sag_t1",
+      "referenceSlice": 5
+    },
+    "sagittalT2": {
+      "available": true,
+      "seriesOpaqueId": "synthetic_sag_t2",
+      "referenceSlice": 6,
+      "sameFrameOfReference": true
+    },
+    "axialT2": {
+      "available": true,
+      "seriesOpaqueId": "synthetic_axial_t2",
+      "matchedSlices": [
+        14,
+        15,
+        16
+      ],
+      "distancesMm": [
+        0.5,
+        1.2,
+        2.1
+      ]
+    }
+  },
+  "pairing": {
+    "method": "dicom_patient_geometry",
+    "sameFrameOfReference": false,
+    "geometryValid": true,
+    "confidence": 0.91
+  },
+  "synthetic": true,
+  "testOnly": true
+}

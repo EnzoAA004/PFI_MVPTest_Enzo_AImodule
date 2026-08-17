@@ -1,0 +1,2 @@
+reference_id,axial_series_opaque_id,best_distance_mm,best_row_float,best_col_float,best_inside_fov,second_best_distance_mm,candidate_count_under_2mm,candidate_count_under_5mm
+manual_ref_sagittal_center_mid_slice,b65eca7cfbbc,0.6466633303600027,290.69507539821564,232.25068501159322,True,4.853311630349536,1,2

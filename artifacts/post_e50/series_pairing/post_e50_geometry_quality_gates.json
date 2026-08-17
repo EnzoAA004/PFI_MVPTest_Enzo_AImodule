@@ -1,0 +1,12 @@
+{
+  "gates": {
+    "GATE_A_dicom_metadata": "PASS",
+    "GATE_B_orientation": "PASS",
+    "GATE_C_transform_roundtrip": "PASS",
+    "GATE_D_slice_ordering": "PASS",
+    "GATE_E_cross_series_spatial_relationship": "PARTIAL",
+    "GATE_F_privacy": "PASS"
+  },
+  "overall_status": "PARTIAL",
+  "warnings": []
+}
