@@ -1,0 +1,56 @@
+{
+  "provenance": {
+    "source": "Google Colab full SPIDER validation run",
+    "date": "2026-08-18",
+    "test_patients_used": 0
+  },
+  "validation_cohort_accounting": {
+    "validation_patients_total": 39,
+    "validation_patients_t2_evaluable": 38,
+    "cases_attempted": 38,
+    "cases_executed": 38,
+    "cases_failed": 0,
+    "cases_excluded_no_t2": 1
+  },
+  "full_validation_summary": {
+    "mean_precision": 0.9506996658312448,
+    "mean_recall": 1.0,
+    "mean_f1": 0.9721906576395739,
+    "median_f1": 1.0,
+    "mean_centroid_error_mm": 1.7523566724391513,
+    "median_centroid_error_mm": 1.5368929128025899,
+    "relative_order_monotonic_rate": 1.0,
+    "relative_order_direction_resolved_rate": 0.0,
+    "mean_spearman_rank_correlation": 0.05263157894736842
+  },
+  "fov_primary_t2_num_discs_distribution": {
+    "3": 1,
+    "6": 14,
+    "7": 9,
+    "8": 9,
+    "9": 5
+  },
+  "final_gates": {
+    "GATE_A_checkpoint_identity": "PASS",
+    "GATE_B_dataset_structure_verified": "PASS",
+    "GATE_C_split_leakage_audit": "PASS",
+    "GATE_D_smoke_test": "PASS",
+    "GATE_E_frozen_baseline_batch": "PASS",
+    "GATE_F_instance_localization_gt_metrics": "PASS",
+    "GATE_G_fov_analysis": "PASS",
+    "GATE_H_absolute_level_anchor": "UNAVAILABLE_FROM_DATASET_REFERENCE",
+    "GATE_I_level_naming_metrics": "UNAVAILABLE",
+    "GATE_J_privacy": "PASS",
+    "RELATIVE_ORDERING_VALIDATION": "PASS",
+    "QUALITY_GATE_OVERALL": "PARTIAL"
+  },
+  "final_decision": "SPIDER_RELATIVE_LOCALIZATION_BASELINE_ESTABLISHED",
+  "readiness": {
+    "ready_for_relative_instance_validation_batch": true,
+    "ready_for_axial_cluster_pairing": false,
+    "ready_for_absolute_anchor_dataset_research": true
+  },
+  "automatic_disc_localization_validated": false,
+  "training_performed": false,
+  "checkpoint_modified": false
+}

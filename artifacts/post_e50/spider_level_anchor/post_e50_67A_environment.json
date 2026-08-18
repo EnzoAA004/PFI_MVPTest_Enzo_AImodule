@@ -1,13 +1,28 @@
 {
-  "generated_at": "2026-08-18T01:30:58.762240+00:00",
+  "generated_at": "2026-08-18T18:48:58.321372+00:00",
   "in_colab": false,
   "device": "cpu",
-  "cuda_available": false,
-  "pytorch_version": "2.13.0+cpu",
-  "checkpoint_path_relative": "models/final/sagittal_spider_multiclass_final_best.pt",
+  "embedded_runtime_source_commit": "0e97083d443225226beb1f705fd794578b1b17f9",
+  "embedded_runtime_scope": "minimal frozen sagittal inference helpers required by Notebook 67A",
+  "embedded_runtime_source_files": {
+    "model_architectures.py_blob_sha": "62b3ccdd78c115892313355f580a421a10a85a29",
+    "real_inference_runtime.py_blob_sha": "69d31f7542fdc99439b6d8da8a6dc9347c226bc1",
+    "settings.py_blob_sha": "ca3cf89fc901c5e9ea9c5495956a978a11bc7851"
+  },
+  "dependency_versions": {
+    "torch_version": "2.13.0+cpu",
+    "simpleitk_version": "2.5.5",
+    "scipy_version": "1.18.0",
+    "cuda_available": false
+  },
+  "checkpoint_source": "local_repo_checkpoint",
   "checkpoint_sha256": "cf11dcc0ad77a7c787e64a796a2fd7398ef906add461cef4b3d61f1a5238e944",
-  "checkpoint_matches_notebook_67": true,
+  "checkpoint_matches_expected": true,
   "spider_available": false,
   "spider_selection_status": "NOT_FOUND",
-  "local_stage_result": "COLAB_EXECUTION_REQUIRED"
+  "axis_canonicalization_parity": "PASS",
+  "resize_parity": "PASS",
+  "intensity_preprocessing_parity": "PASS",
+  "model_input_shape_parity": "PASS",
+  "prediction_to_mha_coordinate_roundtrip": "PASS"
 }

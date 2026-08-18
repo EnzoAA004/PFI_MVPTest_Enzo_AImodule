@@ -1,25 +1,38 @@
 {
   "gates": {
     "GATE_A_checkpoint_identity": "PASS",
-    "GATE_B_dataset_structure_verified": "NOT_RUN",
-    "GATE_C_split_leakage_audit": "NOT_RUN",
-    "GATE_D_smoke_test": "NOT_RUN",
-    "GATE_E_frozen_baseline_batch": "NOT_RUN",
-    "GATE_F_instance_localization_gt_metrics": "NOT_RUN",
+    "GATE_B_spider_structure": "NOT_RUN",
+    "GATE_C_public_train_validation_leakage": "NOT_RUN",
+    "GATE_D_smoke_test_execution": "NOT_RUN",
+    "GATE_E_image_mask_exact_pairing": "NOT_RUN",
+    "GATE_F_instance_gt_extraction_metrics": "NOT_RUN",
     "GATE_G_fov_analysis": "NOT_RUN",
-    "GATE_H_absolute_level_anchor": "NOT_RUN",
-    "GATE_I_level_naming_metrics": "NOT_RUN",
+    "GATE_H_absolute_anatomical_anchor": "UNAVAILABLE_FROM_DATASET_REFERENCE",
+    "GATE_I_absolute_level_naming_metrics": "UNAVAILABLE",
     "GATE_J_privacy": "PASS"
+  },
+  "sub_audits": {
+    "axis_canonicalization_parity": "PASS",
+    "resize_parity": "PASS",
+    "intensity_preprocessing_parity": "PASS",
+    "model_input_shape_parity": "PASS",
+    "prediction_to_mha_coordinate_roundtrip": "PASS",
+    "mha_geometry_parity": "NOT_RUN",
+    "overview_mask_disc_count_consistency": "NOT_RUN",
+    "grading_mask_label_mapping_audit": "UNRESOLVED",
+    "relative_disc_ordering_validation": "UNRESOLVED"
   },
   "overall_status": "PARTIAL",
   "warnings": [
-    "Dataset structure verification skipped: SPIDER_AVAILABLE=False (Stage A local run).",
-    "Split discovery skipped: SPIDER_AVAILABLE=False (Stage A local run).",
-    "Leakage audit not run against real data: SPIDER split_inventory unavailable in this Stage-A run.",
-    "spider_dataset_inventory and spider_ground_truth_discs are empty schemas only: populate in Colab once SPIDER structure is confirmed (GATE B) -- not fabricated here.",
-    "Smoke test NOT RUN: SPIDER unavailable and/or checkpoint identity gate not satisfied in this Stage-A run.",
-    "FOV analysis NOT RUN: no SPIDER ground truth available in this Stage-A run.",
-    "Anchor methods A-D are defined and unit-testable, but were not run against real cases in this Stage-A run (no SPIDER data).",
-    "No figures generated in this Stage-A run (no real SPIDER results). Required in Colab: ['smoke_test_overlay.png', 'predicted_disc_count_distribution.png', 'gt_disc_count_fov_distribution.png', 'predicted_vs_gt_instance_count.png', 'centroid_error_distribution.png', 'centroid_error_by_level.png', 'detection_precision_recall_summary.png', 'level_confusion_matrix.png', 'abstention_accuracy_tradeoff.png', 'example_best_case.png', 'example_median_case.png', 'example_worst_case.png']"
+    "overview.csv parsing skipped: SPIDER_AVAILABLE=False in this run.",
+    "Split inventory not built: GATE B did not PASS in this run.",
+    "spider_dataset_inventory not built: GATE B did not PASS in this run.",
+    "validation_t2_series_inventory not built: dataset inventory or split_inventory unavailable.",
+    "validation_cohort_accounting not computed: validation_t2_series_inventory unavailable in this run.",
+    "mask_overview_consistency requires opening real mask .mha files -- populated per-case during the smoke test / full validation loop below, not as a separate full-cohort pass in this cell (avoids opening all 447 masks twice).",
+    "radiological_gradings.csv audit skipped: SPIDER_AVAILABLE=False in this run.",
+    "Smoke test cohort not selected: validation_t2_series_inventory unavailable in this run.",
+    "Smoke test NOT executed: SPIDER unavailable, checkpoint invalid, image/mask pairing invalid, or empty cohort in this run.",
+    "FOV analysis NOT RUN: overview.csv/split_inventory unavailable in this run."
   ]
 }
