@@ -1,0 +1,25 @@
+{
+  "gates": {
+    "GATE_A_checkpoint_identity": "PASS",
+    "GATE_B_dataset_structure_verified": "NOT_RUN",
+    "GATE_C_split_leakage_audit": "NOT_RUN",
+    "GATE_D_smoke_test": "NOT_RUN",
+    "GATE_E_frozen_baseline_batch": "NOT_RUN",
+    "GATE_F_instance_localization_gt_metrics": "NOT_RUN",
+    "GATE_G_fov_analysis": "NOT_RUN",
+    "GATE_H_absolute_level_anchor": "NOT_RUN",
+    "GATE_I_level_naming_metrics": "NOT_RUN",
+    "GATE_J_privacy": "PASS"
+  },
+  "overall_status": "PARTIAL",
+  "warnings": [
+    "Dataset structure verification skipped: SPIDER_AVAILABLE=False (Stage A local run).",
+    "Split discovery skipped: SPIDER_AVAILABLE=False (Stage A local run).",
+    "Leakage audit not run against real data: SPIDER split_inventory unavailable in this Stage-A run.",
+    "spider_dataset_inventory and spider_ground_truth_discs are empty schemas only: populate in Colab once SPIDER structure is confirmed (GATE B) -- not fabricated here.",
+    "Smoke test NOT RUN: SPIDER unavailable and/or checkpoint identity gate not satisfied in this Stage-A run.",
+    "FOV analysis NOT RUN: no SPIDER ground truth available in this Stage-A run.",
+    "Anchor methods A-D are defined and unit-testable, but were not run against real cases in this Stage-A run (no SPIDER data).",
+    "No figures generated in this Stage-A run (no real SPIDER results). Required in Colab: ['smoke_test_overlay.png', 'predicted_disc_count_distribution.png', 'gt_disc_count_fov_distribution.png', 'predicted_vs_gt_instance_count.png', 'centroid_error_distribution.png', 'centroid_error_by_level.png', 'detection_precision_recall_summary.png', 'level_confusion_matrix.png', 'abstention_accuracy_tradeoff.png', 'example_best_case.png', 'example_median_case.png', 'example_worst_case.png']"
+  ]
+}

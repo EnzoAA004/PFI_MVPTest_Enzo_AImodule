@@ -1,0 +1,1 @@
+case_id_opaque,patient_id_opaque,series_id_opaque,modality,sequence_role,plane,image_available,segmentation_available,grading_available,split,warnings

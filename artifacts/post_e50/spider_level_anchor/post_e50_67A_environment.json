@@ -1,0 +1,13 @@
+{
+  "generated_at": "2026-08-18T01:30:58.762240+00:00",
+  "in_colab": false,
+  "device": "cpu",
+  "cuda_available": false,
+  "pytorch_version": "2.13.0+cpu",
+  "checkpoint_path_relative": "models/final/sagittal_spider_multiclass_final_best.pt",
+  "checkpoint_sha256": "cf11dcc0ad77a7c787e64a796a2fd7398ef906add461cef4b3d61f1a5238e944",
+  "checkpoint_matches_notebook_67": true,
+  "spider_available": false,
+  "spider_selection_status": "NOT_FOUND",
+  "local_stage_result": "COLAB_EXECUTION_REQUIRED"
+}
