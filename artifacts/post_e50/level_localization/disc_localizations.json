@@ -1,0 +1,217 @@
+[
+  {
+    "schemaVersion": "pfi.post-e50.disc-localization.v0",
+    "studyOpaqueId": "206aa67ee4e6",
+    "instanceId": "disc_inst_00",
+    "level": null,
+    "levelStatus": "abstain",
+    "sourceSeriesRole": "sagittal_t2",
+    "representativeSlice": 5,
+    "centroidPatientXYZ": [
+      -2.259055810919259,
+      42.6881095392793,
+      176.78101473441808
+    ],
+    "bboxPixel": [
+      4,
+      9,
+      109,
+      131
+    ],
+    "bboxPhysicalMm": null,
+    "supportingSlices": [
+      3,
+      4,
+      5,
+      6
+    ],
+    "instanceConfidence": 0.8695,
+    "levelNamingConfidence": 0.4403,
+    "warnings": []
+  },
+  {
+    "schemaVersion": "pfi.post-e50.disc-localization.v0",
+    "studyOpaqueId": "206aa67ee4e6",
+    "instanceId": "disc_inst_01",
+    "level": null,
+    "levelStatus": "abstain",
+    "sourceSeriesRole": "sagittal_t2",
+    "representativeSlice": 5,
+    "centroidPatientXYZ": [
+      -2.1153143112739308,
+      37.149452398238026,
+      145.15102700071978
+    ],
+    "bboxPixel": [
+      4,
+      9,
+      109,
+      131
+    ],
+    "bboxPhysicalMm": null,
+    "supportingSlices": [
+      3,
+      4,
+      5,
+      6
+    ],
+    "instanceConfidence": 0.871,
+    "levelNamingConfidence": 0.4403,
+    "warnings": []
+  },
+  {
+    "schemaVersion": "pfi.post-e50.disc-localization.v0",
+    "studyOpaqueId": "206aa67ee4e6",
+    "instanceId": "disc_inst_02",
+    "level": null,
+    "levelStatus": "abstain",
+    "sourceSeriesRole": "sagittal_t2",
+    "representativeSlice": 4,
+    "centroidPatientXYZ": [
+      -5.737115985364591,
+      32.91765992849467,
+      111.69532482348286
+    ],
+    "bboxPixel": [
+      4,
+      9,
+      109,
+      133
+    ],
+    "bboxPhysicalMm": null,
+    "supportingSlices": [
+      3,
+      4,
+      5,
+      6,
+      8
+    ],
+    "instanceConfidence": 0.7667,
+    "levelNamingConfidence": 0.4403,
+    "warnings": []
+  },
+  {
+    "schemaVersion": "pfi.post-e50.disc-localization.v0",
+    "studyOpaqueId": "206aa67ee4e6",
+    "instanceId": "disc_inst_03",
+    "level": null,
+    "levelStatus": "abstain",
+    "sourceSeriesRole": "sagittal_t2",
+    "representativeSlice": 4,
+    "centroidPatientXYZ": [
+      -5.564682512292885,
+      27.29867155155144,
+      77.60584645425534
+    ],
+    "bboxPixel": [
+      4,
+      9,
+      109,
+      133
+    ],
+    "bboxPhysicalMm": null,
+    "supportingSlices": [
+      3,
+      4,
+      5,
+      6,
+      8
+    ],
+    "instanceConfidence": 0.7669,
+    "levelNamingConfidence": 0.4403,
+    "warnings": []
+  },
+  {
+    "schemaVersion": "pfi.post-e50.disc-localization.v0",
+    "studyOpaqueId": "206aa67ee4e6",
+    "instanceId": "disc_inst_04",
+    "level": null,
+    "levelStatus": "abstain",
+    "sourceSeriesRole": "sagittal_t2",
+    "representativeSlice": 4,
+    "centroidPatientXYZ": [
+      -5.512439425166436,
+      18.91452385163152,
+      42.15915925159309
+    ],
+    "bboxPixel": [
+      4,
+      9,
+      109,
+      133
+    ],
+    "bboxPhysicalMm": null,
+    "supportingSlices": [
+      3,
+      4,
+      5,
+      6,
+      8
+    ],
+    "instanceConfidence": 0.7666,
+    "levelNamingConfidence": 0.4403,
+    "warnings": []
+  },
+  {
+    "schemaVersion": "pfi.post-e50.disc-localization.v0",
+    "studyOpaqueId": "206aa67ee4e6",
+    "instanceId": "disc_inst_05",
+    "level": null,
+    "levelStatus": "abstain",
+    "sourceSeriesRole": "sagittal_t2",
+    "representativeSlice": 5,
+    "centroidPatientXYZ": [
+      -5.253839782797391,
+      14.246216147374302,
+      5.1642445826718415
+    ],
+    "bboxPixel": [
+      4,
+      9,
+      109,
+      131
+    ],
+    "bboxPhysicalMm": null,
+    "supportingSlices": [
+      3,
+      4,
+      5,
+      6,
+      8
+    ],
+    "instanceConfidence": 0.7664,
+    "levelNamingConfidence": 0.4403,
+    "warnings": []
+  },
+  {
+    "schemaVersion": "pfi.post-e50.disc-localization.v0",
+    "studyOpaqueId": "206aa67ee4e6",
+    "instanceId": "disc_inst_06",
+    "level": null,
+    "levelStatus": "abstain",
+    "sourceSeriesRole": "sagittal_t2",
+    "representativeSlice": 5,
+    "centroidPatientXYZ": [
+      -4.491563245922584,
+      19.753092330370826,
+      -31.453619026724585
+    ],
+    "bboxPixel": [
+      4,
+      9,
+      109,
+      131
+    ],
+    "bboxPhysicalMm": null,
+    "supportingSlices": [
+      3,
+      4,
+      5,
+      6,
+      8
+    ],
+    "instanceConfidence": 0.766,
+    "levelNamingConfidence": 0.4403,
+    "warnings": []
+  }
+]

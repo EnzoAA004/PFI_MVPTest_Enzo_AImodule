@@ -1,0 +1,20 @@
+{
+  "generated_at": "2026-08-18T01:11:50.353264+00:00",
+  "study_opaque_id": "206aa67ee4e6",
+  "disc_instances_detected": 7,
+  "ordered_instances": 7,
+  "target_lumbar_window_status": "AMBIGUOUS",
+  "levels_assigned": 0,
+  "absolute_level_status": "abstain",
+  "abstain_primary_reason": "ABSOLUTE_ANATOMICAL_ANCHOR_UNAVAILABLE",
+  "level_naming_confidence": 0.4403,
+  "anchor_quality_gates": {
+    "instance_count_is_five": false,
+    "instance_count_in_plausible_range": false,
+    "no_caudal_clipping": true,
+    "no_cranial_clipping": true,
+    "multi_slice_support_majority": true
+  },
+  "ground_truth_available": false,
+  "note": "No held-out ground truth in this run (SPIDER UNAVAILABLE); no instance-detection or level-naming accuracy metrics computed against ground truth. instance_count in anchor_quality_gates is auxiliary information, not the cause of abstention."
+}

@@ -1,0 +1,18 @@
+{
+  "gates": {
+    "GATE_A_checkpoint_identity": "PASS",
+    "GATE_B_inference_executable": "PASS",
+    "GATE_C_disc_instance_extraction": "PASS",
+    "GATE_D_multi_slice_consensus": "PASS",
+    "GATE_E_anatomical_ordering": "PASS",
+    "GATE_F_absolute_level_naming": "PARTIAL",
+    "GATE_G_spider_validation": "UNAVAILABLE",
+    "GATE_H_real_dicom_localization": "PASS",
+    "GATE_I_privacy": "PASS"
+  },
+  "overall_status": "PARTIAL",
+  "warnings": [
+    "SPIDER dataset not found locally; held-out validation will be UNAVAILABLE (GATE G).",
+    "Absolute level naming ABSTAINED: ABSOLUTE_ANATOMICAL_ANCHOR_UNAVAILABLE (target_lumbar_window_status=AMBIGUOUS; instance_count=7 is auxiliary information only, not the cause)."
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "generated_at": "2026-08-18T01:11:50.353264+00:00",
+  "git_branch": "research/post-e50-level-localization",
+  "git_commit": "41ab6332f4ddcc110845763c1e12b31005f1e88a",
+  "model": {
+    "model_id": "sagittal_spider",
+    "checkpoint_sha256": "cf11dcc0ad77a7c787e64a796a2fd7398ef906add461cef4b3d61f1a5238e944"
+  },
+  "real_dicom_used": true,
+  "study_opaque_id": "206aa67ee4e6",
+  "spider_available": false,
+  "disc_instances_detected": 7,
+  "target_lumbar_window_status": "AMBIGUOUS",
+  "levels_assigned": 0,
+  "absolute_level_status": "abstain",
+  "abstain_primary_reason": "ABSOLUTE_ANATOMICAL_ANCHOR_UNAVAILABLE",
+  "gates": {
+    "GATE_A_checkpoint_identity": "PASS",
+    "GATE_B_inference_executable": "PASS",
+    "GATE_C_disc_instance_extraction": "PASS",
+    "GATE_D_multi_slice_consensus": "PASS",
+    "GATE_E_anatomical_ordering": "PASS",
+    "GATE_F_absolute_level_naming": "PARTIAL",
+    "GATE_G_spider_validation": "UNAVAILABLE",
+    "GATE_H_real_dicom_localization": "PASS",
+    "GATE_I_privacy": "PASS"
+  },
+  "quality_gate_overall": "PARTIAL",
+  "decision": "SAGITTAL_LEVEL_LOCALIZATION_BASELINE_ESTABLISHED",
+  "ready_for_axial_cluster_pairing": false,
+  "ready_for_spider_heldout_validation": true,
+  "ready_for_absolute_level_anchor_research": true,
+  "blocking_requirement": "ABSOLUTE_LEVEL_ANCHOR_VALIDATION",
+  "blocking_gates": [
+    "GATE_F_absolute_level_naming",
+    "GATE_G_spider_validation"
+  ],
+  "colab_batch_validation_recommended": false,
+  "colab_reason": "N/A -- SPIDER unavailable in this run; only a single real-DICOM sagittal series (12 slices) was processed on CPU.",
+  "automatic_disc_localization_validated_changed": false,
+  "warnings": [
+    "SPIDER dataset not found locally; held-out validation will be UNAVAILABLE (GATE G).",
+    "Absolute level naming ABSTAINED: ABSOLUTE_ANATOMICAL_ANCHOR_UNAVAILABLE (target_lumbar_window_status=AMBIGUOUS; instance_count=7 is auxiliary information only, not the cause)."
+  ],
+  "limitations": [
+    "SPIDER held-out validation is UNAVAILABLE in this run: the dataset was not found locally (only unrelated lumbar-MRI datasets were present under Downloads). PFI_POST_E50_SPIDER_ROOT is supported for a future local/Colab/Drive run."
+  ]
+}

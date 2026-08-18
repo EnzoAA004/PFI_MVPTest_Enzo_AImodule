@@ -1,0 +1,21 @@
+{
+  "model_id": "sagittal_spider",
+  "checkpoint_path": "models\\final\\sagittal_spider_multiclass_final_best.pt",
+  "checkpoint_sha256": "cf11dcc0ad77a7c787e64a796a2fd7398ef906add461cef4b3d61f1a5238e944",
+  "model_card_path": "models\\final\\sagittal_spider_multiclass_final_best.pt.modelcard.md",
+  "model_commit_source": "6013e160f45c9263fd4ae50e864ceb37245323e2",
+  "training_notebook": "notebooks/45_gcs_spider_final_training.ipynb",
+  "device": "cpu",
+  "inference_dtype": "float32",
+  "target_size": [
+    256,
+    256
+  ],
+  "num_classes": 4,
+  "class_names": {
+    "0": "background",
+    "1": "vertebra_group",
+    "2": "canal",
+    "3": "disc_group"
+  }
+}
