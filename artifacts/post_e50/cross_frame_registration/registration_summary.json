@@ -1,0 +1,65 @@
+{
+  "generated_at": "2026-08-18T00:46:32.729105+00:00",
+  "git_branch": "research/post-e50-cross-frame-registration",
+  "git_commit": "17f59ae186b43db0610aed85301b76b7cf3f358f",
+  "real_dicom_used": true,
+  "study_opaque_id": "206aa67ee4e6",
+  "reference_space": "sagittal_t2",
+  "sagittal_decision": "OPTIMIZATION_SUCCESS_VALIDATION_INSUFFICIENT",
+  "axial_clusters_detected": 5,
+  "axial_clusters_attempted": 5,
+  "axial_clusters_optimizer_success": 5,
+  "axial_clusters_independently_validated": 0,
+  "gates": {
+    "GATE_A_dicom_reconstruction": "PASS",
+    "GATE_B_simpleitk_parity": "FAIL",
+    "GATE_C_sagittal_registration_optimization": "PASS",
+    "GATE_D_sagittal_independent_validation": "PARTIAL",
+    "GATE_E_transform_roundtrip": "PASS",
+    "GATE_F_axial_methodology_executable": "PASS",
+    "GATE_G_axial_independent_validation": "PARTIAL",
+    "GATE_H_privacy": "PASS"
+  },
+  "gate_b_failure_interpretation": "REGULAR_GRID_APPROXIMATION_OF_SLICEWISE_DICOM_GEOMETRY",
+  "gate_b_residual_stats_mm": {
+    "max_residual_mm": 0.0001997582842676593,
+    "mean_residual_mm": 8.53143378832429e-05,
+    "median_residual_mm": 7.990718550976439e-05,
+    "median_slice_spacing_mm": 5.499994380038402,
+    "max_residual_relative_to_slice_spacing": 3.6319725160567264e-05
+  },
+  "slice_orientation_deviation_deg": {
+    "sagittal_t2": {
+      "max_orientation_deviation_deg": 0.0,
+      "mean_orientation_deviation_deg": 0.0
+    },
+    "sagittal_t1": {
+      "max_orientation_deviation_deg": 0.0,
+      "mean_orientation_deviation_deg": 0.0
+    }
+  },
+  "quality_gate_overall": "FAIL",
+  "decision": "BLOCKED",
+  "decision_meaning": "MULTIPLANAR_CROSS_FRAME_REGISTRATION_NOT_VALIDATED",
+  "research_outcome": "CROSS_FRAME_REGISTRATION_BASELINE_ESTABLISHED",
+  "ready_for_level_localization": false,
+  "ready_for_sagittal_level_localization": true,
+  "ready_for_multiplanar_level_pairing": false,
+  "blocking_gates": [
+    "GATE_B_simpleitk_parity",
+    "GATE_D_sagittal_independent_validation",
+    "GATE_G_axial_independent_validation"
+  ],
+  "recommended_next_notebooks": [
+    {
+      "notebook": "67_postE50_level_localization_v2.ipynb",
+      "scope": "SAGITTAL-BASED AUTOMATIC LEVEL LOCALIZATION (L1-L2..L5-S1 + disc centroids/ROIs in Sagittal T2 only)"
+    },
+    {
+      "notebook": "67B_postE50_axial_cluster_level_pairing.ipynb",
+      "scope": "FUTURE WORK: re-evaluate the 5 axial orientation clusters and cross-frame registration using levels/centroids from Notebook 67"
+    }
+  ],
+  "warnings": [],
+  "limitations": []
+}

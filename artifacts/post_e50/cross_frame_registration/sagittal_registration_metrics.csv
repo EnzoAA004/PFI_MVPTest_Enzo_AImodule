@@ -1,0 +1,2 @@
+study_opaque_id,fixed_role,moving_role,metric_before,metric_after,optimizer_iterations,translation_magnitude_mm,rotation_magnitude_deg,tre_before_mean_mm,tre_after_mean_mm,decision
+206aa67ee4e6,sagittal_t2,sagittal_t1,-0.7821203706655426,-1.05823428347514,24,2.033871625546331,0.282115450308267,0.0,2.0329728780624663,OPTIMIZATION_SUCCESS_VALIDATION_INSUFFICIENT

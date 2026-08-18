@@ -1,0 +1,249 @@
+[
+  {
+    "schemaVersion": "pfi.post-e50.cross-frame-transform.v0",
+    "studyOpaqueId": "206aa67ee4e6",
+    "sourceSeries": "28ea4937243f",
+    "sourceCluster": null,
+    "targetSeries": "25aa08338722",
+    "targetRole": "sagittal_t2",
+    "transformType": "rigid",
+    "status": "OPTIMIZATION_SUCCESS_VALIDATION_INSUFFICIENT",
+    "matrix4x4": [
+      [
+        0.9999980895809255,
+        0.0004321691671775392,
+        0.00190632219470587,
+        0.4473546836851696
+      ],
+      [
+        -0.00044078060748880843,
+        0.9999896912137637,
+        0.0045192011083313504,
+        1.802310490718277
+      ],
+      [
+        -0.001904349483458572,
+        -0.0045200327446184045,
+        0.9999879713061715,
+        0.11659655072921282
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "inverseAvailable": true,
+    "validation": {
+      "source": "manual_research_landmarks",
+      "meanTREBeforeMm": 0.0,
+      "meanTREAfterMm": 2.0329728780624663
+    }
+  },
+  {
+    "schemaVersion": "pfi.post-e50.cross-frame-transform.v0",
+    "studyOpaqueId": "206aa67ee4e6",
+    "sourceSeries": "b65eca7cfbbc",
+    "sourceCluster": 0,
+    "targetSeries": "25aa08338722",
+    "targetRole": "sagittal_t2",
+    "transformType": "rigid",
+    "status": "optimizer_success",
+    "matrix4x4": [
+      [
+        0.9960430689743122,
+        -0.08851662757693893,
+        -0.007937971443575676,
+        12.1106036368681
+      ],
+      [
+        0.08882829949886378,
+        0.9943715655975952,
+        0.05774705827250228,
+        2.951451087870744
+      ],
+      [
+        0.0027817182412464736,
+        -0.058223673650784985,
+        0.998299687403654,
+        -72.90189262312992
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "inverseAvailable": true,
+    "validation": {
+      "source": "unavailable",
+      "note": "no independent axial landmark validation implemented in this run"
+    }
+  },
+  {
+    "schemaVersion": "pfi.post-e50.cross-frame-transform.v0",
+    "studyOpaqueId": "206aa67ee4e6",
+    "sourceSeries": "b65eca7cfbbc",
+    "sourceCluster": 1,
+    "targetSeries": "25aa08338722",
+    "targetRole": "sagittal_t2",
+    "transformType": "rigid",
+    "status": "optimizer_success",
+    "matrix4x4": [
+      [
+        0.9957541718844698,
+        0.08785169686998197,
+        0.027490153359671844,
+        -33.03876582745167
+      ],
+      [
+        -0.0902114705116241,
+        0.990735376573558,
+        0.1015150441746461,
+        -0.7837918672196622
+      ],
+      [
+        -0.01831719855228551,
+        -0.10356395590510618,
+        0.9944541152182343,
+        109.22713624975958
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "inverseAvailable": true,
+    "validation": {
+      "source": "unavailable",
+      "note": "no independent axial landmark validation implemented in this run"
+    }
+  },
+  {
+    "schemaVersion": "pfi.post-e50.cross-frame-transform.v0",
+    "studyOpaqueId": "206aa67ee4e6",
+    "sourceSeries": "b65eca7cfbbc",
+    "sourceCluster": 2,
+    "targetSeries": "25aa08338722",
+    "targetRole": "sagittal_t2",
+    "transformType": "rigid",
+    "status": "optimizer_success",
+    "matrix4x4": [
+      [
+        0.9999129876247577,
+        0.007126265886657596,
+        0.011101059131644064,
+        -1.5549593650049114
+      ],
+      [
+        -0.006998740445399203,
+        0.9999095580718322,
+        -0.011484481214716982,
+        2.1220606386176044
+      ],
+      [
+        -0.011181896597157891,
+        0.011405788491196655,
+        0.9998724284514423,
+        -2.350347085775738
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "inverseAvailable": true,
+    "validation": {
+      "source": "unavailable",
+      "note": "no independent axial landmark validation implemented in this run"
+    }
+  },
+  {
+    "schemaVersion": "pfi.post-e50.cross-frame-transform.v0",
+    "studyOpaqueId": "206aa67ee4e6",
+    "sourceSeries": "b65eca7cfbbc",
+    "sourceCluster": 3,
+    "targetSeries": "25aa08338722",
+    "targetRole": "sagittal_t2",
+    "transformType": "rigid",
+    "status": "optimizer_success",
+    "matrix4x4": [
+      [
+        0.9998760857466125,
+        -0.002431074293735292,
+        0.015553232133909863,
+        -0.8714243373317281
+      ],
+      [
+        0.001804038499898335,
+        0.9991898953913186,
+        0.04020321371453505,
+        -0.08995965914353121
+      ],
+      [
+        -0.015638369388265242,
+        -0.04017017333375641,
+        0.9990704672730607,
+        2.2066401438065313
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "inverseAvailable": true,
+    "validation": {
+      "source": "unavailable",
+      "note": "no independent axial landmark validation implemented in this run"
+    }
+  },
+  {
+    "schemaVersion": "pfi.post-e50.cross-frame-transform.v0",
+    "studyOpaqueId": "206aa67ee4e6",
+    "sourceSeries": "b65eca7cfbbc",
+    "sourceCluster": 4,
+    "targetSeries": "25aa08338722",
+    "targetRole": "sagittal_t2",
+    "transformType": "rigid",
+    "status": "optimizer_success",
+    "matrix4x4": [
+      [
+        0.9996758593599396,
+        -0.025380875524601585,
+        0.0019968401465074006,
+        -1.6900019200373877
+      ],
+      [
+        0.024884608222835235,
+        0.9906707385999087,
+        0.13398598417561117,
+        -37.92380692221127
+      ],
+      [
+        -0.005378892689208862,
+        -0.13389286328821193,
+        0.9909812150963923,
+        -67.55166544996743
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "inverseAvailable": true,
+    "validation": {
+      "source": "unavailable",
+      "note": "no independent axial landmark validation implemented in this run"
+    }
+  }
+]

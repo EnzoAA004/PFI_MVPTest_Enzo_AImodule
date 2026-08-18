@@ -1,0 +1,14 @@
+{
+  "gates": {
+    "GATE_A_dicom_reconstruction": "PASS",
+    "GATE_B_simpleitk_parity": "FAIL",
+    "GATE_C_sagittal_registration_optimization": "PASS",
+    "GATE_D_sagittal_independent_validation": "PARTIAL",
+    "GATE_E_transform_roundtrip": "PASS",
+    "GATE_F_axial_methodology_executable": "PASS",
+    "GATE_G_axial_independent_validation": "PARTIAL",
+    "GATE_H_privacy": "PASS"
+  },
+  "overall_status": "FAIL",
+  "warnings": []
+}

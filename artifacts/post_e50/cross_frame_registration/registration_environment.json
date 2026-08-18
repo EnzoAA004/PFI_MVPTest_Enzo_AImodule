@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-08-18T00:46:32.729105+00:00",
+  "simpleitk_version": "2.5.5",
+  "metric": "mattes_mutual_information",
+  "sagittal_config": {
+    "number_of_histogram_bins": 50,
+    "sampling_strategy": "RANDOM",
+    "sampling_percentage": 0.2,
+    "sampling_seed": 2026,
+    "shrink_factors_per_level": [
+      4,
+      2,
+      1
+    ],
+    "smoothing_sigmas_per_level": [
+      2,
+      1,
+      0
+    ],
+    "optimizer": "RegularStepGradientDescent",
+    "optimizer_scales": "physical_shift"
+  }
+}

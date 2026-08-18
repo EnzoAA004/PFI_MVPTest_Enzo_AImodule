@@ -1,0 +1,72 @@
+{
+  "generated_at": "2026-08-18T00:46:32.729105+00:00",
+  "study_opaque_id": "206aa67ee4e6",
+  "fixed_role": "sagittal_t2",
+  "moving_role": "sagittal_t1",
+  "metric_before": -0.7821203706655426,
+  "metric_after": -1.05823428347514,
+  "metric_improved_lower_is_better": true,
+  "optimizer_stop_condition": "RegularStepGradientDescentOptimizerv4: Step too small after 23 iterations. Current step (6.10352e-05) is less than minimum step (0.0001).",
+  "optimizer_iterations": 24,
+  "transform": {
+    "transform_type": "rigid_euler3d",
+    "translation_xyz_mm": [
+      0.5348534970416249,
+      1.9595869218276107,
+      -0.10288159070994625
+    ],
+    "rotation_parameters_rad": [
+      -0.004520048135995739,
+      0.0019043700884219881,
+      -0.000432173595456761
+    ],
+    "rotation_deg": [
+      -0.25897968138853056,
+      0.10911236869753532,
+      -0.024761723036666614
+    ],
+    "transform_center_xyz": [
+      -5.4688070835000016,
+      50.76933662999994,
+      34.384231529999994
+    ],
+    "matrix_4x4": [
+      [
+        0.9999980895809255,
+        0.0004321691671775392,
+        0.00190632219470587,
+        0.4473546836851696
+      ],
+      [
+        -0.00044078060748880843,
+        0.9999896912137637,
+        0.0045192011083313504,
+        1.802310490718277
+      ],
+      [
+        -0.001904349483458572,
+        -0.0045200327446184045,
+        0.9999879713061715,
+        0.11659655072921282
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "inverse_available": true,
+    "translation_magnitude_mm": 2.033871625546331,
+    "rotation_magnitude_deg": 0.282115450308267,
+    "sanity_warnings": []
+  },
+  "validation_source": "manual_research_landmarks",
+  "tre_before_mean_mm": 0.0,
+  "tre_before_median_mm": 0.0,
+  "tre_before_max_mm": 0.0,
+  "tre_after_mean_mm": 2.0329728780624663,
+  "tre_after_median_mm": 2.033313820562088,
+  "tre_after_max_mm": 2.0381795262242637,
+  "decision": "OPTIMIZATION_SUCCESS_VALIDATION_INSUFFICIENT"
+}
