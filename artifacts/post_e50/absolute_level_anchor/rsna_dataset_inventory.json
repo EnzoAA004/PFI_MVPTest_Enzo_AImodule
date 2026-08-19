@@ -1,0 +1,15 @@
+{
+  "studies_total": 0,
+  "series_total": 0,
+  "sequence_role_counts": {},
+  "studies_with_coordinate_annotations": 0,
+  "studies_without_coordinate_annotations": 0,
+  "studies_with_all_five_canonical_levels_among_annotated": 0,
+  "studies_missing_levels_among_annotated": 0,
+  "duplicate_label_rows": 0,
+  "malformed_coordinate_rows": 0,
+  "missing_series_id_rows": 0,
+  "missing_instance_number_rows": 0,
+  "studies_with_five_levels_by_condition": {},
+  "studies_with_five_levels_sagittal_t2_stir": 0
+}

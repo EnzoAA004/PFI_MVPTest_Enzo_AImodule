@@ -1,0 +1,13 @@
+{
+  "split_counts": {
+    "train": 0,
+    "validation": 0,
+    "internal_test": 0
+  },
+  "manifest_opaque": {
+    "train": [],
+    "validation": [],
+    "internal_test": []
+  },
+  "rsna_internal_test_locked": true
+}

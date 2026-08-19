@@ -1,0 +1,85 @@
+{
+  "generated_at": "2026-08-19T00:41:09.530025+00:00",
+  "git_branch": "research/post-e50-absolute-level-anchor",
+  "git_commit": "6c089f24c158e889dba56443f739be41cdf146da",
+  "rsna_available": false,
+  "absolute_level_reference_available": "NOT_RUN",
+  "dataset_inventory_summary": {
+    "studies_total": 0,
+    "series_total": 0,
+    "sequence_role_counts": {},
+    "studies_with_coordinate_annotations": 0,
+    "studies_without_coordinate_annotations": 0,
+    "studies_with_all_five_canonical_levels_among_annotated": 0,
+    "studies_missing_levels_among_annotated": 0,
+    "duplicate_label_rows": 0,
+    "malformed_coordinate_rows": 0,
+    "missing_series_id_rows": 0,
+    "missing_instance_number_rows": 0,
+    "studies_with_five_levels_by_condition": {},
+    "studies_with_five_levels_sagittal_t2_stir": 0
+  },
+  "level_schema_audit": {
+    "level_column_present": false,
+    "distinct_raw_values": [],
+    "normalized_values": [],
+    "unrecognized_raw_values": []
+  },
+  "condition_schema_audit": {
+    "condition_column_present": false,
+    "distinct_values": []
+  },
+  "coordinate_schema_audit": {
+    "x_present": false,
+    "y_present": false,
+    "instance_number_present": false
+  },
+  "sag_t2_canal_stenosis_audit": {
+    "studies_with_sag_t2_series": 0,
+    "studies_with_canal_stenosis_coords": 0,
+    "studies_with_both": 0
+  },
+  "gates": {
+    "GATE_A_RSNA_dataset_structure": "NOT_RUN",
+    "GATE_B_absolute_level_reference": "NOT_RUN",
+    "GATE_C_split_leakage": "NOT_RUN",
+    "GATE_D_series_annotation_mapping": "NOT_RUN",
+    "GATE_E_coordinate_physical_parity": "NOT_RUN",
+    "GATE_F_frozen_67A_execution_on_RSNA": "NOT_RUN",
+    "GATE_G_pred_to_absolute_GT_matching": "NOT_RUN",
+    "GATE_H_training_dataset_readiness": "NO",
+    "GATE_I_privacy": "PASS"
+  },
+  "decision": "BLOCKED",
+  "blocker_reason": "RSNA_DATASET_NOT_AVAILABLE_IN_THIS_RUN",
+  "blocking_gates": [
+    "GATE_A_RSNA_dataset_structure",
+    "GATE_B_absolute_level_reference",
+    "GATE_C_split_leakage",
+    "GATE_D_series_annotation_mapping",
+    "GATE_E_coordinate_physical_parity",
+    "GATE_F_frozen_67A_execution_on_RSNA",
+    "GATE_G_pred_to_absolute_GT_matching",
+    "GATE_H_training_dataset_readiness"
+  ],
+  "absolute_level_training_dataset_ready": "NO",
+  "training_performed": false,
+  "checkpoint_modified": false,
+  "rsna_internal_test_locked": true,
+  "split_counts": {
+    "train": 0,
+    "validation": 0,
+    "internal_test": 0
+  },
+  "warnings": [
+    "STAGE A NOT_RUN: RSNA dataset not available in this run (expected outside Colab / without Drive mounted).",
+    "Level/condition/coordinate schema audit NOT_RUN: GATE_A did not PASS in this run.",
+    "Dataset inventory NOT_RUN: GATE_A did not PASS in this run.",
+    "Sagittal T2/STIR + Spinal Canal Stenosis reference table NOT_RUN: GATE_A did not PASS or required columns missing in this run.",
+    "GATE_C split leakage audit NOT_RUN: GATE_A did not PASS or no studies found in this run.",
+    "Primary Sagittal T2/STIR Spinal Canal Stenosis annotation-to-DICOM geometry mapping NOT_RUN.",
+    "RSNA smoke cohort selection NOT_RUN: prerequisites (GATE_A/GATE_C/level schema) not met in this run.",
+    "STAGE C smoke execution NOT_RUN: RSNA unavailable, checkpoint not verified, or smoke cohort incomplete in this run."
+  ],
+  "limitations": []
+}

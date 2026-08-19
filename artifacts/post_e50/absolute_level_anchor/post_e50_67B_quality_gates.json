@@ -1,0 +1,27 @@
+{
+  "gates": {
+    "GATE_A_RSNA_dataset_structure": "NOT_RUN",
+    "GATE_B_absolute_level_reference": "NOT_RUN",
+    "GATE_C_split_leakage": "NOT_RUN",
+    "GATE_D_series_annotation_mapping": "NOT_RUN",
+    "GATE_E_coordinate_physical_parity": "NOT_RUN",
+    "GATE_F_frozen_67A_execution_on_RSNA": "NOT_RUN",
+    "GATE_G_pred_to_absolute_GT_matching": "NOT_RUN",
+    "GATE_H_training_dataset_readiness": "NO",
+    "GATE_I_privacy": "PASS"
+  },
+  "sub_audits": {
+    "coordinate_mapping_formula_selftest": "PASS",
+    "simpleitk_physical_crosscheck": "PASS"
+  },
+  "warnings": [
+    "STAGE A NOT_RUN: RSNA dataset not available in this run (expected outside Colab / without Drive mounted).",
+    "Level/condition/coordinate schema audit NOT_RUN: GATE_A did not PASS in this run.",
+    "Dataset inventory NOT_RUN: GATE_A did not PASS in this run.",
+    "Sagittal T2/STIR + Spinal Canal Stenosis reference table NOT_RUN: GATE_A did not PASS or required columns missing in this run.",
+    "GATE_C split leakage audit NOT_RUN: GATE_A did not PASS or no studies found in this run.",
+    "Primary Sagittal T2/STIR Spinal Canal Stenosis annotation-to-DICOM geometry mapping NOT_RUN.",
+    "RSNA smoke cohort selection NOT_RUN: prerequisites (GATE_A/GATE_C/level schema) not met in this run.",
+    "STAGE C smoke execution NOT_RUN: RSNA unavailable, checkpoint not verified, or smoke cohort incomplete in this run."
+  ]
+}

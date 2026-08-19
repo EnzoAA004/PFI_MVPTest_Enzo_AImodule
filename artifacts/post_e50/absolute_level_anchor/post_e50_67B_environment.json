@@ -1,0 +1,36 @@
+{
+  "generated_at": "2026-08-19T00:41:09.530025+00:00",
+  "in_colab": false,
+  "dependency_versions": {
+    "torch_version": "2.13.0+cpu",
+    "simpleitk_version": "2.5.5",
+    "scipy_version": "1.18.0",
+    "pydicom_version": "3.0.2",
+    "cuda_available": false
+  },
+  "rsna_available": false,
+  "official_test_present": false,
+  "official_test_accessed": false,
+  "expected_checkpoint_sha256": "cf11dcc0ad77a7c787e64a796a2fd7398ef906add461cef4b3d61f1a5238e944",
+  "sub_audits": {
+    "coordinate_mapping_formula_selftest": "PASS",
+    "simpleitk_physical_crosscheck": "PASS"
+  },
+  "dicom_resolution_stats": {
+    "all_coordinate_rows": 0,
+    "primary_reference_rows": 0,
+    "primary_reference_unique_studies": 0,
+    "primary_reference_unique_series": 0,
+    "primary_reference_unique_instances": 0,
+    "unique_dicom_reads": 0,
+    "direct_path_hit": 0,
+    "fallback_path_hit": 0,
+    "unresolved_path": 0,
+    "instance_resolved": 0,
+    "xy_inside_frame": 0,
+    "geometry_finite": 0,
+    "orientation_valid": 0,
+    "xyz_computed": 0,
+    "cache_hit_count": 0
+  }
+}

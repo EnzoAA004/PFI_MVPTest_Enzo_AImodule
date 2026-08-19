@@ -1,0 +1,21 @@
+{
+  "level_schema_audit": {
+    "level_column_present": false,
+    "distinct_raw_values": [],
+    "normalized_values": [],
+    "unrecognized_raw_values": []
+  },
+  "condition_schema_audit": {
+    "condition_column_present": false,
+    "distinct_values": []
+  },
+  "coordinate_schema_audit": {
+    "x_present": false,
+    "y_present": false,
+    "instance_number_present": false
+  },
+  "series_description_schema_audit": {
+    "column_present": false,
+    "distinct_values": []
+  }
+}
