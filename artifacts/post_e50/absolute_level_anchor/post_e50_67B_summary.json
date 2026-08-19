@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-08-19T00:41:09.530025+00:00",
+  "generated_at": "2026-08-19T19:35:42.603814+00:00",
   "git_branch": "research/post-e50-absolute-level-anchor",
-  "git_commit": "6c089f24c158e889dba56443f739be41cdf146da",
+  "git_commit": "357c9d230457540296f5d4fe1bd214cf0425b098",
   "rsna_available": false,
   "absolute_level_reference_available": "NOT_RUN",
   "dataset_inventory_summary": {
@@ -39,6 +39,10 @@
     "studies_with_canal_stenosis_coords": 0,
     "studies_with_both": 0
   },
+  "geometry_evidence_source": "NOT_RUN",
+  "geometry_evidence_reexecuted_this_run": false,
+  "checkpoint_sha256": "cf11dcc0ad77a7c787e64a796a2fd7398ef906add461cef4b3d61f1a5238e944",
+  "expected_checkpoint_sha256": "cf11dcc0ad77a7c787e64a796a2fd7398ef906add461cef4b3d61f1a5238e944",
   "gates": {
     "GATE_A_RSNA_dataset_structure": "NOT_RUN",
     "GATE_B_absolute_level_reference": "NOT_RUN",
@@ -50,6 +54,37 @@
     "GATE_H_training_dataset_readiness": "NO",
     "GATE_I_privacy": "PASS"
   },
+  "GATE_G_reason": null,
+  "stage_c_smoke_summary": {
+    "cases_attempted": 0,
+    "cases_executed": 0,
+    "cases_failed": 0,
+    "reference_points_total": 0,
+    "predicted_instances_total": 0,
+    "mean_nearest_full_xyz_distance_mm": null,
+    "median_nearest_full_xyz_distance_mm": null,
+    "min_nearest_full_xyz_distance_mm": null,
+    "max_nearest_full_xyz_distance_mm": null,
+    "mean_nearest_axis_distance_mm": null,
+    "median_nearest_axis_distance_mm": null,
+    "min_nearest_axis_distance_mm": null,
+    "max_nearest_axis_distance_mm": null,
+    "axis_assignment_level_order_consistency_rate": null,
+    "axis_hungarian_distance_count": 0,
+    "mean_axis_hungarian_distance_mm": null,
+    "median_axis_hungarian_distance_mm": null,
+    "min_axis_hungarian_distance_mm": null,
+    "max_axis_hungarian_distance_mm": null,
+    "cases_monotonic_up_to_reversal": 0,
+    "cases_same_direction": 0,
+    "cases_reversed_direction": 0,
+    "cases_mixed_direction": 0,
+    "GATE_F_frozen_67A_execution_on_RSNA": "NOT_RUN",
+    "GATE_G_pred_to_absolute_GT_matching": "NOT_RUN",
+    "GATE_G_reason": null
+  },
+  "stage_ab_decision": "BLOCKED",
+  "overall_decision_67b": "BLOCKED",
   "decision": "BLOCKED",
   "blocker_reason": "RSNA_DATASET_NOT_AVAILABLE_IN_THIS_RUN",
   "blocking_gates": [
@@ -66,6 +101,7 @@
   "training_performed": false,
   "checkpoint_modified": false,
   "rsna_internal_test_locked": true,
+  "official_test_accessed": false,
   "split_counts": {
     "train": 0,
     "validation": 0,

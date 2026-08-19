@@ -1,0 +1,93 @@
+{
+  "provenance": {
+    "source": "Google Colab real execution",
+    "date": "2026-08-18",
+    "checkpoint_sha256": "cf11dcc0ad77a7c787e64a796a2fd7398ef906add461cef4b3d61f1a5238e944"
+  },
+  "stage_ab": {
+    "dataset": {
+      "studies_total": 1975,
+      "series_total": 6294,
+      "sagittal_t2_stir": 1974,
+      "sagittal_t1": 1980,
+      "axial_t2": 2340
+    },
+    "split": {
+      "train": 1382,
+      "validation": 296,
+      "internal_test": 297,
+      "leakage": 0
+    },
+    "geometry": {
+      "primary_reference_rows": 9748,
+      "mapping_valid": 9748,
+      "geometry_valid": 9748,
+      "unique_studies": 1973,
+      "unique_series": 1973,
+      "unique_dicom_instances": 2521
+    },
+    "gates": {
+      "GATE_A": "PASS",
+      "GATE_B": "YES",
+      "GATE_C": "PASS",
+      "GATE_D": "PASS",
+      "GATE_E": "PASS",
+      "GATE_I": "PASS"
+    },
+    "stage_ab_decision": "STAGE_A_B_PASSED_READY_FOR_STAGE_C",
+    "stage_ab_blocker_reason": null
+  },
+  "stage_c_smoke": {
+    "cases_attempted": 3,
+    "cases_executed": 3,
+    "cases_failed": 0,
+    "reference_points_total": 15,
+    "predicted_instances_total": 24,
+    "full_xyz_nearest_mm": {
+      "mean": 26.392593571011496,
+      "median": 26.014919402523134,
+      "min": 22.164221324189523,
+      "max": 31.290620878900523
+    },
+    "longitudinal_axis_nearest_mm": {
+      "mean": 4.213658328765518,
+      "median": 2.6022017248551776,
+      "min": 0.2597170166251601,
+      "max": 11.881239392167629
+    },
+    "sequence": {
+      "same": 2,
+      "reversed": 1,
+      "mixed": 0,
+      "monotonic_up_to_reversal": "3/3"
+    },
+    "per_case_window_ranks": {
+      "case_1": {
+        "predicted_instance_count": 8,
+        "matched_rank_window": "4-8"
+      },
+      "case_2": {
+        "predicted_instance_count": 9,
+        "matched_rank_window": "6-2 (reversed)"
+      },
+      "case_3": {
+        "predicted_instance_count": 7,
+        "matched_rank_window": "3-7"
+      }
+    },
+    "gates": {
+      "GATE_F": "PASS",
+      "GATE_G": "UNRESOLVED",
+      "GATE_H": "PARTIAL",
+      "GATE_I": "PASS"
+    },
+    "GATE_G_reason": "CURRENT_FULL_3D_CENTROID_MATCHING_CRITERION_NOT_SEMANTICALLY_VALIDATED",
+    "overall_decision_67b": "PARTIAL"
+  },
+  "interpretation": "The smoke supports preservation of relative lumbar ordering on RSNA, but DOES NOT validate automatic absolute lumbar naming. A contiguous 5-instance window compatible with L1-L2...L5-S1 exists among the broader set of detected disc instances (relative ordering preserved), but global axis orientation (SAME vs REVERSED) and selection of the correct five-level window remain unresolved automatically -- GT was never used to resolve either.",
+  "automatic_disc_localization_validated": false,
+  "training_performed": false,
+  "checkpoint_modified": false,
+  "internal_test_accessed": false,
+  "official_test_accessed": false
+}
