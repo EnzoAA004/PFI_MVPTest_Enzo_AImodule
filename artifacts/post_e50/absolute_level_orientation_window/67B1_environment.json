@@ -1,0 +1,11 @@
+{
+  "generated_at": "2026-08-20T11:36:49.226325+00:00",
+  "git_branch": "research/post-e50-absolute-level-orientation-window",
+  "git_commit": "351d9a5ba63b3cfffea91180c0075f778a858e20",
+  "base_commit_67b": "351d9a5ba63b3cfffea91180c0075f778a858e20",
+  "python_version": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "torch_version": "2.13.0+cpu",
+  "rsna_available": false,
+  "official_test_present": false,
+  "official_test_accessed": false
+}

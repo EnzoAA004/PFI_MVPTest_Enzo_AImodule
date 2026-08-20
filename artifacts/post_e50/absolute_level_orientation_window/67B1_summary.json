@@ -1,0 +1,106 @@
+{
+  "notebook": "67B1_postE50_absolute_level_orientation_window",
+  "generated_at": "2026-08-20T11:36:49.258409+00:00",
+  "base_commit": "351d9a5ba63b3cfffea91180c0075f778a858e20",
+  "frozen_checkpoint_sha256": "cf11dcc0ad77a7c787e64a796a2fd7398ef906add461cef4b3d61f1a5238e944",
+  "training_performed": false,
+  "internal_test_locked": true,
+  "official_test_accessed": false,
+  "67b_closing_evidence_reused": false,
+  "geometry_evidence_source": "NOT_RUN",
+  "smoke_parity": {
+    "status": "NOT_RUN",
+    "expected": {
+      "4f06df2fd53b": {
+        "predicted_instance_count": 8
+      },
+      "d41a396f20c6": {
+        "predicted_instance_count": 9
+      },
+      "ef2ff5b618cf": {
+        "predicted_instance_count": 7
+      }
+    },
+    "per_case": [],
+    "all_smoke_cases_parity_pass": null
+  },
+  "experiments_execution_status": "NOT_RUN",
+  "heuristic_rules_frozen": false,
+  "run_locked_validation": false,
+  "direction_method": "resolve_axis_direction (DICOM patient-space +z=superior convention; sign never chosen from GT)",
+  "window_method": "enumerate_candidate_windows + 4 independent geometric heuristics (spacing/support/geometry/fov) + unanimous-consensus rule; ABSTAIN_WINDOW otherwise",
+  "direction_metrics": {
+    "cases_total": 0,
+    "cases_resolved": 0,
+    "cases_unresolved": 0,
+    "direction_vs_absolute_GT_counts": {
+      "SAME": 0,
+      "REVERSED": 0,
+      "MIXED": 0,
+      "NOT_EVALUATED": 0
+    },
+    "orientation_type_explicit_biped_count": 0,
+    "orientation_type_default_biped_count": 0,
+    "orientation_type_quadruped_count": 0,
+    "orientation_type_unrecognized_count": 0
+  },
+  "window_metrics": {
+    "cases_total": 0,
+    "cases_selected_unanimous": 0,
+    "cases_abstained": 0,
+    "selected_window_exact_match_rate": null
+  },
+  "absolute_sequence_metrics": {
+    "studies_attempted": 0,
+    "studies_predicted": 0,
+    "studies_abstained": 0,
+    "studies_insufficient_instances": 0,
+    "coverage": 0.0,
+    "exact_sequence_match_rate": null,
+    "monotonic_sequence_rate": null,
+    "prediction_status_counts": {
+      "ABSOLUTE_SEQUENCE_PREDICTED": 0,
+      "ABSTAIN_DIRECTION": 0,
+      "ABSTAIN_WINDOW": 0,
+      "ABSTAIN_BOTH": 0,
+      "INSUFFICIENT_PREDICTED_INSTANCES": 0
+    }
+  },
+  "abstention_metrics": {
+    "abstention_reason_counts": {
+      "INSUFFICIENT_DISC_INSTANCES": 0,
+      "AXIS_DIRECTION_UNRESOLVED": 0,
+      "WINDOW_HEURISTICS_DISAGREE": 0,
+      "FOV_INCOMPLETE": 0,
+      "REQUIRED_DICOM_GEOMETRY_UNAVAILABLE": 0
+    },
+    "total_abstained": 0
+  },
+  "gates": {
+    "GATE_A_RSNA_dataset_structure": "NOT_RUN",
+    "GATE_C_split_leakage": "NOT_RUN",
+    "GATE_D_series_annotation_mapping": "NOT_RUN",
+    "GATE_E_coordinate_physical_parity_real": "NOT_RUN",
+    "GATE_checkpoint_identity_67b1": "PASS",
+    "GATE_67B1_A_AXIS_DIRECTION_WITHOUT_GT": "NOT_RUN",
+    "GATE_67B1_B_LUMBAR_WINDOW_WITHOUT_GT": "NOT_RUN",
+    "GATE_67B1_C_ABSOLUTE_LEVEL_SEQUENCE": "NOT_RUN",
+    "GATE_67B1_D_PRIVACY": "PASS"
+  },
+  "decision": "UNRESOLVED",
+  "warnings": [
+    "STAGE A NOT_RUN: RSNA dataset not available in this run.",
+    "GATE_C split leakage audit NOT_RUN: GATE_A did not PASS in this run.",
+    "Sagittal T2/STIR + Spinal Canal Stenosis reference table NOT_RUN: GATE_A did not PASS or required columns missing.",
+    "Primary Sagittal T2/STIR Spinal Canal Stenosis annotation-to-DICOM geometry mapping NOT_RUN.",
+    "RSNA smoke cohort selection NOT_RUN: prerequisites (GATE_A/GATE_C/level schema) not met in this run.",
+    "Development cohort selection NOT_RUN: prerequisites (GATE_A/GATE_C/level schema) not met in this run.",
+    "End-to-end 67B1 execution NOT_RUN: RSNA unavailable, checkpoint identity did not PASS, or smoke cohort is empty in this run."
+  ],
+  "limitations": [
+    "Heuristic (E) vertebral/canal context was NOT implemented: not directly derivable from the frozen segmentation without a new model.",
+    "GATE_67B1_A/B/C are capped at PARTIAL in this notebook -- PASS requires an explicitly-approved future locked-validation phase (Stage 3, RUN_LOCKED_VALIDATION=True), not executed here.",
+    "Development cohort is 30 TRAIN-split studies (deterministic, seed=2026) -- not the full 1382-study TRAIN split, and never the validation/internal_test splits used for locked evaluation.",
+    "No supervised scorer was trained (Sections 15/16 fallback intentionally not implemented) -- this notebook only measures whether pure geometry suffices."
+  ]
+}

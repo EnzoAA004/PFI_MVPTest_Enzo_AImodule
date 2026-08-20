@@ -1,0 +1,11 @@
+{
+  "GATE_A_RSNA_dataset_structure": "NOT_RUN",
+  "GATE_C_split_leakage": "NOT_RUN",
+  "GATE_D_series_annotation_mapping": "NOT_RUN",
+  "GATE_E_coordinate_physical_parity_real": "NOT_RUN",
+  "GATE_checkpoint_identity_67b1": "PASS",
+  "GATE_67B1_A_AXIS_DIRECTION_WITHOUT_GT": "NOT_RUN",
+  "GATE_67B1_B_LUMBAR_WINDOW_WITHOUT_GT": "NOT_RUN",
+  "GATE_67B1_C_ABSOLUTE_LEVEL_SEQUENCE": "NOT_RUN",
+  "GATE_67B1_D_PRIVACY": "PASS"
+}

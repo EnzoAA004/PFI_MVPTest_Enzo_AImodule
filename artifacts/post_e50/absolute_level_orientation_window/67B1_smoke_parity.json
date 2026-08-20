@@ -1,0 +1,16 @@
+{
+  "status": "NOT_RUN",
+  "expected": {
+    "4f06df2fd53b": {
+      "predicted_instance_count": 8
+    },
+    "d41a396f20c6": {
+      "predicted_instance_count": 9
+    },
+    "ef2ff5b618cf": {
+      "predicted_instance_count": 7
+    }
+  },
+  "per_case": [],
+  "all_smoke_cases_parity_pass": null
+}
